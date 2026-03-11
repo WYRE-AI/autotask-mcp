@@ -1372,6 +1372,40 @@ export class AutotaskService {
     }
   }
 
+  async createOpportunity(opportunity: Record<string, any>): Promise<number> {
+    const client = await this.ensureClient();
+    try {
+      this.logger.debug('Creating opportunity:', opportunity);
+
+      const oppData: Record<string, any> = {
+        title: opportunity.title,
+        companyID: opportunity.companyID,
+        ownerResourceID: opportunity.ownerResourceID,
+        status: opportunity.status,
+        stage: opportunity.stage,
+        projectedCloseDate: opportunity.projectedCloseDate,
+        startDate: opportunity.startDate,
+        probability: opportunity.probability ?? 50,
+        amount: opportunity.amount ?? 0,
+        cost: opportunity.cost ?? 0,
+        useQuoteTotals: opportunity.useQuoteTotals ?? true,
+      };
+
+      if (opportunity.totalAmountMonths) oppData.totalAmountMonths = opportunity.totalAmountMonths;
+      if (opportunity.contactID) oppData.contactID = opportunity.contactID;
+      if (opportunity.description) oppData.description = opportunity.description;
+      if (opportunity.opportunityCategoryID) oppData.opportunityCategoryID = opportunity.opportunityCategoryID;
+
+      const result = await client.opportunities.create(oppData as any);
+      const newId = (result.data as any)?.id || (result.data as any)?.itemId;
+      this.logger.info(`Created opportunity with ID: ${newId}`);
+      return newId;
+    } catch (error) {
+      this.logger.error('Failed to create opportunity:', error);
+      throw error;
+    }
+  }
+
   // =====================================================
   // PRODUCTS
   // =====================================================

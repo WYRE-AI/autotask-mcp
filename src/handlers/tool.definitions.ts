@@ -995,6 +995,77 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     }
   },
 
+  {
+    name: 'autotask_create_opportunity',
+    description: 'Create a new sales opportunity in Autotask',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        title: {
+          type: 'string',
+          description: 'Opportunity name/title'
+        },
+        companyId: {
+          type: 'number',
+          description: 'Company ID for the opportunity'
+        },
+        ownerResourceId: {
+          type: 'number',
+          description: 'Owner resource ID (the sales rep or account manager)'
+        },
+        status: {
+          type: 'number',
+          description: 'Status: 0=Not Ready To Buy, 1=Active, 2=Lost, 3=Closed, 4=Implemented'
+        },
+        stage: {
+          type: 'number',
+          description: 'Stage picklist value ID (use autotask_get_field_info to find valid values)'
+        },
+        projectedCloseDate: {
+          type: 'string',
+          description: 'Projected close date (YYYY-MM-DD)'
+        },
+        startDate: {
+          type: 'string',
+          description: 'Start date (YYYY-MM-DD)'
+        },
+        probability: {
+          type: 'number',
+          description: 'Win probability percentage (0-100, default: 50)'
+        },
+        amount: {
+          type: 'number',
+          description: 'Revenue amount (default: 0, set useQuoteTotals=true to calculate from quotes)'
+        },
+        cost: {
+          type: 'number',
+          description: 'Cost amount (default: 0)'
+        },
+        useQuoteTotals: {
+          type: 'boolean',
+          description: 'Whether to calculate totals from linked quotes (default: true)'
+        },
+        totalAmountMonths: {
+          type: 'number',
+          description: 'Number of months to calculate totals for (e.g., 12 for annual)'
+        },
+        contactId: {
+          type: 'number',
+          description: 'Contact ID for the opportunity'
+        },
+        description: {
+          type: 'string',
+          description: 'Opportunity description'
+        },
+        opportunityCategoryID: {
+          type: 'number',
+          description: 'Opportunity category picklist value ID'
+        }
+      },
+      required: ['title', 'companyId', 'ownerResourceId', 'status', 'stage', 'projectedCloseDate', 'startDate']
+    }
+  },
+
   // Product tools
   {
     name: 'autotask_get_product',
@@ -1756,7 +1827,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   financial: {
     description: 'Quotes, quote items, opportunities, invoices, and contracts',
-    tools: ['autotask_get_quote', 'autotask_search_quotes', 'autotask_create_quote', 'autotask_get_quote_item', 'autotask_search_quote_items', 'autotask_create_quote_item', 'autotask_update_quote_item', 'autotask_delete_quote_item', 'autotask_get_opportunity', 'autotask_search_opportunities', 'autotask_search_invoices', 'autotask_search_contracts']
+    tools: ['autotask_get_quote', 'autotask_search_quotes', 'autotask_create_quote', 'autotask_get_quote_item', 'autotask_search_quote_items', 'autotask_create_quote_item', 'autotask_update_quote_item', 'autotask_delete_quote_item', 'autotask_get_opportunity', 'autotask_search_opportunities', 'autotask_create_opportunity', 'autotask_search_invoices', 'autotask_search_contracts']
   },
   products_and_services: {
     description: 'Products, services, and service bundles catalog',

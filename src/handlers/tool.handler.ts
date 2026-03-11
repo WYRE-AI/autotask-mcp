@@ -883,6 +883,10 @@ export class AutotaskToolHandler {
         const r = await s.searchOpportunities({ companyId: a.companyId, searchTerm: a.searchTerm, status: a.status, pageSize: a.pageSize });
         return { result: r, message: `Found ${r.length} opportunities` };
       }],
+      ['autotask_create_opportunity', async (a) => {
+        const id = await s.createOpportunity({ title: a.title, companyID: a.companyId, ownerResourceID: a.ownerResourceId, status: a.status, stage: a.stage, projectedCloseDate: a.projectedCloseDate, startDate: a.startDate, probability: a.probability ?? 50, amount: a.amount ?? 0, cost: a.cost ?? 0, useQuoteTotals: a.useQuoteTotals ?? true, totalAmountMonths: a.totalAmountMonths, contactID: a.contactId, description: a.description, opportunityCategoryID: a.opportunityCategoryID });
+        return { result: id, message: `Successfully created opportunity with ID: ${id}` };
+      }],
 
       // Products
       ['autotask_get_product', async (a) => {
