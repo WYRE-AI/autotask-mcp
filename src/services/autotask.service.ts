@@ -1591,12 +1591,12 @@ export class AutotaskService {
     }
   }
 
-  async deleteQuoteItem(id: number): Promise<void> {
+  async deleteQuoteItem(quoteId: number, id: number): Promise<void> {
     const client = await this.ensureClient();
     try {
-      this.logger.debug(`Deleting quote item with ID: ${id}`);
-      await client.quoteItems.delete(id);
-      this.logger.info(`Quote item ${id} deleted`);
+      this.logger.debug(`Deleting quote item ${id} from quote ${quoteId}`);
+      await client.quoteItems.delete(quoteId, id);
+      this.logger.info(`Quote item ${id} deleted from quote ${quoteId}`);
     } catch (error) {
       this.logger.error(`Failed to delete quote item ${id}:`, error);
       throw error;

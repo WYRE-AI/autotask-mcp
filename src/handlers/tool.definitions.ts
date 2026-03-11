@@ -1272,12 +1272,16 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
+        quoteId: {
+          type: 'number',
+          description: 'The parent quote ID'
+        },
         quoteItemId: {
           type: 'number',
           description: 'The quote item ID to delete'
         }
       },
-      required: ['quoteItemId']
+      required: ['quoteId', 'quoteItemId']
     }
   },
 

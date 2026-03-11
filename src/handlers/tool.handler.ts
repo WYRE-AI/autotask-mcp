@@ -936,7 +936,7 @@ export class AutotaskToolHandler {
         return { result: true, message: `Quote item ${a.quoteItemId} updated successfully` };
       }],
       ['autotask_delete_quote_item', async (a) => {
-        await s.deleteQuoteItem(a.quoteItemId); return { result: true, message: `Quote item ${a.quoteItemId} deleted successfully` };
+        await s.deleteQuoteItem(a.quoteId, a.quoteItemId); return { result: true, message: `Quote item ${a.quoteItemId} deleted successfully` };
       }],
 
       // Picklist tools
