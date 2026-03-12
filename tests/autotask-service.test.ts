@@ -178,7 +178,7 @@ describe('AutotaskService', () => {
       await expect(service.searchQuoteItems()).rejects.toThrow();
       await expect(service.createQuoteItem({ quoteID: 1, quantity: 5 })).rejects.toThrow();
       await expect(service.updateQuoteItem(123, { quantity: 10 })).rejects.toThrow();
-      await expect(service.deleteQuoteItem(123)).rejects.toThrow();
+      await expect(service.deleteQuoteItem(1, 123)).rejects.toThrow();
     });
 
     test('should handle unsupported entity methods with proper error messages', async () => {
