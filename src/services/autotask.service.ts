@@ -550,13 +550,10 @@ export class AutotaskService {
       if (options.ticketId) {
         filters.push({ op: 'eq', field: 'ticketID', value: options.ticketId });
       }
-      if (options.companyId || options.companyID) {
-        // TicketCharges doesn't have companyID directly, but can filter by ticketID
-      }
-
       const queryOptions: any = {
         filter: filters.length > 0 ? filters : [{ op: 'gte', field: 'id', value: 0 }],
-        pageSize: options.pageSize || 25,
+        // Note: unfiltered queries (no ticketId) are expensive — capped at 10 rows
+        pageSize: options.pageSize || (filters.length > 0 ? 25 : 10),
       };
 
       const result = await client.ticketCharges.list(queryOptions);

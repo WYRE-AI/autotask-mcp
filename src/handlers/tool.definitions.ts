@@ -383,7 +383,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_search_ticket_charges',
-    description: 'Search for charges on a specific ticket. Charges represent materials, costs, or expenses billed against a ticket.',
+    description: 'Search for charges on a specific ticket. Charges represent materials, costs, or expenses billed against a ticket. Providing ticketId is strongly recommended — unfiltered queries are expensive and capped at 10 results.',
     inputSchema: {
       type: 'object',
       properties: {

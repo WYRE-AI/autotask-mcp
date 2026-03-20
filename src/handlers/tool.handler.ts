@@ -614,11 +614,15 @@ export class AutotaskToolHandler {
         };
       }
       if (/\b(?:delete|remove)\b/.test(intent) && numbers[0]) {
+        const deleteParams: Record<string, any> = { chargeId: numbers[0] };
+        const ticketDeleteMatch = intent.match(/ticket\s*#?\s*(\d+)/i);
+        if (ticketDeleteMatch) deleteParams.ticketId = parseInt(ticketDeleteMatch[1]);
+        else if (numbers[1]) deleteParams.ticketId = numbers[1];
         return {
           suggestedTool: 'autotask_delete_ticket_charge',
-          suggestedParams: { chargeId: numbers[0] },
+          suggestedParams: deleteParams,
           description: 'Delete a ticket charge',
-          requiredParams: [],
+          requiredParams: [...(!deleteParams.ticketId ? ['ticketId'] : [])],
         };
       }
       const params: Record<string, any> = {};
