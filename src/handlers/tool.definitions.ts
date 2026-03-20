@@ -503,16 +503,20 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_ticket_charge',
-    description: 'Delete a ticket charge by ID',
+    description: 'Delete a ticket charge by ID. Requires both the parent ticket ID and charge ID.',
     inputSchema: {
       type: 'object',
       properties: {
+        ticketId: {
+          type: 'number',
+          description: 'The parent ticket ID'
+        },
         chargeId: {
           type: 'number',
           description: 'The charge ID to delete'
         }
       },
-      required: ['chargeId']
+      required: ['ticketId', 'chargeId']
     }
   },
 

@@ -787,7 +787,7 @@ export class AutotaskToolHandler {
         return { result: chargeId, message: `Successfully updated ticket charge ${chargeId}` };
       }],
       ['autotask_delete_ticket_charge', async (a) => {
-        await s.deleteTicketCharge(a.chargeId);
+        await s.deleteTicketCharge(a.ticketId, a.chargeId);
         return { result: a.chargeId, message: `Successfully deleted ticket charge ${a.chargeId}` };
       }],
 

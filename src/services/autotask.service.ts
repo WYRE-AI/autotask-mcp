@@ -570,9 +570,17 @@ export class AutotaskService {
   async createTicketCharge(charge: Partial<AutotaskTicketCharge>): Promise<number> {
     const client = await this.ensureClient();
     try {
+      if (!charge.ticketID) {
+        throw new Error('ticketID is required to create a ticket charge');
+      }
       this.logger.debug('Creating ticket charge:', charge);
-      const response = await client.ticketCharges.create(charge as any);
-      const chargeId = response.data?.id;
+      // TicketCharges is a child entity — must use parent URL:
+      // POST /Tickets/{ticketID}/Charges
+      const response = await (client as any).axios.post(
+        `/Tickets/${charge.ticketID}/Charges`,
+        charge
+      );
+      const chargeId = response.data?.itemId ?? response.data?.item?.id ?? response.data?.id;
       this.logger.info(`Ticket charge created with ID: ${chargeId}`);
       return chargeId;
     } catch (error) {
@@ -593,14 +601,16 @@ export class AutotaskService {
     }
   }
 
-  async deleteTicketCharge(id: number): Promise<void> {
+  async deleteTicketCharge(ticketId: number, chargeId: number): Promise<void> {
     const client = await this.ensureClient();
     try {
-      this.logger.debug(`Deleting ticket charge ${id}`);
-      await client.ticketCharges.delete(id);
-      this.logger.info(`Ticket charge ${id} deleted successfully`);
+      this.logger.debug(`Deleting ticket charge ${chargeId} from ticket ${ticketId}`);
+      // TicketCharges is a child entity — must use parent URL:
+      // DELETE /Tickets/{ticketID}/Charges/{chargeID}
+      await (client as any).axios.delete(`/Tickets/${ticketId}/Charges/${chargeId}`);
+      this.logger.info(`Ticket charge ${chargeId} deleted successfully`);
     } catch (error) {
-      this.logger.error(`Failed to delete ticket charge ${id}:`, error);
+      this.logger.error(`Failed to delete ticket charge ${chargeId}:`, error);
       throw error;
     }
   }
