@@ -366,6 +366,156 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     }
   },
 
+  // Ticket Charge tools
+  {
+    name: 'autotask_get_ticket_charge',
+    description: 'Get a specific ticket charge by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chargeId: {
+          type: 'number',
+          description: 'The ticket charge ID to retrieve'
+        }
+      },
+      required: ['chargeId']
+    }
+  },
+  {
+    name: 'autotask_search_ticket_charges',
+    description: 'Search for charges on a specific ticket. Charges represent materials, costs, or expenses billed against a ticket.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: {
+          type: 'number',
+          description: 'Filter by ticket ID (recommended)'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Number of results to return (default: 25, max: 100)',
+          minimum: 1,
+          maximum: 100
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'autotask_create_ticket_charge',
+    description: 'Create a charge (material, cost, or expense) on a ticket. Used to bill clients for parts, travel, or other non-labor costs.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketID: {
+          type: 'number',
+          description: 'Ticket ID to add the charge to'
+        },
+        name: {
+          type: 'string',
+          description: 'Charge name/title'
+        },
+        description: {
+          type: 'string',
+          description: 'Charge description'
+        },
+        chargeType: {
+          type: 'number',
+          description: 'Charge type picklist ID (use autotask_get_field_info with entityType "TicketCharges" to find valid values)'
+        },
+        unitQuantity: {
+          type: 'number',
+          description: 'Quantity of units'
+        },
+        unitPrice: {
+          type: 'number',
+          description: 'Price per unit'
+        },
+        unitCost: {
+          type: 'number',
+          description: 'Cost per unit'
+        },
+        datePurchased: {
+          type: 'string',
+          description: 'Date the charge was incurred (YYYY-MM-DD format)'
+        },
+        productID: {
+          type: 'number',
+          description: 'Associated product ID (optional)'
+        },
+        billingCodeID: {
+          type: 'number',
+          description: 'Billing code ID for categorization'
+        },
+        billableToAccount: {
+          type: 'boolean',
+          description: 'Whether this charge is billable to the client (default: true)'
+        },
+        status: {
+          type: 'number',
+          description: 'Charge status picklist ID'
+        }
+      },
+      required: ['ticketID', 'name', 'chargeType']
+    }
+  },
+  {
+    name: 'autotask_update_ticket_charge',
+    description: 'Update an existing ticket charge. Only fields provided will be changed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chargeId: {
+          type: 'number',
+          description: 'The charge ID to update'
+        },
+        name: {
+          type: 'string',
+          description: 'Updated charge name'
+        },
+        description: {
+          type: 'string',
+          description: 'Updated description'
+        },
+        unitQuantity: {
+          type: 'number',
+          description: 'Updated quantity'
+        },
+        unitPrice: {
+          type: 'number',
+          description: 'Updated unit price'
+        },
+        unitCost: {
+          type: 'number',
+          description: 'Updated unit cost'
+        },
+        billableToAccount: {
+          type: 'boolean',
+          description: 'Updated billable status'
+        },
+        status: {
+          type: 'number',
+          description: 'Updated status'
+        }
+      },
+      required: ['chargeId']
+    }
+  },
+  {
+    name: 'autotask_delete_ticket_charge',
+    description: 'Delete a ticket charge by ID',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        chargeId: {
+          type: 'number',
+          description: 'The charge ID to delete'
+        }
+      },
+      required: ['chargeId']
+    }
+  },
+
   // Time entry tools
   {
     name: 'autotask_create_time_entry',
@@ -1814,8 +1964,8 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
     tools: ['autotask_search_contacts', 'autotask_create_contact']
   },
   tickets: {
-    description: 'Search, create, update tickets and manage ticket notes and attachments',
-    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments']
+    description: 'Search, create, update tickets and manage ticket notes, attachments, and charges',
+    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge']
   },
   projects: {
     description: 'Search and create projects, tasks, and project notes',

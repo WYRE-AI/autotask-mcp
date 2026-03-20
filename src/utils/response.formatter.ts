@@ -122,4 +122,5 @@ export const COMPACT_SEARCH_TOOLS = new Set([
   'autotask_search_billing_items',
   'autotask_search_billing_item_approval_levels',
   'autotask_search_time_entries',
+  'autotask_search_ticket_charges',
 ]);

@@ -30,7 +30,8 @@ import {
   AutotaskDepartment,
   AutotaskQueryOptionsExtended,
   AutotaskBillingItem,
-  AutotaskBillingItemApprovalLevel
+  AutotaskBillingItemApprovalLevel,
+  AutotaskTicketCharge
 } from '../types/autotask';
 import { McpServerConfig } from '../types/mcp';
 import { Logger } from '../utils/logger';
@@ -523,6 +524,83 @@ export class AutotaskService {
       this.logger.info(`Ticket ${id} updated successfully`);
     } catch (error) {
       this.logger.error(`Failed to update ticket ${id}:`, error);
+      throw error;
+    }
+  }
+
+  // Ticket Charge operations
+  async getTicketCharge(id: number): Promise<AutotaskTicketCharge | null> {
+    const client = await this.ensureClient();
+    try {
+      this.logger.debug(`Getting ticket charge with ID: ${id}`);
+      const result = await client.ticketCharges.get(id);
+      return result.data as unknown as AutotaskTicketCharge || null;
+    } catch (error) {
+      this.logger.error(`Failed to get ticket charge ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async searchTicketCharges(options: AutotaskQueryOptionsExtended & { ticketId?: number } = {}): Promise<AutotaskTicketCharge[]> {
+    const client = await this.ensureClient();
+    try {
+      this.logger.debug('Searching ticket charges with options:', options);
+      const filters: any[] = [];
+
+      if (options.ticketId) {
+        filters.push({ op: 'eq', field: 'ticketID', value: options.ticketId });
+      }
+      if (options.companyId || options.companyID) {
+        // TicketCharges doesn't have companyID directly, but can filter by ticketID
+      }
+
+      const queryOptions: any = {
+        filter: filters.length > 0 ? filters : [{ op: 'gte', field: 'id', value: 0 }],
+        pageSize: options.pageSize || 25,
+      };
+
+      const result = await client.ticketCharges.list(queryOptions);
+      return (result.data as AutotaskTicketCharge[]) || [];
+    } catch (error) {
+      this.logger.error('Failed to search ticket charges:', error);
+      throw error;
+    }
+  }
+
+  async createTicketCharge(charge: Partial<AutotaskTicketCharge>): Promise<number> {
+    const client = await this.ensureClient();
+    try {
+      this.logger.debug('Creating ticket charge:', charge);
+      const response = await client.ticketCharges.create(charge as any);
+      const chargeId = response.data?.id;
+      this.logger.info(`Ticket charge created with ID: ${chargeId}`);
+      return chargeId;
+    } catch (error) {
+      this.logger.error('Failed to create ticket charge:', error);
+      throw error;
+    }
+  }
+
+  async updateTicketCharge(id: number, updates: Partial<AutotaskTicketCharge>): Promise<void> {
+    const client = await this.ensureClient();
+    try {
+      this.logger.debug(`Updating ticket charge ${id}:`, updates);
+      await client.ticketCharges.patch(id, updates as any);
+      this.logger.info(`Ticket charge ${id} updated successfully`);
+    } catch (error) {
+      this.logger.error(`Failed to update ticket charge ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async deleteTicketCharge(id: number): Promise<void> {
+    const client = await this.ensureClient();
+    try {
+      this.logger.debug(`Deleting ticket charge ${id}`);
+      await client.ticketCharges.delete(id);
+      this.logger.info(`Ticket charge ${id} deleted successfully`);
+    } catch (error) {
+      this.logger.error(`Failed to delete ticket charge ${id}:`, error);
       throw error;
     }
   }

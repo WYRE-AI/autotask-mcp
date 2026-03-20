@@ -334,6 +334,33 @@ export interface AutotaskQuoteItem {
   [key: string]: any;
 }
 
+/**
+ * TicketCharge - represents a charge (material, cost, or expense) associated with a ticket.
+ * Charges can be used to bill clients for parts, travel, or other non-labor costs.
+ */
+export interface AutotaskTicketCharge {
+  id?: number;
+  ticketID?: number;
+  productID?: number;
+  name?: string;
+  description?: string;
+  chargeType?: number;
+  unitQuantity?: number;
+  unitPrice?: number;
+  unitCost?: number;
+  billingCodeID?: number;
+  billableToAccount?: boolean;
+  datePurchased?: string;
+  createDate?: string;
+  creatorResourceID?: number;
+  status?: number;
+  contractServiceID?: number;
+  contractServiceBundleID?: number;
+  internalCurrencyUnitPrice?: number;
+  internalCurrencyUnitCost?: number;
+  [key: string]: any;
+}
+
 export interface AutotaskBillingCode {
   id?: number;
   name?: string;
