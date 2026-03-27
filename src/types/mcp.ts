@@ -9,6 +9,7 @@ export interface McpServerConfig {
     integrationCode?: string;
     secret?: string;
     apiUrl?: string;
+    impersonateResourceId?: number;
   };
 }
 

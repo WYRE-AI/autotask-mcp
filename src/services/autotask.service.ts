@@ -57,7 +57,7 @@ export class AutotaskService {
    */
   async initialize(): Promise<void> {
     try {
-      const { username, secret, integrationCode, apiUrl } = this.config.autotask;
+      const { username, secret, integrationCode, apiUrl, impersonateResourceId } = this.config.autotask;
       
       if (!username || !secret || !integrationCode) {
         throw new Error('Missing required Autotask credentials: username, secret, and integrationCode are required');
@@ -78,6 +78,10 @@ export class AutotaskService {
 
       if (apiUrl) {
         authConfig.apiUrl = apiUrl;
+      }
+
+      if (impersonateResourceId) {
+        authConfig.impersonateResourceId = impersonateResourceId;
       }
 
       // Disable gzip compression — autotask-node sets Content-Encoding: gzip

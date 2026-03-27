@@ -14,6 +14,7 @@ export interface EnvironmentConfig {
     secret?: string;
     integrationCode?: string;
     apiUrl?: string;
+    impersonateResourceId?: number;
   };
   server: {
     name: string;
@@ -46,6 +47,7 @@ export interface GatewayCredentials {
   secret: string | undefined;
   integrationCode: string | undefined;
   apiUrl: string | undefined;
+  impersonateResourceId: number | undefined;
 }
 
 /**
@@ -56,11 +58,13 @@ export interface GatewayCredentials {
  * - X-Integration-Code header -> X_INTEGRATION_CODE env var
  */
 export function getCredentialsFromGateway(): GatewayCredentials {
+  const rawResourceId = process.env.X_IMPERSONATE_RESOURCE_ID || process.env.AUTOTASK_IMPERSONATE_RESOURCE_ID;
   return {
     username: process.env.X_API_KEY || process.env.AUTOTASK_USERNAME,
     secret: process.env.X_API_SECRET || process.env.AUTOTASK_SECRET,
     integrationCode: process.env.X_INTEGRATION_CODE || process.env.AUTOTASK_INTEGRATION_CODE,
     apiUrl: process.env.X_API_URL || process.env.AUTOTASK_API_URL,
+    impersonateResourceId: rawResourceId ? Number(rawResourceId) : undefined,
   };
 }
 
@@ -74,11 +78,13 @@ export function parseCredentialsFromHeaders(headers: Record<string, string | str
     return Array.isArray(value) ? value[0] : value;
   };
 
+  const rawResourceId = getHeader('x-impersonate-resource-id');
   return {
     username: getHeader('x-api-key'),
     secret: getHeader('x-api-secret'),
     integrationCode: getHeader('x-integration-code'),
     apiUrl: getHeader('x-api-url'),
+    impersonateResourceId: rawResourceId ? Number(rawResourceId) : undefined,
   };
 }
 
@@ -86,7 +92,7 @@ export function parseCredentialsFromHeaders(headers: Record<string, string | str
  * Load configuration from environment variables
  */
 export function loadEnvironmentConfig(): EnvironmentConfig {
-  const autotaskConfig: { username?: string; secret?: string; integrationCode?: string; apiUrl?: string } = {};
+  const autotaskConfig: { username?: string; secret?: string; integrationCode?: string; apiUrl?: string; impersonateResourceId?: number } = {};
 
   // Support both direct env vars and gateway-injected vars
   // Gateway vars (X_API_KEY, etc.) take precedence when in gateway mode
@@ -107,6 +113,9 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     if (gatewayCreds.apiUrl) {
       autotaskConfig.apiUrl = gatewayCreds.apiUrl;
     }
+    if (gatewayCreds.impersonateResourceId) {
+      autotaskConfig.impersonateResourceId = gatewayCreds.impersonateResourceId;
+    }
   } else {
     // Direct env mode: use AUTOTASK_* vars
     if (process.env.AUTOTASK_USERNAME) {
@@ -120,6 +129,9 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     }
     if (process.env.AUTOTASK_API_URL) {
       autotaskConfig.apiUrl = process.env.AUTOTASK_API_URL;
+    }
+    if (process.env.AUTOTASK_IMPERSONATE_RESOURCE_ID) {
+      autotaskConfig.impersonateResourceId = Number(process.env.AUTOTASK_IMPERSONATE_RESOURCE_ID);
     }
   }
 
@@ -162,7 +174,8 @@ export function mergeWithMcpConfig(envConfig: EnvironmentConfig, mcpArgs?: Recor
       username: mcpArgs?.autotask?.username || envConfig.autotask.username,
       secret: mcpArgs?.autotask?.secret || envConfig.autotask.secret,
       integrationCode: mcpArgs?.autotask?.integrationCode || envConfig.autotask.integrationCode,
-      apiUrl: mcpArgs?.autotask?.apiUrl || envConfig.autotask.apiUrl
+      apiUrl: mcpArgs?.autotask?.apiUrl || envConfig.autotask.apiUrl,
+      impersonateResourceId: mcpArgs?.autotask?.impersonateResourceId || envConfig.autotask.impersonateResourceId
     }
   };
 
@@ -218,6 +231,7 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
   X_INTEGRATION_CODE       - Autotask integration code (from X-Integration-Code header)
 
 === Common Options ===
+  AUTOTASK_IMPERSONATE_RESOURCE_ID - Autotask Resource ID to impersonate (optional)
   AUTOTASK_API_URL         - Autotask API base URL (auto-detected if not provided)
   AUTH_MODE                - Authentication mode: env (default), gateway
   MCP_SERVER_NAME          - Server name (default: autotask-mcp)

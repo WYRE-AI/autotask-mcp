@@ -316,6 +316,9 @@ export class AutotaskMcpServer {
     if (credentials.apiUrl) {
       autotaskConfig.apiUrl = credentials.apiUrl;
     }
+    if (credentials.impersonateResourceId) {
+      autotaskConfig.impersonateResourceId = credentials.impersonateResourceId;
+    }
 
     const newConfig: McpServerConfig = {
       name: this.envConfig?.server?.name || 'autotask-mcp',
