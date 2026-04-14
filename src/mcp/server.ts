@@ -22,6 +22,7 @@ import { McpServerConfig } from '../types/mcp.js';
 import { EnvironmentConfig, parseCredentialsFromHeaders, GatewayCredentials } from '../utils/config.js';
 import { AutotaskResourceHandler } from '../handlers/resource.handler.js';
 import { AutotaskToolHandler } from '../handlers/tool.handler.js';
+import { registerPromptHandlers } from './prompts.js';
 
 export class AutotaskMcpServer {
   private server: Server;
@@ -69,6 +70,9 @@ export class AutotaskMcpServer {
           },
           tools: {
             listChanged: true
+          },
+          prompts: {
+            listChanged: false
           }
         },
         instructions: this.getServerInstructions()
@@ -160,6 +164,9 @@ export class AutotaskMcpServer {
         );
       }
     });
+
+    // Register prompt handlers
+    registerPromptHandlers(server);
 
     this.logger.info('MCP request handlers set up successfully');
   }
