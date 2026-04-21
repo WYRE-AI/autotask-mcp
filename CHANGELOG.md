@@ -1,3 +1,13 @@
+## [Unreleased]
+
+### Fixed
+
+- **`MappingService` company cache was silently truncated to 25 entries** — `refreshCompanyCache()` called `searchCompanies({})` assuming "no pageSize = fetch all pages", but the underlying `searchCompanies` defaults to `pageSize: 25, page: 1` and returns only the first page. The cache was then logged as `"COMPLETE dataset"`, which was incorrect.
+  - Effect: for any company whose ID wasn't on the first page (~everything past ID ~198 in a typical tenant), `getCompanyName()` fell through to a single-record `getCompany(id)` direct-lookup. When the Autotask REST direct-get returned a stale or renamed name (observed for at least one merged/renamed company in the wild), that wrong name was written into the cache and served to every downstream consumer — `autotask_search_tickets`, `autotask_search_projects`, notes, time entries, etc. — for a 30-minute cache window. Surface: the `company` field on enriched responses displayed the wrong tenant name, which looks like cross-tenant data leakage even though the underlying IDs and ownership were correct.
+  - Fix: `refreshCompanyCache()` now actually paginates — loops `searchCompanies({page, pageSize: 200})` until a short page is returned, building a fresh `Map` and atomic-swapping it into the cache only after full success (partial failures keep the prior cache rather than replacing it with a shorter one). Safety cap of 100 pages (20k companies) logs a warning rather than running forever.
+  - Hardening: `getCompanyName()` still falls back to single-record `getCompany(id)` for companies added between refresh windows, but the fallback result is no longer written to the cache. This prevents a stale/wrong direct-get from poisoning the cache and being served to every subsequent caller.
+  - Added `tests/mapping.test.ts` coverage: multi-page pagination, early-stop on short page, and fallback-does-not-poison-cache.
+
 # [2.18.0](https://github.com/wyre-technology/autotask-mcp/compare/v2.17.2...v2.18.0) (2026-04-08)
 
 

@@ -117,6 +117,70 @@ describe('MappingService', () => {
     });
   });
 
+  describe('pagination', () => {
+    it('should paginate until all companies are fetched', async () => {
+      // Simulate a tenant with 250 companies — more than one page.
+      const page1 = Array.from({ length: 200 }, (_, i) => ({
+        id: i + 1,
+        companyName: `Company ${i + 1}`,
+      }));
+      const page2 = Array.from({ length: 50 }, (_, i) => ({
+        id: 200 + i + 1,
+        companyName: `Company ${200 + i + 1}`,
+      }));
+      mockService.searchCompanies
+        .mockResolvedValueOnce(page1 as any)
+        .mockResolvedValueOnce(page2 as any);
+
+      const instance = await MappingService.getInstance(mockService, mockLogger);
+
+      expect(mockService.searchCompanies).toHaveBeenCalledTimes(2);
+      expect(mockService.searchCompanies).toHaveBeenNthCalledWith(1, { page: 1, pageSize: 200 });
+      expect(mockService.searchCompanies).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 200 });
+
+      // A company past the first page must be resolvable WITHOUT direct-lookup fallback.
+      const name = await instance.getCompanyName(207);
+      expect(name).toBe('Company 207');
+      expect((mockService as any).getCompany).toBeUndefined();
+    });
+
+    it('should stop paginating when a short page is returned', async () => {
+      mockService.searchCompanies.mockResolvedValueOnce([
+        { id: 1, companyName: 'Only Co' },
+      ] as any);
+
+      await MappingService.getInstance(mockService, mockLogger);
+
+      expect(mockService.searchCompanies).toHaveBeenCalledTimes(1);
+    });
+
+    it('should NOT cache results of the direct-lookup fallback (prevents stale-name poisoning)', async () => {
+      // Tenant has one company; we ask for an ID not in that cache.
+      // Simulates the real-world bug: direct-get returns a stale/wrong name
+      // that previously got written to cache and served to every subsequent caller.
+      mockService.searchCompanies.mockResolvedValueOnce([
+        { id: 1, companyName: 'Acme Corp' },
+      ] as any);
+      (mockService as any).getCompany = jest
+        .fn()
+        .mockResolvedValue({ id: 207, companyName: 'Stale Name From Direct Get' });
+
+      const instance = await MappingService.getInstance(mockService, mockLogger);
+
+      const first = await instance.getCompanyName(207);
+      const second = await instance.getCompanyName(207);
+      expect(first).toBe('Stale Name From Direct Get');
+      expect(second).toBe('Stale Name From Direct Get');
+
+      // The fallback MUST be consulted on every call (not cached) so that a
+      // later paginated refresh can correct the name without stale overrides.
+      expect((mockService as any).getCompany).toHaveBeenCalledTimes(2);
+
+      const stats = instance.getCacheStats();
+      expect(stats.companies.count).toBe(1); // Only the one real company from pagination
+    });
+  });
+
   describe('error handling', () => {
     it('should handle searchCompanies failure gracefully', async () => {
       mockService.searchCompanies.mockRejectedValueOnce(new Error('API error'));

@@ -106,23 +106,29 @@ export class MappingService {
   }
 
   /**
-   * Get company name by ID with fallback lookup
+   * Get company name by ID.
+   *
+   * Cache is the source of truth — populated by full paginated `list()` in
+   * `refreshCompanyCache`. A single-record `getCompany(id)` fallback exists
+   * for IDs added between refresh windows, but its result is NOT written to
+   * the cache: direct-get results have been observed to disagree with the
+   * paginated list for merged/renamed companies, and caching the bad value
+   * would then be served to every subsequent caller for 30 minutes.
    */
   public async getCompanyName(companyId: number): Promise<string | null> {
     try {
       await this.refreshCacheIfNeeded();
-      
-      // Try cache first
+
       const cachedName = this.cache.companies.get(companyId);
       if (cachedName) {
         return cachedName;
       }
-      
-      // Fallback: fetch the single company by ID rather than downloading the full list
-      this.logger.debug(`Company ${companyId} not in cache, doing direct lookup`);
+
+      this.logger.warn(
+        `Company ${companyId} missing from paginated cache (size=${this.cache.companies.size}); falling back to direct lookup. Result will NOT be cached.`
+      );
       const company = await this.autotaskService.getCompany(companyId);
       if (company?.companyName) {
-        this.cache.companies.set(companyId, company.companyName);
         return company.companyName;
       }
 
@@ -185,26 +191,47 @@ export class MappingService {
     this.refreshCompanyPromise = (async () => {
       try {
         this.logger.info('Refreshing company cache...');
-        
-        // Use pagination-by-default to get ALL companies for complete accuracy
-        const companies = await this.autotaskService.searchCompanies({
-          // No pageSize specified - gets ALL companies via pagination by default
-        });
 
-        this.cache.companies.clear();
-        
-        for (const company of companies) {
-          if (company.id && company.companyName) {
-            this.cache.companies.set(company.id, company.companyName);
+        // Walk every page of /Companies to build the cache. The previous
+        // implementation called searchCompanies({}) and assumed "no pageSize =
+        // fetch all", but searchCompanies actually defaults to pageSize 25 and
+        // returns only the first page — meaning the cache silently contained
+        // only ~25 companies. That caused getCompanyName() to fall through to
+        // direct-get for every other ID, and direct-get has been observed to
+        // return incorrect names for some companies (see CHANGELOG). Build
+        // the full cache in a fresh map and atomic-swap so a partial failure
+        // never replaces a good cache with a shorter one.
+        const pageSize = 200; // Autotask per-page cap per autotask.service.ts
+        const fresh = new Map<number, string>();
+        let page = 1;
+        const maxPages = 100; // hard safety stop: 20k companies
+
+        while (page <= maxPages) {
+          const batch = await this.autotaskService.searchCompanies({ page, pageSize });
+          for (const company of batch) {
+            if (company.id != null && company.companyName) {
+              fresh.set(company.id, company.companyName);
+            }
           }
+          if (batch.length < pageSize) break;
+          page += 1;
         }
 
+        if (page > maxPages) {
+          this.logger.warn(
+            `Company pagination hit safety cap (${maxPages} pages of ${pageSize}). Cache may be incomplete.`
+          );
+        }
+
+        this.cache.companies = fresh;
         this.cache.lastUpdated.companies = new Date();
-        this.logger.info(`Company cache refreshed with ${this.cache.companies.size} entries (COMPLETE dataset)`);
+        this.logger.info(
+          `Company cache refreshed with ${this.cache.companies.size} entries across ${page} page(s)`
+        );
 
       } catch (error) {
         this.logger.error('Failed to refresh company cache:', error);
-        // Don't throw error - allow fallback to direct lookup
+        // Don't throw — keep any previously valid cache rather than wiping it.
       } finally {
         this.refreshCompanyPromise = null;
       }
