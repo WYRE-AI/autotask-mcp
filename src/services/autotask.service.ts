@@ -2224,6 +2224,26 @@ export class AutotaskService {
       throw error;
     }
   }
+
+  // =====================================================
+  // Raw REST passthrough (escape hatch)
+  // =====================================================
+
+  async rawRequest<T = any>(
+    method: string,
+    path: string,
+    body?: any,
+    queryParams?: Record<string, string | number | boolean>
+  ): Promise<T> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Raw Autotask request ${method} ${path}`, { hasBody: body !== undefined, queryParams });
+      return await http.rawRequest<T>(method, path, body, queryParams);
+    } catch (error) {
+      this.logger.error(`Raw Autotask request ${method} ${path} failed:`, error);
+      throw error;
+    }
+  }
 }
 
 // resolveAutotaskApiUrl kept referenced to avoid unused-import warnings

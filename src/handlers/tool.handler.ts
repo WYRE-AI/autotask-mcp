@@ -989,6 +989,12 @@ export class AutotaskToolHandler {
         const r = await s.searchContracts(a); return { result: r, message: `Found ${r.length} contracts` };
       }],
 
+      // Raw REST passthrough (escape hatch)
+      ['autotask_raw_request', async (a) => {
+        const r = await s.rawRequest(a.method, a.path, a.body, a.queryParams);
+        return { result: r, message: `Autotask ${a.method} ${a.path} completed` };
+      }],
+
       // Invoices
       ['autotask_search_invoices', async (a) => {
         const r = await s.searchInvoices(a); return { result: r, message: `Found ${r.length} invoices` };

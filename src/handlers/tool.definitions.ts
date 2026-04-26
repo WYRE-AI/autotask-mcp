@@ -2958,6 +2958,35 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       },
       required: ['serviceCallTicketResourceId']
     }
+  },
+  {
+    name: 'autotask_raw_request',
+    description: 'Escape hatch for Autotask REST endpoints not yet wrapped by a typed tool. Use sparingly — typed tools are preferred for safety. The existing Content-Type, Accept, ApiIntegrationcode, UserName, Secret headers are added automatically. The path is resolved against the zone-resolved base URL (https://webservices<N>.autotask.net/ATServicesRest/v1.0). Pass queryParams as a flat object of string/number/boolean values; they will be URL-encoded and appended to the path.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        method: {
+          type: 'string',
+          enum: ['GET', 'POST', 'PATCH', 'DELETE'],
+          description: 'HTTP method'
+        },
+        path: {
+          type: 'string',
+          description: 'Path under the Autotask REST v1.0 base (e.g. "/Companies/175" or "/Companies/query")'
+        },
+        body: {
+          type: 'object',
+          description: 'Optional JSON body for POST/PATCH requests',
+          additionalProperties: true
+        },
+        queryParams: {
+          type: 'object',
+          description: 'Optional flat key-value query parameters (e.g. { includeFields: "id,name" })',
+          additionalProperties: true
+        }
+      },
+      required: ['method', 'path']
+    }
   }
 ];
 

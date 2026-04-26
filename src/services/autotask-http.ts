@@ -124,6 +124,35 @@ export class AutotaskHttpClient {
   }
 
   /**
+   * Generic passthrough for any Autotask REST endpoint.
+   *
+   * Serializes `queryParams` onto the path as `?key=value&...` (URL-encoded)
+   * and reuses the same auth headers, timeout, error handling, and base URL
+   * resolution as every other method on this client.
+   *
+   * Use sparingly — typed helpers (get/query/create/update/delete) are
+   * preferred. This is the escape hatch for endpoints not yet wrapped.
+   */
+  async rawRequest<T = any>(
+    method: string,
+    path: string,
+    body?: any,
+    queryParams?: Record<string, string | number | boolean>
+  ): Promise<T> {
+    let finalPath = path;
+    if (queryParams && Object.keys(queryParams).length > 0) {
+      const qs = Object.entries(queryParams)
+        .filter(([, v]) => v !== undefined && v !== null)
+        .map(([k, v]) => `${encodeURIComponent(k)}=${encodeURIComponent(String(v))}`)
+        .join('&');
+      if (qs) {
+        finalPath = `${path}${path.includes('?') ? '&' : '?'}${qs}`;
+      }
+    }
+    return this.request<T>(method, finalPath, body);
+  }
+
+  /**
    * GET /{Entity}/{id} — returns the entity, or null on 404.
    */
   async get<T>(entity: string, id: number): Promise<T | null> {
