@@ -988,6 +988,20 @@ export class AutotaskToolHandler {
       ['autotask_search_contracts', async (a) => {
         const r = await s.searchContracts(a); return { result: r, message: `Found ${r.length} contracts` };
       }],
+      ['autotask_create_contract', async (a) => {
+        const id = await s.createContract(a); return { result: id, message: `Successfully created contract with ID: ${id}` };
+      }],
+      ['autotask_update_contract', async (a) => {
+        const { id, ...rest } = a;
+        await s.updateContract(id, rest); return { result: undefined, message: `Successfully updated contract ID: ${id}` };
+      }],
+      ['autotask_create_contract_service', async (a) => {
+        const id = await s.createContractService(a); return { result: id, message: `Successfully created contract service with ID: ${id}` };
+      }],
+      ['autotask_update_contract_service', async (a) => {
+        const { id, ...rest } = a;
+        await s.updateContractService(id, rest); return { result: undefined, message: `Successfully updated contract service ID: ${id}` };
+      }],
 
       // Invoices
       ['autotask_search_invoices', async (a) => {

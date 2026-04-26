@@ -2958,6 +2958,128 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       },
       required: ['serviceCallTicketResourceId']
     }
+  },
+
+  // Contracts (write) and ContractServices CRUD
+  {
+    name: 'autotask_create_contract',
+    description: 'Create a new Contract in Autotask. Field names match the Autotask REST API exactly. status: 1=In Effect, 0=Inactive. Dates are ISO format (YYYY-MM-DD).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        companyID: { type: 'number', description: 'Company ID the contract is associated with' },
+        contractName: { type: 'string', description: 'Contract name' },
+        contractType: { type: 'number', description: 'Contract type picklist ID' },
+        contractCategory: { type: 'number', description: 'Contract category picklist ID' },
+        startDate: { type: 'string', description: 'Contract start date (ISO YYYY-MM-DD)' },
+        endDate: { type: 'string', description: 'Contract end date (ISO YYYY-MM-DD)' },
+        contactID: { type: 'number', description: 'Primary contact ID for the contract' },
+        contractNumber: { type: 'string', description: 'External-facing contract number' },
+        contractPeriodType: { type: 'number', description: 'Period type picklist ID' },
+        description: { type: 'string', description: 'Contract description / notes' },
+        estimatedCost: { type: 'number', description: 'Estimated cost' },
+        estimatedHours: { type: 'number', description: 'Estimated hours' },
+        estimatedRevenue: { type: 'number', description: 'Estimated revenue' },
+        setupFee: { type: 'number', description: 'Setup fee amount' },
+        overageBillingRate: { type: 'number', description: 'Overage billing rate' },
+        serviceLevelAgreementID: { type: 'number', description: 'SLA ID' },
+        purchaseOrderNumber: { type: 'string', description: 'Customer purchase order number' },
+        opportunityID: { type: 'number', description: 'Originating opportunity ID' },
+        billingPreference: { type: 'number', description: 'Billing preference picklist ID' },
+        billToCompanyID: { type: 'number', description: 'Bill-to company ID' },
+        billToCompanyContactID: { type: 'number', description: 'Bill-to contact ID' },
+        exclusionContractID: { type: 'number', description: 'Exclusion contract ID' },
+        isDefaultContract: { type: 'boolean', description: 'Whether this is the default contract for the company' },
+        internalCurrencySetupFee: { type: 'number', description: 'Setup fee in internal currency' },
+        internalCurrencyOverageBillingRate: { type: 'number', description: 'Overage rate in internal currency' },
+        organizationalLevelAssociationID: { type: 'number', description: 'Org level association ID' },
+        contractExclusionSetID: { type: 'number', description: 'Contract exclusion set ID' },
+        renewedContractID: { type: 'number', description: 'ID of the contract this renewed' },
+        setupFeeBillingCodeID: { type: 'number', description: 'Billing code ID for the setup fee' },
+        status: { type: 'number', description: 'Contract status (1=In Effect, 0=Inactive)' },
+        timeReportingRequiresStartAndStopTimes: { type: 'number', description: 'Whether time entries require start/stop times' }
+      },
+      required: ['companyID', 'contractName', 'contractType', 'contractCategory', 'startDate', 'endDate']
+    }
+  },
+  {
+    name: 'autotask_update_contract',
+    description: 'Update an existing Contract in Autotask (PATCH). Pass only fields you want to change; everything except id is optional. status: 1=In Effect, 0=Inactive.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'Contract ID to update' },
+        companyID: { type: 'number', description: 'Company ID' },
+        contractName: { type: 'string', description: 'Contract name' },
+        contractType: { type: 'number', description: 'Contract type picklist ID' },
+        contractCategory: { type: 'number', description: 'Contract category picklist ID' },
+        startDate: { type: 'string', description: 'Contract start date (ISO YYYY-MM-DD)' },
+        endDate: { type: 'string', description: 'Contract end date (ISO YYYY-MM-DD)' },
+        contactID: { type: 'number', description: 'Primary contact ID' },
+        contractNumber: { type: 'string', description: 'External-facing contract number' },
+        contractPeriodType: { type: 'number', description: 'Period type picklist ID' },
+        description: { type: 'string', description: 'Contract description / notes' },
+        estimatedCost: { type: 'number', description: 'Estimated cost' },
+        estimatedHours: { type: 'number', description: 'Estimated hours' },
+        estimatedRevenue: { type: 'number', description: 'Estimated revenue' },
+        setupFee: { type: 'number', description: 'Setup fee amount' },
+        overageBillingRate: { type: 'number', description: 'Overage billing rate' },
+        serviceLevelAgreementID: { type: 'number', description: 'SLA ID' },
+        purchaseOrderNumber: { type: 'string', description: 'Customer purchase order number' },
+        opportunityID: { type: 'number', description: 'Originating opportunity ID' },
+        billingPreference: { type: 'number', description: 'Billing preference picklist ID' },
+        billToCompanyID: { type: 'number', description: 'Bill-to company ID' },
+        billToCompanyContactID: { type: 'number', description: 'Bill-to contact ID' },
+        exclusionContractID: { type: 'number', description: 'Exclusion contract ID' },
+        isDefaultContract: { type: 'boolean', description: 'Whether this is the default contract for the company' },
+        internalCurrencySetupFee: { type: 'number', description: 'Setup fee in internal currency' },
+        internalCurrencyOverageBillingRate: { type: 'number', description: 'Overage rate in internal currency' },
+        organizationalLevelAssociationID: { type: 'number', description: 'Org level association ID' },
+        contractExclusionSetID: { type: 'number', description: 'Contract exclusion set ID' },
+        renewedContractID: { type: 'number', description: 'ID of the contract this renewed' },
+        setupFeeBillingCodeID: { type: 'number', description: 'Billing code ID for the setup fee' },
+        status: { type: 'number', description: 'Contract status (1=In Effect, 0=Inactive)' },
+        timeReportingRequiresStartAndStopTimes: { type: 'number', description: 'Whether time entries require start/stop times' }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'autotask_create_contract_service',
+    description: 'Add a ContractService (service line item) to an existing Contract.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        contractID: { type: 'number', description: 'Parent Contract ID' },
+        serviceID: { type: 'number', description: 'Service catalog ID being attached to the contract' },
+        unitPrice: { type: 'number', description: 'Unit price for the service line' },
+        unitCost: { type: 'number', description: 'Unit cost for the service line' },
+        quoteItemID: { type: 'number', description: 'Originating quote item ID, if any' },
+        internalCurrencyUnitPrice: { type: 'number', description: 'Unit price in internal currency' },
+        adjustedPrice: { type: 'number', description: 'Adjusted price' },
+        invoiceDescription: { type: 'string', description: 'Override invoice description for this line' }
+      },
+      required: ['contractID', 'serviceID', 'unitPrice']
+    }
+  },
+  {
+    name: 'autotask_update_contract_service',
+    description: 'Update an existing ContractService line on a Contract. Pass only fields you want to change.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'number', description: 'ContractService record ID to update' },
+        contractID: { type: 'number', description: 'Parent Contract ID' },
+        serviceID: { type: 'number', description: 'Service catalog ID' },
+        unitPrice: { type: 'number', description: 'Unit price for the service line' },
+        unitCost: { type: 'number', description: 'Unit cost for the service line' },
+        quoteItemID: { type: 'number', description: 'Originating quote item ID' },
+        internalCurrencyUnitPrice: { type: 'number', description: 'Unit price in internal currency' },
+        adjustedPrice: { type: 'number', description: 'Adjusted price' },
+        invoiceDescription: { type: 'string', description: 'Override invoice description for this line' }
+      },
+      required: ['id', 'contractID']
+    }
   }
 ];
 

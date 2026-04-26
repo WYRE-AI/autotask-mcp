@@ -839,6 +839,60 @@ export class AutotaskService {
   }
 
   // =====================================================
+  // Contracts (write) and ContractServices CRUD
+  // =====================================================
+
+  async createContract(contract: Partial<AutotaskContract>): Promise<number> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Creating contract:', contract);
+      const id = await http.create('Contracts', contract);
+      this.logger.info(`Contract created with ID: ${id}`);
+      return id;
+    } catch (error) {
+      this.logger.error('Failed to create contract:', error);
+      throw error;
+    }
+  }
+
+  async updateContract(id: number, updates: Partial<AutotaskContract>): Promise<void> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Updating contract ${id}:`, updates);
+      await http.update('Contracts', id, updates as Record<string, any>);
+      this.logger.info(`Contract ${id} updated successfully`);
+    } catch (error) {
+      this.logger.error(`Failed to update contract ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async createContractService(cs: Record<string, any>): Promise<number> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Creating contract service:', cs);
+      const id = await http.create('ContractServices', cs);
+      this.logger.info(`ContractService created with ID: ${id}`);
+      return id;
+    } catch (error) {
+      this.logger.error('Failed to create contract service:', error);
+      throw error;
+    }
+  }
+
+  async updateContractService(id: number, updates: Record<string, any>): Promise<void> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Updating contract service ${id}:`, updates);
+      await http.update('ContractServices', id, updates);
+      this.logger.info(`ContractService ${id} updated successfully`);
+    } catch (error) {
+      this.logger.error(`Failed to update contract service ${id}:`, error);
+      throw error;
+    }
+  }
+
+  // =====================================================
   // Invoices
   // =====================================================
 
