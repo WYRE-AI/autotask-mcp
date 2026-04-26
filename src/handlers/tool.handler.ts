@@ -787,6 +787,9 @@ export class AutotaskToolHandler {
       ['autotask_create_contact', async (a) => {
         const id = await s.createContact(a); return { result: id, message: `Successfully created contact with ID: ${id}` };
       }],
+      ['autotask_update_contact', async (a) => {
+        await s.updateContact(a.id, a); return { result: undefined, message: `Successfully updated contact ID: ${a.id}` };
+      }],
 
       // Tickets
       ['autotask_search_tickets', async (a) => {

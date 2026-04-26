@@ -235,6 +235,76 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       required: ['companyID', 'firstName', 'lastName']
     }
   },
+  {
+    name: 'autotask_update_contact',
+    description: 'Update an existing contact in Autotask. Pass only the fields you want to change; all non-id fields are optional. Field names match the Autotask REST API exactly.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'number',
+          description: 'Contact ID to update'
+        },
+        firstName: {
+          type: 'string',
+          description: 'Contact first name'
+        },
+        lastName: {
+          type: 'string',
+          description: 'Contact last name'
+        },
+        emailAddress: {
+          type: 'string',
+          description: 'Primary email address'
+        },
+        phone: {
+          type: 'string',
+          description: 'Primary phone number'
+        },
+        title: {
+          type: 'string',
+          description: 'Job title'
+        },
+        isActive: {
+          type: 'boolean',
+          description: 'Whether the contact is active'
+        },
+        mobilePhone: {
+          type: 'string',
+          description: 'Mobile phone number'
+        },
+        addressLine: {
+          type: 'string',
+          description: 'Address line (primary)'
+        },
+        addressLine1: {
+          type: 'string',
+          description: 'Address line 1 (secondary)'
+        },
+        city: {
+          type: 'string',
+          description: 'City'
+        },
+        state: {
+          type: 'string',
+          description: 'State/province'
+        },
+        zipCode: {
+          type: 'string',
+          description: 'Postal/ZIP code'
+        },
+        countryID: {
+          type: 'number',
+          description: 'Country ID (Autotask Countries entity)'
+        },
+        primaryContact: {
+          type: 'boolean',
+          description: 'Whether this contact is the primary contact for their company'
+        }
+      },
+      required: ['id']
+    }
+  },
 
   // Ticket tools
   {
