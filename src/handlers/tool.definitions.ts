@@ -93,7 +93,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_update_company',
-    description: 'Update an existing company in Autotask',
+    description: 'Update an existing company in Autotask. Supports the core identity fields (companyName, phone, address1, city, state, postalCode, isActive) plus extended fields: webAddress, paymentTerm, taxRegionID, invoiceTemplateID, taxID, taxExempt, ownerResourceID, classification, companyType. Field names match the Autotask REST API exactly (camelCase, capital ID suffixes where applicable).',
     inputSchema: {
       type: 'object',
       properties: {
@@ -128,6 +128,42 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         isActive: {
           type: 'boolean',
           description: 'Whether the company is active'
+        },
+        webAddress: {
+          type: 'string',
+          description: 'Company website URL (Autotask field name is webAddress, not website)'
+        },
+        paymentTerm: {
+          type: 'number',
+          description: 'Payment term picklist ID'
+        },
+        taxRegionID: {
+          type: 'number',
+          description: 'Tax region ID (capital ID suffix per Autotask convention)'
+        },
+        invoiceTemplateID: {
+          type: 'number',
+          description: 'Invoice template ID applied to this company'
+        },
+        taxID: {
+          type: 'string',
+          description: 'Tax registration / VAT identifier string'
+        },
+        taxExempt: {
+          type: 'boolean',
+          description: 'Whether the company is tax-exempt'
+        },
+        ownerResourceID: {
+          type: 'number',
+          description: 'Resource ID of the account owner'
+        },
+        classification: {
+          type: 'number',
+          description: 'Company classification picklist ID'
+        },
+        companyType: {
+          type: 'number',
+          description: 'Company type picklist ID (e.g. Customer, Prospect, Vendor)'
         }
       },
       required: ['id']
