@@ -93,7 +93,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_update_company',
-    description: 'Update an existing company in Autotask. Supports the core identity fields (companyName, phone, address1, city, state, postalCode, isActive) plus extended fields: webAddress, paymentTerm, taxRegionID, invoiceTemplateID, taxID, taxExempt, ownerResourceID, classification, companyType. Field names match the Autotask REST API exactly (camelCase, capital ID suffixes where applicable).',
+    description: 'Update an existing company in Autotask. Field names match the Autotask REST API exactly (camelCase, capital ID suffixes where applicable). Note: Autotask uses invoiceTemplateID for payment terms (e.g. 103=Due on Receipt, 104=NET 30) — there is NO `paymentTerm` field on the Companies entity. Billing address fields (billingAddress1/billToCity/billToState/billToZipCode/billToCountryID/billToAttention/billToAddressToUse) are SEPARATE from the regular address fields (address1/city/state/postalCode/countryID) — set both pairs when needed.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -111,7 +111,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         address1: {
           type: 'string',
-          description: 'Company address line 1'
+          description: 'Company address line 1 (the regular address, distinct from billingAddress1 used for invoices)'
+        },
+        address2: {
+          type: 'string',
+          description: 'Company address line 2'
         },
         city: {
           type: 'string',
@@ -125,6 +129,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Company postal/ZIP code'
         },
+        countryID: {
+          type: 'number',
+          description: 'Country ID (e.g. 237 for United States)'
+        },
         isActive: {
           type: 'boolean',
           description: 'Whether the company is active'
@@ -133,26 +141,82 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Company website URL (Autotask field name is webAddress, not website)'
         },
-        paymentTerm: {
-          type: 'number',
-          description: 'Payment term picklist ID'
+        // ---- Billing-to fields (used for Invoice Settings; SEPARATE from regular address) ----
+        billingAddress1: {
+          type: 'string',
+          description: 'Billing address line 1 (used for Invoice Settings — separate from address1)'
         },
+        billingAddress2: {
+          type: 'string',
+          description: 'Billing address line 2'
+        },
+        billToAttention: {
+          type: 'string',
+          description: 'Bill-to attention name'
+        },
+        billToAddressToUse: {
+          type: 'number',
+          description: 'Address-to-use flag (1 = use bill-to fields explicitly)'
+        },
+        billToCity: {
+          type: 'string',
+          description: 'Bill-to city'
+        },
+        billToState: {
+          type: 'string',
+          description: 'Bill-to state/province'
+        },
+        billToZipCode: {
+          type: 'string',
+          description: 'Bill-to ZIP/postal code'
+        },
+        billToCountryID: {
+          type: 'number',
+          description: 'Bill-to country ID'
+        },
+        billToCompanyLocationID: {
+          type: 'number',
+          description: 'Bill-to company location ID'
+        },
+        // ---- Tax / invoice settings ----
         taxRegionID: {
           type: 'number',
           description: 'Tax region ID (capital ID suffix per Autotask convention)'
         },
         invoiceTemplateID: {
           type: 'number',
-          description: 'Invoice template ID applied to this company'
+          description: 'Invoice template ID applied to this company. Acts as the payment-terms selector (e.g. 103=Due on Receipt, 104=NET 30).'
+        },
+        invoiceMethod: {
+          type: 'number',
+          description: 'Invoice delivery method picklist ID (e.g. 2=Email)'
+        },
+        invoiceEmailMessageID: {
+          type: 'number',
+          description: 'Default email-message template ID used when invoicing this company'
         },
         taxID: {
           type: 'string',
-          description: 'Tax registration / VAT identifier string'
+          description: 'Tax registration / FEIN / VAT identifier string'
         },
-        taxExempt: {
+        isTaxExempt: {
           type: 'boolean',
-          description: 'Whether the company is tax-exempt'
+          description: 'Whether the company is tax-exempt. Note: Autotask field name is `isTaxExempt` — not `taxExempt`.'
         },
+        // ---- Quote / PO templates ----
+        quoteEmailMessageID: {
+          type: 'number',
+          description: 'Default email-message template ID used when sending quotes'
+        },
+        quoteTemplateID: {
+          type: 'number',
+          description: 'Default quote template ID for this company'
+        },
+        purchaseOrderTemplateID: {
+          type: 'number',
+          description: 'Default purchase-order template ID for this company'
+        },
+        // ---- Ownership / classification ----
         ownerResourceID: {
           type: 'number',
           description: 'Resource ID of the account owner'
