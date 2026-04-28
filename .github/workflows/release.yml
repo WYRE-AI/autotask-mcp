@@ -129,11 +129,9 @@ jobs:
       packages: write
 
     steps:
-      - name: Checkout (post-release commit)
+      - name: Checkout
         uses: actions/checkout@v4
         with:
-          # main has been advanced by semantic-release's chore(release) commit
-          ref: main
           fetch-depth: 0
 
       - name: Set up Docker Buildx
@@ -146,9 +144,22 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Get version from package.json
+      - name: Resolve release version
         id: version
-        run: echo "version=$(node -p "require('./package.json').version")" >> $GITHUB_OUTPUT
+        # Source of truth is the release job's computed version (semantic-release's
+        # in-memory bump). Reading package.json here would be wrong because
+        # @semantic-release/git's push back to main is silently dropped by
+        # branch protection — package.json on main has been stuck at 2.18.0
+        # for several releases. We use the release output so docker tags match
+        # the GitHub release/git tag.
+        env:
+          RELEASE_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          if [ -z "$RELEASE_VERSION" ]; then
+            echo "ERROR: needs.release.outputs.version is empty" >&2
+            exit 1
+          fi
+          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
 
       - name: Extract metadata
         id: meta
