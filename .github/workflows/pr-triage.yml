@@ -1,0 +1,17 @@
+name: PR triage
+
+on:
+  pull_request_target:
+    types: [opened, reopened, edited]
+
+permissions:
+  pull-requests: write
+  issues: write
+
+jobs:
+  spam:
+    uses: wyre-technology/.github/.github/workflows/pr-spam-triage.yml@main
+    with:
+      # Start in dry-run: label spam-suspected PRs but don't close.
+      # Flip to false after a verification window (~1 week) of zero false positives.
+      dry-run: true
