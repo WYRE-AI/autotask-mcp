@@ -87,4 +87,7 @@ LABEL org.opencontainers.image.source="https://github.com/wyre-technology/autota
 LABEL org.opencontainers.image.documentation="https://github.com/wyre-technology/autotask-mcp/blob/main/README.md"
 LABEL org.opencontainers.image.url="https://github.com/wyre-technology/autotask-mcp/pkgs/container/autotask-mcp"
 LABEL org.opencontainers.image.vendor="Wyre Technology"
-LABEL org.opencontainers.image.licenses="Apache-2.0" 
+LABEL org.opencontainers.image.licenses="Apache-2.0"
+
+# MCP Registry ownership annotation (must match `name` in server.json)
+LABEL io.modelcontextprotocol.server.name="io.github.wyre-technology/autotask-mcp"

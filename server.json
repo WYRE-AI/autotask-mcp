@@ -1,0 +1,70 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.wyre-technology/autotask-mcp",
+  "title": "Autotask",
+  "description": "MCP server for Kaseya Autotask PSA — companies, tickets, projects, time entries, and more.",
+  "repository": {
+    "url": "https://github.com/wyre-technology/autotask-mcp",
+    "source": "github"
+  },
+  "version": "0.0.0",
+  "websiteUrl": "https://github.com/wyre-technology/autotask-mcp",
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/wyre-technology/autotask-mcp:0.0.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "AUTOTASK_USERNAME",
+          "description": "Autotask API user resource email (e.g. apiuser@example.com)",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTOTASK_SECRET",
+          "description": "Autotask API user secret",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTOTASK_INTEGRATION_CODE",
+          "description": "Autotask API integration code (tracking identifier)",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "AUTOTASK_API_URL",
+          "description": "Autotask API zone URL — auto-detected per tenant if omitted",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "MCP_TRANSPORT",
+          "description": "Transport mode for the server. Set to 'stdio' for local CLI use; the image defaults to 'http' for gateway hosting.",
+          "isRequired": false,
+          "default": "stdio",
+          "format": "string"
+        },
+        {
+          "name": "AUTH_MODE",
+          "description": "Credential source: 'env' reads vars locally, 'gateway' expects header injection from the WYRE MCP Gateway.",
+          "isRequired": false,
+          "default": "env",
+          "format": "string"
+        },
+        {
+          "name": "LOG_LEVEL",
+          "description": "Log verbosity: debug, info, warn, error",
+          "isRequired": false,
+          "default": "info",
+          "format": "string"
+        }
+      ]
+    }
+  ]
+}
