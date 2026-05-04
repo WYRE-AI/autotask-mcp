@@ -52,6 +52,13 @@ export interface McpTool {
     properties: Record<string, any>;
     required?: string[];
   };
+  annotations?: {
+    title?: string;
+    readOnlyHint?: boolean;
+    destructiveHint?: boolean;
+    idempotentHint?: boolean;
+    openWorldHint?: boolean;
+  };
 }
 
 export interface McpToolResult {

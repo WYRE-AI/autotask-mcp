@@ -32,13 +32,16 @@ jobs:
       
       - name: Run linter
         run: npm run lint
-      
+
+      - name: Lint destructive tool warnings
+        run: node scripts/lint-destructive-warnings.mjs src
+
       - name: Build
         run: npm run build
-      
+
       - name: Run tests
         run: npm test
-      
+
       - name: Test Docker build
         run: docker build --platform linux/amd64 -t autotask-mcp:test .
 
@@ -61,10 +64,13 @@ jobs:
       
       - name: Run linter
         run: npm run lint
-      
+
+      - name: Lint destructive tool warnings
+        run: node scripts/lint-destructive-warnings.mjs src
+
       - name: Build
         run: npm run build
-      
+
       - name: Run tests with coverage
         run: npm run test:coverage
       

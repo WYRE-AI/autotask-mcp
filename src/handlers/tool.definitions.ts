@@ -770,7 +770,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_ticket_charge',
-    description: 'Delete a ticket charge by ID. Requires both the parent ticket ID and charge ID.',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently deletes a ticket charge ' +
+      'record and all associated billing data. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Delete ticket charge (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1176,7 +1186,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_ticket_checklist_item',
-    description: 'Delete a checklist item from a ticket.',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently deletes a checklist item ' +
+      'from a ticket. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Delete ticket checklist item (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1977,7 +1997,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_quote_item',
-    description: 'Delete a quote item (line item) from a quote',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently deletes a quote item ' +
+      '(line item) from a quote. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Delete quote item (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2644,7 +2674,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_service_call',
-    description: 'Delete a service call by ID',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently deletes a service call ' +
+      'and all associated data. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Delete service call (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2702,7 +2742,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_service_call_ticket',
-    description: 'Remove a ticket association from a service call by the service call ticket record ID',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently removes a ticket ' +
+      'association from a service call. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Delete service call ticket association (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2764,7 +2814,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_delete_service_call_ticket_resource',
-    description: 'Remove a resource assignment from a service call ticket by the resource record ID',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently removes a resource ' +
+      'assignment from a service call ticket. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Delete service call ticket resource assignment (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {

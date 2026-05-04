@@ -37,7 +37,10 @@ jobs:
       - name: Run linter
         run: npm run lint
         continue-on-error: true
-      
+
+      - name: Lint destructive tool warnings
+        run: node scripts/lint-destructive-warnings.mjs src
+
       - name: Build
         run: npm run build
       
