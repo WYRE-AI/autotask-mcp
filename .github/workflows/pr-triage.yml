@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   spam:
-    uses: wyre-technology/.github/.github/workflows/pr-spam-triage.yml@main
+    uses: wyre-technology/.github/.github/workflows/pr-spam-triage.yml@03d64fcdcce377f8a8d86ef9b66b125dc8156149  # main
     with:
       # Start in dry-run: label spam-suspected PRs but don't close.
       # Flip to false after a verification window (~1 week) of zero false positives.
