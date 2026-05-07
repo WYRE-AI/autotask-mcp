@@ -15,37 +15,14 @@ on:
 
 jobs:
   test:
-    name: Test on Node.js ${{ matrix.node-version }}
-    runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x, 22.x]
-    
-    steps:
-      - name: Checkout
-        uses: actions/checkout@34e114876b0b11c390a56381ad16ebd13914f8d5  # v4.3.1
-      
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020  # v4.4.0
-        with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
-      
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Run linter
-        run: npm run lint
-        continue-on-error: true
-
-      - name: Lint destructive tool warnings
-        run: node scripts/lint-destructive-warnings.mjs src
-
-      - name: Build
-        run: npm run build
-      
-      - name: Run tests
-        run: npm test
+    name: Test
+    # Delegated to the canonical reusable CI workflow.
+    # See: ~/.claude/skills/mcp-server-fleet-ci-template
+    uses: wyre-technology/.github/.github/workflows/mcp-server-ci.yml@8f1da6a78d0cc0b8a330547bfc6892da3e72ae13
+    with:
+      node-versions: '["18", "20", "22"]'
+      lint-destructive-warnings: true
+    secrets: inherit
 
   release:
     name: Release
