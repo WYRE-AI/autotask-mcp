@@ -1392,13 +1392,13 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Ticket Attachments tools
   {
     name: 'autotask_get_ticket_attachment',
-    description: 'Get a specific ticket attachment by ticket ID and attachment ID',
+    description: 'Get a ticket attachment. With includeData=false (default) returns metadata only — fast, suitable for browsing. With includeData=true returns the base64 binary content via the top-level /TicketAttachments/{id} endpoint (the child endpoint never populates data). The attachment is verified to belong to the given ticketId. Oversized binaries are stripped from the response with a dataOmittedReason field — Autotask attachments can be up to 3 MB, which is ~4 MB as base64 and may exceed the MCP client tool-result limit (~1 MB).',
     inputSchema: {
       type: 'object',
       properties: {
         ticketId: {
           type: 'number',
-          description: 'The ticket ID'
+          description: 'The ticket ID the attachment belongs to'
         },
         attachmentId: {
           type: 'number',
@@ -1406,8 +1406,13 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         includeData: {
           type: 'boolean',
-          description: 'Whether to include base64 encoded file data (default: false)',
+          description: 'Set true to fetch the base64-encoded file bytes. Default false returns metadata only.',
           default: false
+        },
+        maxInlineBase64Bytes: {
+          type: 'number',
+          description: 'Cap on base64 string length before data is stripped (default 750_000, ~560 KB raw). Only relevant when includeData=true. Raise carefully — your MCP client may reject oversized tool results.',
+          minimum: 1024
         }
       },
       required: ['ticketId', 'attachmentId']

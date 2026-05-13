@@ -1119,7 +1119,15 @@ export class AutotaskToolHandler {
 
       // Attachments
       ['autotask_get_ticket_attachment', async (a) => {
-        const r = await s.getTicketAttachment(a.ticketId, a.attachmentId, a.includeData); return { result: r, message: 'Ticket attachment retrieved successfully' };
+        const r = await s.getTicketAttachment(a.ticketId, a.attachmentId, {
+          includeData: a.includeData,
+          maxInlineBase64Bytes: a.maxInlineBase64Bytes,
+        });
+        if (!r) return { result: null, message: `No ticket attachment found with ID ${a.attachmentId} on ticket ${a.ticketId}` };
+        const message = r.dataOmittedReason
+          ? `Ticket attachment retrieved (data omitted: oversized for inline transport)`
+          : 'Ticket attachment retrieved successfully';
+        return { result: r, message };
       }],
       ['autotask_search_ticket_attachments', async (a) => {
         const r = await s.searchTicketAttachments(a.ticketId, { pageSize: a.pageSize }); return { result: r, message: `Found ${r.length} ticket attachments` };

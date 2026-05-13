@@ -1314,17 +1314,69 @@ export class AutotaskService {
   // Ticket Attachments (child of Tickets)
   // =====================================================
 
+  // Default cap on inline attachment data (base64-encoded length). 750 KB of
+  // base64 ≈ 560 KB raw, leaving headroom for the JSON envelope under typical
+  // MCP client tool-result limits (~1 MB). Callable overrides via options.
+  private static readonly DEFAULT_MAX_INLINE_ATTACHMENT_BASE64 = 750_000;
+
   async getTicketAttachment(
     ticketId: number,
     attachmentId: number,
-    includeData: boolean = false
-  ): Promise<AutotaskTicketAttachment | null> {
+    options: { includeData?: boolean; maxInlineBase64Bytes?: number } = {}
+  ): Promise<(AutotaskTicketAttachment & { dataOmittedReason?: string }) | null> {
+    const includeData = options.includeData ?? false;
+    const maxInlineBase64Bytes =
+      options.maxInlineBase64Bytes ?? AutotaskService.DEFAULT_MAX_INLINE_ATTACHMENT_BASE64;
+
     const http = await this.ensureClient();
     try {
       this.logger.debug(
         `Getting ticket attachment - TicketID: ${ticketId}, AttachmentID: ${attachmentId}, includeData: ${includeData}`
       );
-      return await http.childGet<AutotaskTicketAttachment>('Tickets', ticketId, 'Attachments', attachmentId);
+
+      if (!includeData) {
+        // The child endpoint never populates the `data` field — using it for
+        // the metadata-only path sidesteps the binary download entirely.
+        return await http.childGet<AutotaskTicketAttachment>(
+          'Tickets',
+          ticketId,
+          'Attachments',
+          attachmentId
+        );
+      }
+
+      // Only the top-level entity endpoint populates `data`; the child endpoint
+      // omits it regardless of any query parameters.
+      const attachment = await http.get<AutotaskTicketAttachment>('TicketAttachments', attachmentId);
+      if (!attachment) return null;
+
+      // The top-level endpoint accepts any attachment ID, so we have to enforce
+      // parent scope ourselves to honor the (ticketId, attachmentId) contract.
+      if (typeof attachment.ticketID === 'number' && attachment.ticketID !== ticketId) {
+        this.logger.warn(
+          `Ticket attachment ${attachmentId} belongs to ticket ${attachment.ticketID}, not ${ticketId}. Returning null.`
+        );
+        return null;
+      }
+
+      // Oversized binaries arrive truncated/garbled at the MCP client. Strip
+      // and surface a reason so the caller knows to fetch out-of-band rather
+      // than wondering why the response is broken.
+      if (typeof attachment.data === 'string' && attachment.data.length > maxInlineBase64Bytes) {
+        const decodedBytes = Buffer.byteLength(attachment.data, 'base64');
+        const reason =
+          `Attachment data omitted: base64 length ${attachment.data.length} bytes ` +
+          `(${decodedBytes} bytes decoded) exceeds inline limit of ${maxInlineBase64Bytes} bytes. ` +
+          `Fetch directly from Autotask, or call again with a larger maxInlineBase64Bytes (caveat: ` +
+          `the MCP client may reject the oversized response).`;
+        this.logger.warn(
+          `getTicketAttachment: stripping oversized data for attachment ${attachmentId} (${attachment.data.length} base64 bytes)`
+        );
+        const { data: _omitted, ...rest } = attachment;
+        return { ...rest, dataOmittedReason: reason };
+      }
+
+      return attachment;
     } catch (error) {
       this.logger.error(`Failed to get ticket attachment ${attachmentId} for ticket ${ticketId}:`, error);
       throw error;
