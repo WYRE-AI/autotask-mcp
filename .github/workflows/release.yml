@@ -201,49 +201,17 @@ jobs:
           sarif_file: 'trivy-results.sarif'
   deploy:
     name: Deploy to Azure Container Apps
-    runs-on: ubuntu-latest
     needs: [release, docker]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    environment: production
-    permissions:
-      id-token: write
-      contents: read
-    env:
-      # gwp-autotask is the ACA the wyre-mcp-gateway actually proxies to
-      # (see VENDOR_URL_AUTOTASK=http://gwp-autotask on the gateway).
-      # The older `mcpgw-prod-autotask` ACA still exists but is orphaned —
-      # nothing in the gateway env references it. Targeting only gwp-autotask
-      # is the source-of-truth deploy target.
-      TARGET_ACA: gwp-autotask
-      RESOURCE_GROUP: mcp-gateway-prod
-      # Deploy by digest, not :latest. `:latest` is mutable and can be
-      # cached stale at the GHCR edge or by ACA's image-pull layer, causing
-      # a deploy to "succeed" while actually rolling onto the prior image.
-      IMAGE_DIGEST: ${{ needs.docker.outputs.digest }}
-      RELEASE_VERSION: ${{ needs.release.outputs.version }}
-    steps:
-      - name: Azure login (OIDC)
-        uses: azure/login@a457da9ea143d694b1b9c7c869ebb04ebe844ef5  # v2.3.0
-        with:
-          client-id: ${{ secrets.AZURE_CLIENT_ID }}
-          tenant-id: ${{ secrets.AZURE_TENANT_ID }}
-          subscription-id: ${{ secrets.AZURE_SUBSCRIPTION_ID }}
-
-      - name: Deploy to Azure Container Apps
-        run: |
-          set -euo pipefail
-          SHORT_SHA="${GITHUB_SHA::7}"
-          if [ -z "${IMAGE_DIGEST}" ]; then
-            echo "ERROR: needs.docker.outputs.digest is empty — refusing to deploy by mutable :latest tag" >&2
-            exit 1
-          fi
-          IMAGE="ghcr.io/${GITHUB_REPOSITORY}@${IMAGE_DIGEST}"
-          echo "Deploying $IMAGE to ${TARGET_ACA} (release v${RELEASE_VERSION}, sha ${SHORT_SHA}, run ${GITHUB_RUN_ID})"
-          az containerapp update \
-            --name "${TARGET_ACA}" \
-            --resource-group "${RESOURCE_GROUP}" \
-            --image "$IMAGE" \
-            --set-env-vars "IMAGE_VERSION=v${RELEASE_VERSION}-sha-${SHORT_SHA}-${GITHUB_RUN_ID}"
+    # Delegates to the canonical reusable workflow so the digest-pinned + correct-ACA
+    # deploy logic lives in one place across every wyre-technology/*-mcp repo.
+    uses: wyre-technology/.github/.github/workflows/mcp-server-deploy.yml@c2d6fc89211757997102d100115d02997d4e3521
+    with:
+      vendor-slug: autotask
+      image-name: ghcr.io/wyre-technology/autotask-mcp
+      digest: ${{ needs.docker.outputs.digest }}
+      version: ${{ needs.release.outputs.version }}
+    secrets: inherit
 
   mcp-registry:
     name: Publish to MCP Registry
