@@ -160,6 +160,21 @@ describe('AutotaskService', () => {
       await expect(service.deleteTicketChecklistItem(123, 456)).rejects.toThrow();
     });
 
+    test('should expose ticket history methods and require ticketId for search', async () => {
+      const service = new AutotaskService(mockConfig, mockLogger);
+
+      expect(typeof service.getTicketHistory).toBe('function');
+      expect(typeof service.searchTicketHistory).toBe('function');
+
+      // Friendly guard fires before any HTTP attempt — verifies we don't leak
+      // a generic 400 from Autotask when the caller forgets ticketId.
+      await expect(service.searchTicketHistory({})).rejects.toThrow(/ticketId is required/);
+
+      // With the mocked client failing to initialize, real calls should reject.
+      await expect(service.getTicketHistory(456)).rejects.toThrow();
+      await expect(service.searchTicketHistory({ ticketId: 123 })).rejects.toThrow();
+    });
+
     test('should handle attachment methods with proper error messages', async () => {
       const service = new AutotaskService(mockConfig, mockLogger);
 

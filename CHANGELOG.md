@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Ticket history audit-trail tools** (`autotask_get_ticket_history`, `autotask_search_ticket_history`). Exposes the Autotask `/TicketHistory` entity (GET-only) so callers can answer "when did this ticket transition from status X to status Y", "who changed the priority", etc. `search` requires a `ticketId` (Autotask does not support unscoped history queries) and fails fast with a friendly error before any network round-trip if it's missing. Surfaced via the `tickets` category bundle.
+
 ### Fixed
 
 - **`MappingService` company cache was silently truncated to 25 entries** — `refreshCompanyCache()` called `searchCompanies({})` assuming "no pageSize = fetch all pages", but the underlying `searchCompanies` defaults to `pageSize: 25, page: 1` and returns only the first page. The cache was then logged as `"COMPLETE dataset"`, which was incorrect.

@@ -797,6 +797,42 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     }
   },
 
+  // Ticket History tools (read-only audit trail of field changes)
+  {
+    name: 'autotask_get_ticket_history',
+    description: 'Get a single ticket history entry by ID. Each entry records one audited change to a ticket field (who, when, before/after).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        historyId: {
+          type: 'number',
+          description: 'The ticket history entry ID to retrieve'
+        }
+      },
+      required: ['historyId']
+    }
+  },
+  {
+    name: 'autotask_search_ticket_history',
+    description: 'Get the audit trail of field changes for a ticket (status transitions, assignment changes, priority edits, etc.). Use this to answer questions like "when did this ticket move from In Progress to Waiting Customer" or "who changed the priority". Returns entries ordered by Autotask; sort/filter client-side if needed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: {
+          type: 'number',
+          description: 'The ticket ID to get history for (required — Autotask does not support unscoped history queries)'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Number of history entries to return (default: 50, max: 500)',
+          minimum: 1,
+          maximum: 500
+        }
+      },
+      required: ['ticketId']
+    }
+  },
+
   // Time entry tools
   {
     name: 'autotask_create_time_entry',
@@ -3003,8 +3039,8 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
     tools: ['autotask_search_contacts', 'autotask_create_contact']
   },
   tickets: {
-    description: 'Search, create, update tickets and manage ticket notes, attachments, and charges',
-    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge']
+    description: 'Search, create, update tickets and manage ticket notes, attachments, charges, and audit history',
+    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
   },
   projects: {
     description: 'Search and create projects, tasks, phases, and project notes',

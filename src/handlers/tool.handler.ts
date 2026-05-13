@@ -853,6 +853,17 @@ export class AutotaskToolHandler {
         return { result: a.chargeId, message: `Successfully deleted ticket charge ${a.chargeId}` };
       }],
 
+      // Ticket History (read-only audit trail)
+      ['autotask_get_ticket_history', async (a) => {
+        const r = await s.getTicketHistory(a.historyId);
+        if (!r) return { result: null, message: `No ticket history entry found with ID ${a.historyId}` };
+        return { result: r, message: 'Ticket history entry retrieved successfully' };
+      }],
+      ['autotask_search_ticket_history', async (a) => {
+        const r = await s.searchTicketHistory({ ticketId: a.ticketId, pageSize: a.pageSize });
+        return { result: r, message: `Found ${r.length} ticket history entries for ticket ${a.ticketId}` };
+      }],
+
       // Service Calls
       ['autotask_get_service_call', async (a) => {
         const r = await s.getServiceCall(a.serviceCallId);

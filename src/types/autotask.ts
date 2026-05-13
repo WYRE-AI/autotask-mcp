@@ -227,6 +227,17 @@ export interface AutotaskTicketChecklistItem {
   [key: string]: any;
 }
 
+// Read-only entity (GET only). Each row represents a single audited change to a
+// ticket field — value-before, value-after, who, when. Surface is intentionally
+// open-ended because Autotask returns a wide, picklist-dependent field set.
+export interface AutotaskTicketHistory {
+  id?: number;
+  ticketID?: number;
+  resourceID?: number;
+  dateChanged?: string;
+  [key: string]: any;
+}
+
 export interface AutotaskProjectNote {
   id?: number;
   projectID?: number;

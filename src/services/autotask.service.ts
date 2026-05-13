@@ -40,6 +40,7 @@ import {
   AutotaskBillingItem,
   AutotaskBillingItemApprovalLevel,
   AutotaskTicketCharge,
+  AutotaskTicketHistory,
   AutotaskServiceCall,
   AutotaskServiceCallTicket,
   AutotaskServiceCallTicketResource,
@@ -476,6 +477,45 @@ export class AutotaskService {
       this.logger.info(`Ticket charge ${chargeId} deleted successfully`);
     } catch (error) {
       this.logger.error(`Failed to delete ticket charge ${chargeId}:`, error);
+      throw error;
+    }
+  }
+
+  // =====================================================
+  // Ticket History (read-only audit trail of field changes)
+  // =====================================================
+
+  async getTicketHistory(id: number): Promise<AutotaskTicketHistory | null> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Getting ticket history entry with ID: ${id}`);
+      return await http.get<AutotaskTicketHistory>('TicketHistory', id);
+    } catch (error) {
+      this.logger.error(`Failed to get ticket history entry ${id}:`, error);
+      throw error;
+    }
+  }
+
+  async searchTicketHistory(options: AutotaskQueryOptionsExtended & { ticketId?: number } = {}): Promise<AutotaskTicketHistory[]> {
+    // Autotask requires a ticketID filter for TicketHistory queries — surface
+    // a friendly error instead of letting the API reject with a generic 400.
+    // Guard before ensureClient() so callers fail fast without a network round-trip.
+    if (!options.ticketId) {
+      throw new Error('ticketId is required to search ticket history');
+    }
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Searching ticket history with options:', options);
+      const filters: QueryFilter[] = [
+        { op: 'eq', field: 'ticketID', value: options.ticketId },
+      ];
+      return await http.query<AutotaskTicketHistory>(
+        'TicketHistory',
+        filters,
+        { maxRecords: Math.min(options.pageSize || 50, 500) }
+      );
+    } catch (error) {
+      this.logger.error('Failed to search ticket history:', error);
       throw error;
     }
   }
