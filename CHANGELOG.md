@@ -6,6 +6,13 @@
 
 ### Fixed
 
+- **`serverInfo.version` reported hardcoded `"1.0.0"` regardless of the running release** ([#94](https://github.com/wyre-technology/autotask-mcp/issues/94)). Both `src/utils/config.ts` and `src/mcp/server.ts` fell back to a literal `'1.0.0'` string instead of the actual build version. Effect: every release through `v2.x.x` reported `1.0.0` in the MCP `initialize` handshake. Clients that surface `serverInfo.version` (Claude Code's `claude mcp list`, etc.) showed `1.0.0` regardless of which image was actually running, making operator triage / bug-report attribution unreliable.
+  - Fix:
+    - Both fallback chains now read from the bundled `package.json` (TypeScript's `resolveJsonModule` was already enabled). Priority order: `MCP_SERVER_VERSION env > packageJson.version > 'unknown'`.
+    - The Dockerfile patches `package.json`'s `version` field at build time using the existing `VERSION` build arg before `npm run build`. This is necessary because branch protection silently drops `@semantic-release/git`'s push-back on this repo — `package.json` on `main` stays stale, so the release pipeline has to inject the real version at image-build time. Local builds (where `VERSION="unknown"`) skip the patch so the checked-in `package.json` version is preserved.
+    - Production stage now copies `package.json` from the builder (with the patch) rather than the build context.
+  - `/health` endpoint now includes a `version` field so operators can `curl` for the running build without going through the MCP handshake.
+
 - **`searchCompanies` silently dropped the `page` parameter** ([#101](https://github.com/wyre-technology/autotask-mcp/issues/101)). The method's `AutotaskQueryOptions` interface accepts `page`, but the implementation only forwarded `pageSize` to `http.query` — every call returned the first page regardless. `MappingService.refreshCompanyCache` looped 1..100 expecting offset pagination, hammered the same page 100×, and ended up with at most 200 companies cached after burning ~100 pagination API calls.
   - Effect: every tool call hung ~80s on first invocation (and every 30 min on TTL expiry) while the broken loop ran. On tenants with more than 200 companies, IDs past the first page fell through to single-record `getCompany(id)` direct-get. Symptom from the user side: `autotask_test_connection`, `autotask_search_companies` etc. hung on first call; only meta-tools worked.
   - Fix:

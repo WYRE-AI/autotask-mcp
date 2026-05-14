@@ -49,3 +49,4 @@ dev-debug.log
 # tasks/ 
 *.mcpb
 .mcpb-staging/
+.claude/

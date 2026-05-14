@@ -19,6 +19,23 @@ RUN npm ci --ignore-scripts
 # Copy source code
 COPY . .
 
+# Bake the release VERSION (from the docker build-args) into package.json
+# before `npm run build`. The runtime reads version from `import packageJson`
+# (see src/utils/config.ts), so this is what ends up in serverInfo.version and
+# the /health response. Necessary because @semantic-release/git's push-back to
+# main is silently dropped by branch protection on this repo — package.json on
+# main stays stale, so the release pipeline has to inject the real version at
+# image-build time.
+#
+# Deliberately placed AFTER `npm ci` so the (expensive) dependency install
+# layer stays cached across releases; only the build step is invalidated when
+# VERSION changes. Skipped when VERSION="unknown" (local dev builds) so we
+# don't clobber the checked-in version with a placeholder.
+RUN if [ "${VERSION}" != "unknown" ]; then \
+      npm pkg set version="${VERSION}" && \
+      echo "Patched package.json version → ${VERSION}"; \
+    fi
+
 # Build the application
 RUN npm run build
 
@@ -32,8 +49,10 @@ RUN addgroup -g 1001 -S autotask && \
 # Set working directory
 WORKDIR /app
 
-# Copy package files and built application from builder stage
-COPY package*.json ./
+# Copy package files and built application from builder stage. package.json
+# comes from the builder so it carries the VERSION patch applied above (not
+# the stale on-disk version from the build context).
+COPY --from=builder /app/package*.json ./
 COPY --from=builder /app/dist ./dist
 COPY --from=builder /app/node_modules ./node_modules
 

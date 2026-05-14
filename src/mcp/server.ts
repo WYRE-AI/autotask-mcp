@@ -19,7 +19,7 @@ import {
 import { AutotaskService } from '../services/autotask.service.js';
 import { Logger } from '../utils/logger.js';
 import { McpServerConfig } from '../types/mcp.js';
-import { EnvironmentConfig, parseCredentialsFromHeaders, GatewayCredentials } from '../utils/config.js';
+import { EnvironmentConfig, parseCredentialsFromHeaders, GatewayCredentials, getServerVersion } from '../utils/config.js';
 import { AutotaskResourceHandler } from '../handlers/resource.handler.js';
 import { AutotaskToolHandler } from '../handlers/tool.handler.js';
 import { registerPromptHandlers } from './prompts.js';
@@ -117,7 +117,7 @@ export class AutotaskMcpServer {
 
     const requestConfig: McpServerConfig = {
       name: this.envConfig?.server?.name || 'autotask-mcp',
-      version: this.envConfig?.server?.version || '1.0.0',
+      version: getServerVersion(this.envConfig?.server?.version),
       autotask: autotaskConfig,
     };
 
@@ -270,8 +270,11 @@ export class AutotaskMcpServer {
         // `mcpTransport` (not `transport`) to avoid confusion with the network
         // scheme — the value refers to the MCP transport type (stdio vs
         // Streamable HTTP), not whether the service is served over HTTP/HTTPS.
+        // `version` is included so operators can curl-check which build is
+        // running without going through the MCP handshake.
         res.end(JSON.stringify({
           status: 'ok',
+          version: getServerVersion(this.envConfig?.server?.version),
           mcpTransport: 'http',
           authMode: isGatewayMode ? 'gateway' : 'env',
           timestamp: new Date().toISOString()

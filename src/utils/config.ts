@@ -4,6 +4,23 @@
 
 import { McpServerConfig } from '../types/mcp.js';
 import { LogLevel } from './logger.js';
+// `resolveJsonModule` is enabled in tsconfig. We read package.json so the
+// runtime can report its actual built version in the MCP initialize handshake
+// and the /health endpoint. The Dockerfile patches this file's `version` field
+// with the release VERSION build arg before `npm run build`, so the published
+// image always carries the real release version even though branch protection
+// blocks @semantic-release/git from pushing version bumps back to main.
+import packageJson from '../../package.json';
+
+/**
+ * Resolve the running server version. Single source of truth for both the
+ * `serverInfo.version` MCP handshake value and the `/health` response.
+ * Priority: explicit override > package.json (patched at Docker build time
+ * with the release version) > 'unknown'.
+ */
+export function getServerVersion(override?: string): string {
+  return override || packageJson.version || 'unknown';
+}
 
 export type TransportType = 'stdio' | 'http';
 export type AuthMode = 'env' | 'gateway';
@@ -117,7 +134,7 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     autotask: autotaskConfig,
     server: {
       name: process.env.MCP_SERVER_NAME || 'autotask-mcp',
-      version: process.env.MCP_SERVER_VERSION || '1.0.0'
+      version: getServerVersion(process.env.MCP_SERVER_VERSION)
     },
     transport: {
       type: transportType,
@@ -302,7 +319,7 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
   AUTOTASK_API_URL         - Autotask API base URL (auto-detected if not provided)
   AUTH_MODE                - Authentication mode: env (default), gateway
   MCP_SERVER_NAME          - Server name (default: autotask-mcp)
-  MCP_SERVER_VERSION       - Server version (default: 1.0.0)
+  MCP_SERVER_VERSION       - Override the reported server version. Defaults to the version baked into the image's package.json at build time. Useful for stamping a custom build identifier.
   MCP_TRANSPORT            - Transport type: stdio, http (default: stdio)
   MCP_HTTP_PORT            - HTTP port when using http transport (default: 8080)
   MCP_HTTP_HOST            - HTTP host when using http transport (default: 0.0.0.0)
