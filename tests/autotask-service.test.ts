@@ -568,6 +568,46 @@ describe('AutotaskService', () => {
 
     // ---- Company search pagination (regression: issue #101) ----
 
+    test('searchCompanies defaults to page 1 / pageSize 25 when called with no args', async () => {
+      // Closes the patch-coverage gap on the new `Math.max(1, options.page || 1)`
+      // line: the truthy-page path is exercised by the test below; this covers
+      // the default-page fallback. Also exercises the falsy-pageSize fallback
+      // for completeness.
+      let capturedMaxRecords: number | undefined;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        const body = JSON.parse(init!.body as string);
+        capturedMaxRecords = body.MaxRecords;
+        return jsonResponse({
+          items: Array.from({ length: 25 }, (_, i) => ({ id: i + 1, companyName: `Co ${i + 1}` })),
+          pageDetails: { nextPageUrl: null },
+        });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const result = await service.searchCompanies();
+
+      // page=1, pageSize=25 (defaults) → targetEnd=25, slice(0, 25)
+      expect(result).toHaveLength(25);
+      expect(result[0].id).toBe(1);
+      expect(capturedMaxRecords).toBe(25);
+    });
+
+    test('searchCompanies applies searchTerm and isActive filters', async () => {
+      // Covers the filter-building branches on lines 134/137, plus the
+      // `filters.length > 0 ? filters : MATCH_ALL` ternary truthy path.
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchCompanies({ searchTerm: 'Acme', isActive: true });
+
+      expect(capturedFilters).toContainEqual({ op: 'contains', field: 'companyName', value: 'Acme' });
+      expect(capturedFilters).toContainEqual({ op: 'eq', field: 'isActive', value: true });
+    });
+
     test('searchCompanies honors page by slicing over http.query cursor pagination', async () => {
       // Simulate a tenant whose /Companies/query endpoint returns:
       //   - first POST  → 200 items + nextPageUrl
