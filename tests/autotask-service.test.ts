@@ -565,5 +565,125 @@ describe('AutotaskService', () => {
 
       expect(capturedBody.filter).toContainEqual({ op: 'exist', field: 'invoiceID' });
     });
+
+    // ---- Company search pagination (regression: issue #101) ----
+
+    test('searchCompanies honors page by slicing over http.query cursor pagination', async () => {
+      // Simulate a tenant whose /Companies/query endpoint returns:
+      //   - first POST  → 200 items + nextPageUrl
+      //   - second GET  → 200 items + nextPageUrl
+      //   - third GET   → 100 items, no nextPage
+      const totalRecords = 500;
+      const buildBatch = (start: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          id: start + i,
+          companyName: `Company ${start + i}`,
+        }));
+      let callIndex = 0;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && url === `${BASE}/Companies/query`) {
+          callIndex = 1;
+          return jsonResponse({
+            items: buildBatch(1, 200),
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
+          });
+        }
+        if (method === 'GET' && url.includes('Companies/query?page=2')) {
+          callIndex = 2;
+          return jsonResponse({
+            items: buildBatch(201, 200),
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=3` },
+          });
+        }
+        if (method === 'GET' && url.includes('Companies/query?page=3')) {
+          callIndex = 3;
+          return jsonResponse({
+            items: buildBatch(401, 100),
+            pageDetails: { nextPageUrl: null },
+          });
+        }
+        throw new Error(`unexpected fetch ${method} ${url}`);
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+
+      // page 2, pageSize 200 → callers expect IDs 201..400.
+      const result = await service.searchCompanies({ page: 2, pageSize: 200 });
+      expect(result).toHaveLength(200);
+      expect(result[0].id).toBe(201);
+      expect(result[result.length - 1].id).toBe(400);
+      // http.query walked the cursor 2× (enough for the target slice), not all 3 pages.
+      expect(callIndex).toBeGreaterThanOrEqual(2);
+      void totalRecords;
+    });
+
+    test('listAllCompanies returns every record across all pages without slicing', async () => {
+      // Same 3-page tenant as above — listAllCompanies should return all 500.
+      const buildBatch = (start: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          id: start + i,
+          companyName: `Company ${start + i}`,
+        }));
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && url === `${BASE}/Companies/query`) {
+          return jsonResponse({
+            items: buildBatch(1, 200),
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
+          });
+        }
+        if (method === 'GET' && url.includes('Companies/query?page=2')) {
+          return jsonResponse({
+            items: buildBatch(201, 200),
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=3` },
+          });
+        }
+        if (method === 'GET' && url.includes('Companies/query?page=3')) {
+          return jsonResponse({
+            items: buildBatch(401, 100),
+            pageDetails: { nextPageUrl: null },
+          });
+        }
+        throw new Error(`unexpected fetch ${method} ${url}`);
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const all = await service.listAllCompanies();
+      expect(all).toHaveLength(500);
+      expect(all[0].id).toBe(1);
+      expect(all[499].id).toBe(500);
+    });
+
+    test('listAllCompanies warns and returns when maxRecords cap is hit', async () => {
+      const buildBatch = (start: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          id: start + i,
+          companyName: `Company ${start + i}`,
+        }));
+      // Endless cursor — every page returns 200 + a next link. Without the cap
+      // we'd loop forever; the cap forces termination.
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        const m = url.match(/page=(\d+)/);
+        const page = m ? parseInt(m[1], 10) : 1;
+        return jsonResponse({
+          items: buildBatch((page - 1) * 200 + 1, 200),
+          pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=${page + 1}` },
+        });
+        void method;
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const warnSpy = jest.spyOn(mockLogger, 'warn');
+      const all = await service.listAllCompanies(400);
+
+      expect(all).toHaveLength(400);
+      expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('hit maxRecords cap'));
+      warnSpy.mockRestore();
+    });
   });
 });

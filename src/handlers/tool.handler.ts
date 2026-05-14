@@ -89,7 +89,9 @@ export class AutotaskToolHandler {
 
   private async getMappingService(): Promise<MappingService> {
     if (!this.mappingService) {
-      this.mappingService = await MappingService.getInstance(this.autotaskService, this.logger);
+      this.mappingService = await MappingService.getInstance(this.autotaskService, this.logger, {
+        lazyLoading: this.lazyLoading,
+      });
     }
     return this.mappingService;
   }

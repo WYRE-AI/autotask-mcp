@@ -138,19 +138,53 @@ export class AutotaskService {
         filters.push({ op: 'eq', field: 'isActive', value: options.isActive });
       }
 
+      const page = Math.max(1, options.page || 1);
       const pageSize = Math.min(options.pageSize || 25, 200);
-      const companies = await http.query<AutotaskCompany>(
+      // Autotask's REST API paginates by cursor (nextPageUrl), not offset, and
+      // http.query walks cursors transparently until it hits maxRecords. To
+      // honor a caller's `page` argument we have to fetch up to (page*pageSize)
+      // records and slice. Wasteful at high page numbers but the only way to
+      // give offset-style semantics on top of a cursor API.
+      const targetEnd = page * pageSize;
+      const fetched = await http.query<AutotaskCompany>(
         'Companies',
         filters.length > 0 ? filters : MATCH_ALL,
-        { maxRecords: pageSize }
+        { maxRecords: targetEnd }
       );
+      const start = (page - 1) * pageSize;
+      const companies = fetched.slice(start, targetEnd);
 
-      this.logger.info(`Retrieved ${companies.length} companies (pageSize ${pageSize})`);
+      this.logger.info(
+        `Retrieved ${companies.length} companies (page ${page}, pageSize ${pageSize}, fetched ${fetched.length} to slice)`
+      );
       return companies;
     } catch (error) {
       this.logger.error('Failed to search companies:', error);
       throw error;
     }
+  }
+
+  /**
+   * Bulk-load every company in the tenant, intended for cache pre-warm paths
+   * like `MappingService.refreshCompanyCache`. Distinct from `searchCompanies`
+   * because: (a) we don't want a small default pageSize, (b) we don't want any
+   * filtering, (c) we don't want offset-style slicing. `http.query` walks
+   * `pageDetails.nextPageUrl` transparently until either all records are
+   * fetched or `maxRecords` is hit.
+   *
+   * The hard cap of 20_000 is a tenant-size safety net — anything beyond that
+   * suggests the cache pre-warm is the wrong tool. Logs a warning if hit.
+   */
+  async listAllCompanies(maxRecords: number = 20_000): Promise<AutotaskCompany[]> {
+    const http = await this.ensureClient();
+    const companies = await http.query<AutotaskCompany>('Companies', MATCH_ALL, { maxRecords });
+    if (companies.length === maxRecords) {
+      this.logger.warn(
+        `listAllCompanies: hit maxRecords cap (${maxRecords}). Some companies may be missing from downstream consumers (cache pre-warm, etc.).`
+      );
+    }
+    this.logger.info(`Retrieved ${companies.length} companies via listAllCompanies`);
+    return companies;
   }
 
   async createCompany(company: Partial<AutotaskCompany>): Promise<number> {

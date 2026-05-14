@@ -30,11 +30,20 @@ export class MappingService {
   private autotaskService: AutotaskService;
   private logger: Logger;
   private cacheExpiryMs: number;
+  // When true, skip the eager pre-warm and rely on per-ID direct-get fallbacks.
+  // Wired from the LAZY_LOADING env var via MappingService.getInstance().
+  private lazyLoading: boolean;
 
-  private constructor(autotaskService: AutotaskService, logger: Logger, cacheExpiryMs: number = 30 * 60 * 1000) { // 30 minutes default
+  private constructor(
+    autotaskService: AutotaskService,
+    logger: Logger,
+    cacheExpiryMs: number = 30 * 60 * 1000,
+    lazyLoading: boolean = false,
+  ) { // 30 minutes default
     this.autotaskService = autotaskService;
     this.logger = logger;
     this.cacheExpiryMs = cacheExpiryMs;
+    this.lazyLoading = lazyLoading;
     this.cache = {
       companies: new Map<number, string>(),
       resources: new Map<number, string>(),
@@ -48,10 +57,19 @@ export class MappingService {
   /**
    * Get singleton instance (concurrent calls share the same initialization promise)
    */
-  public static async getInstance(autotaskService: AutotaskService, logger: Logger): Promise<MappingService> {
+  public static async getInstance(
+    autotaskService: AutotaskService,
+    logger: Logger,
+    options: { lazyLoading?: boolean } = {},
+  ): Promise<MappingService> {
     if (!MappingService.initPromise) {
       MappingService.initPromise = (async () => {
-        const instance = new MappingService(autotaskService, logger);
+        const instance = new MappingService(
+          autotaskService,
+          logger,
+          undefined,
+          options.lazyLoading,
+        );
         await instance.initializeCache();
         return instance;
       })();
@@ -60,9 +78,18 @@ export class MappingService {
   }
 
   /**
-   * Initialize cache with company and resource data
+   * Initialize cache with company and resource data. When `lazyLoading` is set,
+   * skip the eager pre-warm entirely — the cache stays empty and every
+   * `getCompanyName()` / `getResourceName()` call falls through to the
+   * per-record direct-get path. Cheaper at startup, more expensive per call.
    */
   private async initializeCache(): Promise<void> {
+    if (this.lazyLoading) {
+      this.logger.info(
+        'MappingService: LAZY_LOADING enabled — skipping cache pre-warm. ID-to-name lookups will hit the API per record.'
+      );
+      return;
+    }
     if (this.isCacheValid('companies') && this.isCacheValid('resources')) {
       return;
     }
@@ -99,6 +126,7 @@ export class MappingService {
    * callers internally via refreshCompanyPromise / refreshResourcePromise.
    */
   private async refreshCacheIfNeeded(): Promise<void> {
+    if (this.lazyLoading) return;
     const promises: Promise<void>[] = [];
     if (!this.isCacheValid('companies')) promises.push(this.refreshCompanyCache());
     if (!this.isCacheValid('resources')) promises.push(this.refreshResourceCache());
@@ -192,41 +220,29 @@ export class MappingService {
       try {
         this.logger.info('Refreshing company cache...');
 
-        // Walk every page of /Companies to build the cache. The previous
-        // implementation called searchCompanies({}) and assumed "no pageSize =
-        // fetch all", but searchCompanies actually defaults to pageSize 25 and
-        // returns only the first page — meaning the cache silently contained
-        // only ~25 companies. That caused getCompanyName() to fall through to
-        // direct-get for every other ID, and direct-get has been observed to
-        // return incorrect names for some companies (see CHANGELOG). Build
-        // the full cache in a fresh map and atomic-swap so a partial failure
-        // never replaces a good cache with a shorter one.
-        const pageSize = 200; // Autotask per-page cap per autotask.service.ts
+        // Bulk-load every company via the dedicated listAllCompanies path.
+        // http.query walks Autotask's cursor (pageDetails.nextPageUrl)
+        // internally until it hits maxRecords or runs out of pages. The
+        // previous implementation looped on `searchCompanies({ page, pageSize })`
+        // expecting offset semantics, but searchCompanies' `page` arg was
+        // silently dropped — every iteration re-fetched the same page 1.
+        // Cache ended up with the first ~200 companies after ~100 wasted
+        // API calls (see issue #101).
+        //
+        // Atomic-swap: build a fresh Map and only assign on full success,
+        // so a partial failure can't replace a good cache with a shorter one.
         const fresh = new Map<number, string>();
-        let page = 1;
-        const maxPages = 100; // hard safety stop: 20k companies
-
-        while (page <= maxPages) {
-          const batch = await this.autotaskService.searchCompanies({ page, pageSize });
-          for (const company of batch) {
-            if (company.id != null && company.companyName) {
-              fresh.set(company.id, company.companyName);
-            }
+        const all = await this.autotaskService.listAllCompanies();
+        for (const company of all) {
+          if (company.id != null && company.companyName) {
+            fresh.set(company.id, company.companyName);
           }
-          if (batch.length < pageSize) break;
-          page += 1;
-        }
-
-        if (page > maxPages) {
-          this.logger.warn(
-            `Company pagination hit safety cap (${maxPages} pages of ${pageSize}). Cache may be incomplete.`
-          );
         }
 
         this.cache.companies = fresh;
         this.cache.lastUpdated.companies = new Date();
         this.logger.info(
-          `Company cache refreshed with ${this.cache.companies.size} entries across ${page} page(s)`
+          `Company cache refreshed with ${this.cache.companies.size} entries`
         );
 
       } catch (error) {

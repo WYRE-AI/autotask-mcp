@@ -14,10 +14,14 @@ const mockLogger = new Logger('error');
 
 function createMockAutotaskService(): jest.Mocked<AutotaskService> {
   return {
-    searchCompanies: jest.fn().mockResolvedValue([
+    // listAllCompanies is the bulk-load path used by MappingService for the
+    // company cache pre-warm. searchCompanies (the tool-facing API) is no
+    // longer consulted by MappingService — see refreshCompanyCache().
+    listAllCompanies: jest.fn().mockResolvedValue([
       { id: 1, companyName: 'Acme Corp' },
       { id: 2, companyName: 'Widget Inc' },
     ]),
+    searchCompanies: jest.fn(),
     searchResources: jest.fn().mockResolvedValue([
       { id: 10, firstName: 'John', lastName: 'Doe' },
       { id: 20, firstName: 'Jane', lastName: 'Smith' },
@@ -51,8 +55,16 @@ describe('MappingService', () => {
 
     it('should initialize cache on creation', async () => {
       await MappingService.getInstance(mockService, mockLogger);
-      expect(mockService.searchCompanies).toHaveBeenCalled();
+      expect(mockService.listAllCompanies).toHaveBeenCalled();
       expect(mockService.searchResources).toHaveBeenCalled();
+    });
+
+    it('should NOT pre-warm cache when lazyLoading is enabled', async () => {
+      await MappingService.getInstance(mockService, mockLogger, { lazyLoading: true });
+      // Both cache-fill paths should be skipped entirely — neither
+      // listAllCompanies nor searchResources should fire.
+      expect(mockService.listAllCompanies).not.toHaveBeenCalled();
+      expect(mockService.searchResources).not.toHaveBeenCalled();
     });
   });
 
@@ -64,10 +76,28 @@ describe('MappingService', () => {
     });
 
     it('should return null for unknown company ID', async () => {
-      mockService.searchCompanies.mockResolvedValueOnce([]);
+      mockService.listAllCompanies.mockResolvedValueOnce([]);
       const instance = await MappingService.getInstance(mockService, mockLogger);
       const name = await instance.getCompanyName(999);
       expect(name).toBeNull();
+    });
+
+    it('should hit direct-get on every call when lazyLoading skips pre-warm', async () => {
+      // With the cache intentionally empty, getCompanyName must fall through
+      // to the per-ID direct-get path and consult it on every call (since
+      // direct-get results aren't written back to the cache).
+      (mockService as any).getCompany = jest
+        .fn()
+        .mockResolvedValue({ id: 42, companyName: 'Lazy Lookup Co' });
+      const instance = await MappingService.getInstance(mockService, mockLogger, {
+        lazyLoading: true,
+      });
+
+      const first = await instance.getCompanyName(42);
+      const second = await instance.getCompanyName(42);
+      expect(first).toBe('Lazy Lookup Co');
+      expect(second).toBe('Lazy Lookup Co');
+      expect((mockService as any).getCompany).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -117,48 +147,51 @@ describe('MappingService', () => {
     });
   });
 
-  describe('pagination', () => {
-    it('should paginate until all companies are fetched', async () => {
-      // Simulate a tenant with 250 companies — more than one page.
-      const page1 = Array.from({ length: 200 }, (_, i) => ({
+  describe('bulk-load company cache', () => {
+    // Cursor pagination is owned by http.query (covered in autotask-service
+    // tests). At this layer we only verify that MappingService receives the
+    // full result set from listAllCompanies — without re-asserting an outer
+    // pagination loop that no longer exists (issue #101).
+
+    it('should populate the cache with every company returned by listAllCompanies', async () => {
+      // Simulate a tenant with 250 companies — more than one underlying API
+      // page. http.query (inside listAllCompanies) walks Autotask's cursor
+      // internally and returns a single flat array.
+      const all = Array.from({ length: 250 }, (_, i) => ({
         id: i + 1,
         companyName: `Company ${i + 1}`,
       }));
-      const page2 = Array.from({ length: 50 }, (_, i) => ({
-        id: 200 + i + 1,
-        companyName: `Company ${200 + i + 1}`,
-      }));
-      mockService.searchCompanies
-        .mockResolvedValueOnce(page1 as any)
-        .mockResolvedValueOnce(page2 as any);
+      mockService.listAllCompanies.mockResolvedValueOnce(all as any);
 
       const instance = await MappingService.getInstance(mockService, mockLogger);
 
-      expect(mockService.searchCompanies).toHaveBeenCalledTimes(2);
-      expect(mockService.searchCompanies).toHaveBeenNthCalledWith(1, { page: 1, pageSize: 200 });
-      expect(mockService.searchCompanies).toHaveBeenNthCalledWith(2, { page: 2, pageSize: 200 });
+      expect(mockService.listAllCompanies).toHaveBeenCalledTimes(1);
 
-      // A company past the first page must be resolvable WITHOUT direct-lookup fallback.
+      // A company past the legacy first-page boundary must be resolvable
+      // WITHOUT direct-lookup fallback — proves no off-by-one truncation.
       const name = await instance.getCompanyName(207);
       expect(name).toBe('Company 207');
       expect((mockService as any).getCompany).toBeUndefined();
+
+      const stats = instance.getCacheStats();
+      expect(stats.companies.count).toBe(250);
     });
 
-    it('should stop paginating when a short page is returned', async () => {
-      mockService.searchCompanies.mockResolvedValueOnce([
+    it('should handle a single-page tenant cleanly', async () => {
+      mockService.listAllCompanies.mockResolvedValueOnce([
         { id: 1, companyName: 'Only Co' },
       ] as any);
 
       await MappingService.getInstance(mockService, mockLogger);
 
-      expect(mockService.searchCompanies).toHaveBeenCalledTimes(1);
+      expect(mockService.listAllCompanies).toHaveBeenCalledTimes(1);
     });
 
     it('should NOT cache results of the direct-lookup fallback (prevents stale-name poisoning)', async () => {
       // Tenant has one company; we ask for an ID not in that cache.
       // Simulates the real-world bug: direct-get returns a stale/wrong name
       // that previously got written to cache and served to every subsequent caller.
-      mockService.searchCompanies.mockResolvedValueOnce([
+      mockService.listAllCompanies.mockResolvedValueOnce([
         { id: 1, companyName: 'Acme Corp' },
       ] as any);
       (mockService as any).getCompany = jest
@@ -173,17 +206,17 @@ describe('MappingService', () => {
       expect(second).toBe('Stale Name From Direct Get');
 
       // The fallback MUST be consulted on every call (not cached) so that a
-      // later paginated refresh can correct the name without stale overrides.
+      // later cache refresh can correct the name without stale overrides.
       expect((mockService as any).getCompany).toHaveBeenCalledTimes(2);
 
       const stats = instance.getCacheStats();
-      expect(stats.companies.count).toBe(1); // Only the one real company from pagination
+      expect(stats.companies.count).toBe(1); // Only the one real company from listAllCompanies
     });
   });
 
   describe('error handling', () => {
-    it('should handle searchCompanies failure gracefully', async () => {
-      mockService.searchCompanies.mockRejectedValueOnce(new Error('API error'));
+    it('should handle listAllCompanies failure gracefully', async () => {
+      mockService.listAllCompanies.mockRejectedValueOnce(new Error('API error'));
       const instance = await MappingService.getInstance(mockService, mockLogger);
       // Should still be instantiated, just with empty company cache
       expect(instance).toBeInstanceOf(MappingService);
