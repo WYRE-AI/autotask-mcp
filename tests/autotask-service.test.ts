@@ -7,7 +7,7 @@ jest.mock('autotask-node', () => ({
   }
 }));
 
-import { AutotaskService } from '../src/services/autotask.service';
+import { AutotaskService, MATCH_ALL } from '../src/services/autotask.service';
 import { Logger } from '../src/utils/logger';
 import type { McpServerConfig } from '../src/types/mcp';
 
@@ -724,6 +724,125 @@ describe('AutotaskService', () => {
       expect(all).toHaveLength(400);
       expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining('hit maxRecords cap'));
       warnSpy.mockRestore();
+    });
+
+    // ---- search* filter translation (regression: issues #104, #105) ----
+    //
+    // Four search methods (Contracts, ConfigurationItems, Invoices, Tasks)
+    // previously accepted schema-shaped filter args (companyID, searchTerm,
+    // etc.) and silently dropped them, returning MATCH_ALL page-1 for every
+    // call. These tests mock fetch directly and assert the request body's
+    // `filter` array reflects the caller's intent.
+
+    // Captures the request body sent to /<entity>/query. Side-effect: assigns
+    // the per-suite `fetchSpy` so afterEach's restoreAllMocks still cleans up.
+    const captureFilter = (entity: string): (() => any) => {
+      let captured: any = null;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        if (url.endsWith(`/${entity}/query`)) {
+          captured = JSON.parse(init!.body as string);
+        }
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+      return () => captured;
+    };
+
+    test('searchContracts translates companyID, status, searchTerm', async () => {
+      const capture = captureFilter('Contracts');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchContracts({ companyID: 12345, status: 1, searchTerm: 'Managed' } as any);
+      const body = capture();
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'companyID', value: 12345 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'status', value: 1 });
+      expect(body.filter).toContainEqual({ op: 'contains', field: 'contractName', value: 'Managed' });
+    });
+
+    test('searchContracts with no filter args sends MATCH_ALL (no regression)', async () => {
+      const capture = captureFilter('Contracts');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchContracts({});
+      expect(capture().filter).toEqual(MATCH_ALL);
+    });
+
+    test('searchConfigurationItems translates companyID, isActive, productID, searchTerm', async () => {
+      const capture = captureFilter('ConfigurationItems');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchConfigurationItems({
+        companyID: 999,
+        isActive: true,
+        productID: 42,
+        searchTerm: 'laptop',
+      } as any);
+      const body = capture();
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'companyID', value: 999 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'isActive', value: true });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'productID', value: 42 });
+      expect(body.filter).toContainEqual({ op: 'contains', field: 'referenceTitle', value: 'laptop' });
+    });
+
+    test('searchInvoices translates companyID, invoiceNumber, isVoided', async () => {
+      const capture = captureFilter('Invoices');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchInvoices({
+        companyID: 12345,
+        invoiceNumber: 'INV-2024-001',
+        isVoided: false,
+      } as any);
+      const body = capture();
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'companyID', value: 12345 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'invoiceNumber', value: 'INV-2024-001' });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'isVoided', value: false });
+    });
+
+    test('searchTasks translates projectID, status, assignedResourceID, searchTerm', async () => {
+      const capture = captureFilter('Tasks');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchTasks({
+        projectID: 100,
+        status: 2,
+        assignedResourceID: 29744150,
+        searchTerm: 'deploy',
+      } as any);
+      const body = capture();
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'projectID', value: 100 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'status', value: 2 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'assignedResourceID', value: 29744150 });
+      expect(body.filter).toContainEqual({ op: 'contains', field: 'title', value: 'deploy' });
+    });
+
+    test('searchTasks honors page via slice-and-dice (same pattern as #101 searchCompanies fix)', async () => {
+      // Mock cursor: page 1 returns 25 items (IDs 1-25) + nextPageUrl, page 2 returns 25 (IDs 26-50).
+      const buildBatch = (start: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          id: start + i,
+          title: `Task ${start + i}`,
+        }));
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && url === `${BASE}/Tasks/query`) {
+          return jsonResponse({
+            items: buildBatch(1, 25),
+            pageDetails: { nextPageUrl: `${BASE}/Tasks/query?page=2` },
+          });
+        }
+        if (method === 'GET' && url.includes('Tasks/query?page=2')) {
+          return jsonResponse({
+            items: buildBatch(26, 25),
+            pageDetails: { nextPageUrl: null },
+          });
+        }
+        throw new Error(`unexpected fetch ${method} ${url}`);
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const result = await service.searchTasks({ page: 2, pageSize: 25 } as any);
+
+      // page=2 with pageSize=25 → targetEnd=50, slice(25, 50) → tasks 26-50
+      expect(result).toHaveLength(25);
+      expect(result[0].id).toBe(26);
+      expect(result[result.length - 1].id).toBe(50);
     });
   });
 });

@@ -6,6 +6,17 @@
 
 ### Fixed
 
+- **Four `search*` tools advertised filter params they silently dropped** ([#104](https://github.com/wyre-technology/autotask-mcp/issues/104), [#105](https://github.com/wyre-technology/autotask-mcp/issues/105)). `searchContracts`, `searchConfigurationItems`, `searchInvoices`, and `searchTasks` all published `inputSchema` properties like `companyID`, `searchTerm`, `status`, `assignedResourceID` — every property described as "Filter by …" — but the service methods read only `options.filter` and `options.pageSize`. The advertised properties were accepted, logged at debug level, then discarded. Callers got the same MATCH_ALL page-1 slice regardless of what they passed.
+  - Effect: typed search tools were useless for any non-trivial query. Workaround was `autotask_raw_request`, which defeats the purpose of having schema-typed tools and isn't discoverable by MCP clients reading the catalog.
+  - Fix: each method now mirrors the `searchProjects` pattern that was already in place — translates schema-shaped args into `QueryFilter[]` entries, with the `options.filter` escape hatch preserved for advanced callers. Field-name mappings per Autotask REST entity:
+    - **Contracts**: `companyID`, `status`, `contractName` (for `searchTerm`)
+    - **ConfigurationItems**: `companyID`, `isActive`, `productID`, `referenceTitle` (for `searchTerm`)
+    - **Invoices**: `companyID`, `invoiceNumber`, `isVoided`
+    - **Tasks**: `projectID`, `status`, `assignedResourceID`, `title` (for `searchTerm`)
+  - `searchTasks` also dropped its advertised `page` argument — same bug class as the #101 fix to `searchCompanies`. Applied the same fetch-and-slice pattern over `http.query`'s cursor pagination.
+  - 6 new tests in `tests/autotask-service.test.ts` mock `fetch` directly and assert the request body's `filter` array reflects each translated property. The "no filter args sends MATCH_ALL" test pins the no-regression case.
+  - Defensive grep confirmed the contained scope: no other `search*` method on this service has the broken `Array.isArray(options.filter)`-only pattern. `getTimeEntries` has the same shape but isn't exposed via a search tool (`searchTimeEntries` is the real handler at line 2078).
+
 - **`serverInfo.version` reported hardcoded `"1.0.0"` regardless of the running release** ([#94](https://github.com/wyre-technology/autotask-mcp/issues/94)). Both `src/utils/config.ts` and `src/mcp/server.ts` fell back to a literal `'1.0.0'` string instead of the actual build version. Effect: every release through `v2.x.x` reported `1.0.0` in the MCP `initialize` handshake. Clients that surface `serverInfo.version` (Claude Code's `claude mcp list`, etc.) showed `1.0.0` regardless of which image was actually running, making operator triage / bug-report attribution unreliable.
   - Fix:
     - Both fallback chains now read from the bundled `package.json` (TypeScript's `resolveJsonModule` was already enabled). Priority order: `MCP_SERVER_VERSION env > packageJson.version > 'unknown'`.

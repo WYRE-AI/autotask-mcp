@@ -53,7 +53,37 @@ import { FieldInfo, PicklistValue } from './picklist.cache';
 /**
  * Default "match all" filter required by Autotask for unconstrained queries.
  */
-const MATCH_ALL: QueryFilter[] = [{ op: 'gte', field: 'id', value: 0 }];
+export const MATCH_ALL: QueryFilter[] = [{ op: 'gte', field: 'id', value: 0 }];
+
+/**
+ * Push an `eq` filter only when `value` is not `undefined`. Replaces the
+ * `if (options.X !== undefined) filters.push({ op: 'eq', field: 'X', value: options.X })`
+ * pattern that was previously duplicated across every search method.
+ */
+function pushEq(filters: QueryFilter[], field: string, value: unknown): void {
+  if (value !== undefined) {
+    filters.push({ op: 'eq', field, value });
+  }
+}
+
+/**
+ * Merge the `options.filter` escape hatch (array of QueryFilter or a flat
+ * `field → value` object) into the in-progress filters list. Previously
+ * inlined as a 7-line block in every search method.
+ */
+function mergeFilterEscapeHatch(
+  filters: QueryFilter[],
+  raw: QueryFilter[] | Record<string, unknown> | undefined,
+): void {
+  if (!raw) return;
+  if (Array.isArray(raw)) {
+    if (raw.length > 0) filters.push(...raw);
+    return;
+  }
+  for (const [field, value] of Object.entries(raw)) {
+    filters.push({ op: 'eq', field, value });
+  }
+}
 
 export class AutotaskService {
   private http: AutotaskHttpClient | null = null;
@@ -713,29 +743,15 @@ export class AutotaskService {
     try {
       this.logger.debug('Searching projects with options:', options);
       const filters: QueryFilter[] = [];
+      const o = options as any;
 
-      if ((options as any).companyID !== undefined) {
-        filters.push({ op: 'eq', field: 'companyID', value: (options as any).companyID });
+      pushEq(filters, 'companyID', o.companyID);
+      pushEq(filters, 'status', o.status);
+      pushEq(filters, 'projectLeadResourceID', o.projectLeadResourceID);
+      if (o.searchTerm) {
+        filters.push({ op: 'contains', field: 'projectName', value: o.searchTerm });
       }
-      if ((options as any).status !== undefined) {
-        filters.push({ op: 'eq', field: 'status', value: (options as any).status });
-      }
-      if ((options as any).projectLeadResourceID !== undefined) {
-        filters.push({ op: 'eq', field: 'projectLeadResourceID', value: (options as any).projectLeadResourceID });
-      }
-      if ((options as any).searchTerm) {
-        filters.push({ op: 'contains', field: 'projectName', value: (options as any).searchTerm });
-      }
-
-      if (options.filter) {
-        if (Array.isArray(options.filter) && options.filter.length > 0) {
-          filters.push(...(options.filter as QueryFilter[]));
-        } else if (!Array.isArray(options.filter)) {
-          for (const [field, value] of Object.entries(options.filter)) {
-            filters.push({ op: 'eq', field, value });
-          }
-        }
-      }
+      mergeFilterEscapeHatch(filters, options.filter);
 
       const pageSize = Math.min(options.pageSize || 25, 100);
       const projects = await http.query<AutotaskProject>(
@@ -850,12 +866,24 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching configuration items with options:', options);
+      // Schema-shaped filter args were previously dropped — issue #105.
+      const filters: QueryFilter[] = [];
+      const o = options as any;
+
+      pushEq(filters, 'companyID', o.companyID);
+      pushEq(filters, 'isActive', o.isActive);
+      pushEq(filters, 'productID', o.productID);
+      if (o.searchTerm) {
+        filters.push({ op: 'contains', field: 'referenceTitle', value: o.searchTerm });
+      }
+      mergeFilterEscapeHatch(filters, options.filter);
+
       const pageSize = Math.min(options.pageSize || 25, 500);
-      const filter: QueryFilter[] =
-        Array.isArray(options.filter) && options.filter.length > 0
-          ? (options.filter as QueryFilter[])
-          : MATCH_ALL;
-      return await http.query<AutotaskConfigurationItem>('ConfigurationItems', filter, { maxRecords: pageSize });
+      return await http.query<AutotaskConfigurationItem>(
+        'ConfigurationItems',
+        filters.length > 0 ? filters : MATCH_ALL,
+        { maxRecords: pageSize }
+      );
     } catch (error) {
       this.logger.error('Failed to search configuration items:', error);
       throw error;
@@ -906,12 +934,23 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching contracts with options:', options);
+      // Schema-shaped filter args were previously dropped — issue #105.
+      const filters: QueryFilter[] = [];
+      const o = options as any;
+
+      pushEq(filters, 'companyID', o.companyID);
+      pushEq(filters, 'status', o.status);
+      if (o.searchTerm) {
+        filters.push({ op: 'contains', field: 'contractName', value: o.searchTerm });
+      }
+      mergeFilterEscapeHatch(filters, options.filter);
+
       const pageSize = Math.min(options.pageSize || 25, 500);
-      const filter: QueryFilter[] =
-        Array.isArray(options.filter) && options.filter.length > 0
-          ? (options.filter as QueryFilter[])
-          : MATCH_ALL;
-      return await http.query<AutotaskContract>('Contracts', filter, { maxRecords: pageSize });
+      return await http.query<AutotaskContract>(
+        'Contracts',
+        filters.length > 0 ? filters : MATCH_ALL,
+        { maxRecords: pageSize }
+      );
     } catch (error) {
       this.logger.error('Failed to search contracts:', error);
       throw error;
@@ -991,12 +1030,21 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching invoices with options:', options);
+      // Schema-shaped filter args were previously dropped — issue #105.
+      const filters: QueryFilter[] = [];
+      const o = options as any;
+
+      pushEq(filters, 'companyID', o.companyID);
+      pushEq(filters, 'invoiceNumber', o.invoiceNumber);
+      pushEq(filters, 'isVoided', o.isVoided);
+      mergeFilterEscapeHatch(filters, options.filter);
+
       const pageSize = Math.min(options.pageSize || 25, 500);
-      const filter: QueryFilter[] =
-        Array.isArray(options.filter) && options.filter.length > 0
-          ? (options.filter as QueryFilter[])
-          : MATCH_ALL;
-      return await http.query<AutotaskInvoice>('Invoices', filter, { maxRecords: pageSize });
+      return await http.query<AutotaskInvoice>(
+        'Invoices',
+        filters.length > 0 ? filters : MATCH_ALL,
+        { maxRecords: pageSize }
+      );
     } catch (error) {
       this.logger.error('Failed to search invoices:', error);
       throw error;
@@ -1057,14 +1105,35 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching tasks with options:', options);
+      // Schema-shaped filter args were previously dropped — issues #104, #105.
+      const filters: QueryFilter[] = [];
+      const o = options as any;
+
+      pushEq(filters, 'projectID', o.projectID);
+      pushEq(filters, 'status', o.status);
+      pushEq(filters, 'assignedResourceID', o.assignedResourceID);
+      if (o.searchTerm) {
+        filters.push({ op: 'contains', field: 'title', value: o.searchTerm });
+      }
+      mergeFilterEscapeHatch(filters, options.filter);
+
+      // Honor `page` via fetch-and-slice over http.query's cursor pagination —
+      // same pattern as searchCompanies (#101). Autotask's REST API has no
+      // native offset, so we fetch up to page*pageSize and slice.
+      const page = Math.max(1, o.page || 1);
       const pageSize = Math.min(options.pageSize || 25, 100);
-      const filter: QueryFilter[] =
-        Array.isArray(options.filter) && options.filter.length > 0
-          ? (options.filter as QueryFilter[])
-          : MATCH_ALL;
-      const tasks = await http.query<AutotaskTask>('Tasks', filter, { maxRecords: pageSize });
+      const targetEnd = page * pageSize;
+      const fetched = await http.query<AutotaskTask>(
+        'Tasks',
+        filters.length > 0 ? filters : MATCH_ALL,
+        { maxRecords: targetEnd }
+      );
+      const start = (page - 1) * pageSize;
+      const tasks = fetched.slice(start, targetEnd);
       const optimized = tasks.map(t => this.optimizeTaskData(t));
-      this.logger.info(`Retrieved ${optimized.length} tasks`);
+      this.logger.info(
+        `Retrieved ${optimized.length} tasks (page ${page}, pageSize ${pageSize}, fetched ${fetched.length} to slice)`
+      );
       return optimized;
     } catch (error) {
       this.logger.error('Failed to search tasks:', error);
