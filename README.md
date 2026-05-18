@@ -609,6 +609,36 @@ npm test -- tests/autotask-service.test.ts
 - `simple`: Human-readable console output
 - `json`: Structured JSON output (recommended for production)
 
+## Rate Limits
+
+Autotask enforces per-integration-code API thresholds on a rolling 1-hour window:
+
+- **~10,000 req/hr (soft)** — warning email, sporadic `HTTP 429` responses
+- **~20,000 req/hr (hard)** — sustained `HTTP 429` until the window rolls
+
+LLM-driven workflows fan out easily — "status report on all open projects with notes" can issue hundreds of requests across a few minutes. The server tries to make this safer:
+
+- **429 responses are surfaced as structured errors.** Tool results carry `error_type: "rate_limited"` and a `retry_after_seconds` field parsed from Autotask's `Retry-After` header. The error message explicitly tells the LLM **not to retry** and to ask the user to scope the query — this prevents repeated retries from extending the cooldown.
+- **Fan-out tool descriptions include rate-limit tips.** Tools that are commonly looped over (`autotask_search_ticket_notes`, `autotask_search_project_notes`, `autotask_search_company_notes`, `autotask_search_time_entries`, `autotask_search_ticket_attachments`) include a hint reminding the LLM to scope the parent record list before iterating.
+
+### Raising the limit
+
+Per-integration thresholds can be increased in Autotask:
+
+1. Autotask Admin → **Resources/Users (HR) → Resources**
+2. Edit the dedicated API user → **Workflow Rules → API Tracking Identifier**
+3. Adjust the threshold for the integration code your MCP server uses
+
+This is the right answer when a single integration code is shared between Claude/Copilot/etc. and other tooling. For LLM-heavy workloads, dedicate a separate API user (and integration code) so a fan-out from one client doesn't starve others.
+
+### Patterns that help
+
+- **Always scope by date range** when searching notes, time entries, attachments. Even a 30-day window can drop call count by an order of magnitude.
+- **Cache parent lookups.** If you're iterating over 100 tickets, fetch the ticket list once and reuse it across follow-up queries; don't re-search per child.
+- **Use `autotask_get_field_info`** to discover picklist values once per session rather than refetching them per call.
+
+If you're seeing threshold warnings from Autotask but the server seems fine, the LLM driver is probably issuing fan-out patterns. Tighten the prompt to scope before iterating.
+
 ## Troubleshooting
 
 ### Common Issues

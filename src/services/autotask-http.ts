@@ -34,6 +34,49 @@ interface QueryResponse<T> {
 
 const RAW_REQUEST_METHODS = ['GET', 'POST', 'PATCH', 'DELETE'] as const;
 
+/**
+ * Thrown when Autotask returns 429 (per-integration API threshold exceeded).
+ * Carries `retryAfterSeconds` parsed from the `Retry-After` header (RFC 7231
+ * — either an integer seconds value or an HTTP-date) so callers can back off
+ * accurately. Tool handlers convert this into a structured `error_type:
+ * "rate_limited"` tool result so LLM-driven workflows stop hammering the
+ * same path. Issue #69 (faspina) — \"status report for all open projects
+ * with notes\" fan-out tripped the threshold; the model couldn't tell what
+ * happened from the generic HTTP error.
+ *
+ * Autotask thresholds (per integration code, per hour):
+ *   - ~10k req/hr soft (warning email, sporadic 429s)
+ *   - ~20k req/hr hard (sustained 429s until the window rolls)
+ */
+export class AutotaskRateLimitError extends Error {
+  readonly status = 429;
+  readonly retryAfterSeconds: number;
+
+  constructor(message: string, retryAfterSeconds: number) {
+    super(message);
+    this.name = 'AutotaskRateLimitError';
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
+// Default backoff when Autotask doesn't send a parseable Retry-After header.
+// One minute is conservative: their thresholds reset on a rolling hour window,
+// so waiting longer than a minute is rarely useful, and waiting less risks
+// re-tripping while still over.
+const DEFAULT_RETRY_AFTER_SECONDS = 60;
+
+function parseRetryAfter(headerValue: string | null): number {
+  if (!headerValue) return DEFAULT_RETRY_AFTER_SECONDS;
+  // RFC 7231: either an integer count of seconds, or an HTTP-date.
+  const asInt = Number.parseInt(headerValue, 10);
+  if (Number.isFinite(asInt) && asInt >= 0) return asInt;
+  const asDate = Date.parse(headerValue);
+  if (Number.isFinite(asDate)) {
+    return Math.max(0, Math.ceil((asDate - Date.now()) / 1000));
+  }
+  return DEFAULT_RETRY_AFTER_SECONDS;
+}
+
 function assertSafeRelativePath(path: string): void {
   if (typeof path !== 'string' || path.length === 0) {
     throw new Error('Autotask rawRequest: path must be a non-empty string');
@@ -128,6 +171,19 @@ export class AutotaskHttpClient {
         }
       } catch {
         /* fall through with raw text */
+      }
+      if (response.status === 429) {
+        const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+        // Single-line message that LLMs will read verbatim — instruct against
+        // retry, surface the wait, point at the underlying issue. The structured
+        // `retryAfterSeconds` field lets handlers do programmatic things too.
+        throw new AutotaskRateLimitError(
+          `Autotask API threshold exceeded (HTTP 429). Do NOT retry this call automatically — ` +
+          `the next ${retryAfter}s will likely hit 429 again, and repeated retries can extend the ` +
+          `cooldown. Ask the user to scope the query (e.g. narrow date range, filter by company/ticket ID) ` +
+          `or wait ${retryAfter}s before trying again. Detail: ${detail}`,
+          retryAfter,
+        );
       }
       throw new Error(`Autotask ${method} ${path} failed: HTTP ${response.status}: ${detail}`);
     }

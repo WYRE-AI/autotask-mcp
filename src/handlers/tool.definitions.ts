@@ -1100,7 +1100,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_search_ticket_notes',
-    description: 'Search for notes on a specific ticket',
+    description: 'Search for notes on a specific ticket. Iterating across many tickets trips Autotask\'s per-integration API threshold — scope the parent list first.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1270,7 +1270,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_search_project_notes',
-    description: 'Search for notes on a specific project',
+    description: 'Search for notes on a specific project. Fan-out across many projects trips Autotask\'s API threshold (see issue #69) — scope the parent list (status, company, date range) first.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1344,7 +1344,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_search_company_notes',
-    description: 'Search for notes on a specific company',
+    description: 'Search for notes on a specific company. Iterating across many companies trips Autotask\'s API threshold — scope the parent list first.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -1420,7 +1420,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_search_ticket_attachments',
-    description: 'Search for attachments on a specific ticket',
+    description: 'Search for attachments on a specific ticket. Each parent triggers a separate query — scope the parent ticket list before iterating.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -2484,7 +2484,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Time Entries search tool
   {
     name: 'autotask_search_time_entries',
-    description: 'Search for time entries in Autotask. Returns 25 results per page by default. Time entries can be filtered by resource, ticket, project, task, date range, or approval status. Use approvalStatus="unapproved" to find entries not yet posted.',
+    description: 'Search for time entries in Autotask. Returns 25 results per page by default. Time entries can be filtered by resource, ticket, project, task, date range, or approval status. Use approvalStatus="unapproved" to find entries not yet posted. Common fan-out target — scope by date range first to avoid Autotask\'s API threshold.',
     inputSchema: {
       type: 'object',
       properties: {

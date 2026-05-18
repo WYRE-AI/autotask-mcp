@@ -3,6 +3,7 @@
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { AutotaskService } from '../services/autotask.service.js';
+import { AutotaskRateLimitError } from '../services/autotask-http.js';
 import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
@@ -1457,10 +1458,7 @@ export class AutotaskToolHandler {
       const notFoundMsg = this.buildNotFoundMessage(name, args, result);
       if (notFoundMsg) {
         this.logger.debug(`Not-found result for ${name}: ${notFoundMsg}`);
-        return {
-          content: [{ type: 'text', text: JSON.stringify({ error: notFoundMsg, tool: name }) }],
-          isError: true,
-        };
+        return errorToolResult({ error: notFoundMsg, tool: name });
       }
 
       // Format and enhance response
@@ -1493,10 +1491,37 @@ export class AutotaskToolHandler {
 
     } catch (error) {
       this.logger.error(`Tool execution failed for ${name}:`, error);
-      return {
-        content: [{ type: 'text', text: JSON.stringify({ error: error instanceof Error ? error.message : 'Unknown error', tool: name }) }],
-        isError: true
-      };
+      // Surface rate-limit errors with a typed envelope so LLM clients can
+      // distinguish them from generic failures and stop retrying. Issue #91.
+      if (error instanceof AutotaskRateLimitError) {
+        return errorToolResult({
+          error_type: 'rate_limited',
+          error: error.message,
+          retry_after_seconds: error.retryAfterSeconds,
+          tool: name,
+          // Belt-and-suspenders for LLM clients that don't parse error_type.
+          instruction: 'Do not retry this call. Ask the user to narrow the query (e.g. filter by date range, company, or ticket ID) before issuing another Autotask request.',
+        });
+      }
+      return errorToolResult({
+        error: error instanceof Error ? error.message : 'Unknown error',
+        tool: name,
+      });
     }
   }
-} 
+}
+
+/**
+ * Build a tool-result envelope for an error. Three call sites in callTool()
+ * had assembled this shape inline; this helper keeps the JSON envelope
+ * consistent so future error fields don't drift between paths.
+ */
+function errorToolResult(payload: Record<string, unknown>): {
+  content: Array<{ type: 'text'; text: string }>;
+  isError: true;
+} {
+  return {
+    content: [{ type: 'text', text: JSON.stringify(payload) }],
+    isError: true,
+  };
+}

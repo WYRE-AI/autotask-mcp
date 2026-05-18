@@ -2,6 +2,15 @@
 
 ### Added
 
+- **Structured rate-limit handling for Autotask API thresholds** ([#69](https://github.com/wyre-technology/autotask-mcp/issues/69), [#91](https://github.com/wyre-technology/autotask-mcp/issues/91)). Previously, when Autotask returned HTTP 429 (per-integration API threshold exceeded — ~10k req/hr soft, ~20k hard), the response bubbled up as a generic `Error` indistinguishable from a 500 or any other failure. LLM-driven workflows that fan out (e.g. "status report for all open projects with notes" — the canonical scenario @faspina reported) kept retrying the same expensive path while the user got threshold-exceeded emails from Autotask and saw disconnects.
+  - New `AutotaskRateLimitError` (exported from `src/services/autotask-http.ts`) is thrown specifically on HTTP 429. Carries `retryAfterSeconds` parsed from the `Retry-After` response header (RFC 7231 — integer seconds or HTTP-date supported, falls back to 60s when missing/unparseable).
+  - `AutotaskToolHandler.callTool` recognizes the typed error and returns a structured tool result with `error_type: "rate_limited"`, `retry_after_seconds`, and an explicit `instruction` field telling the LLM not to retry. Belt-and-suspenders for clients that don't parse `error_type` programmatically.
+  - 5 new tests in `tests/rate-limit.test.ts` cover Retry-After parsing (integer, missing, garbage), non-429 errors staying as generic `Error`, and end-to-end propagation to the structured tool envelope.
+
+- **Rate-limit scoping hints on fan-out tool descriptions.** Tools that LLMs commonly loop over (`autotask_search_ticket_notes`, `autotask_search_project_notes`, `autotask_search_company_notes`, `autotask_search_time_entries`, `autotask_search_ticket_attachments`) now include a "RATE LIMIT TIP" reminding the model to scope the parent record list before fanning out. The project_notes hint cites #69 by issue number so the model knows this is a known failure mode.
+
+- **README "Rate limits" section** documents the per-integration thresholds, how to raise them in Autotask Admin (dedicated API user + Workflow Rules → API Tracking Identifier), and recommended scoping patterns.
+
 - **Ticket history audit-trail tools** (`autotask_get_ticket_history`, `autotask_search_ticket_history`). Exposes the Autotask `/TicketHistory` entity (GET-only) so callers can answer "when did this ticket transition from status X to status Y", "who changed the priority", etc. `search` requires a `ticketId` (Autotask does not support unscoped history queries) and fails fast with a friendly error before any network round-trip if it's missing. Surfaced via the `tickets` category bundle.
 
 ### Fixed
