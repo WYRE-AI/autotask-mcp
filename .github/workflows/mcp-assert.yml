@@ -8,7 +8,7 @@ on:
 
 jobs:
   assert:
-    uses: wyre-technology/.github/.github/workflows/mcp-assert.yml@03d64fcdcce377f8a8d86ef9b66b125dc8156149  # main
+    uses: wyre-technology/.github/.github/workflows/mcp-assert.yml@17b5a183964aa163d82e9f7092186086e97bc70e  # main
     with:
       entry: dist/entry.js
       canary-tool: autotask_test_connection
