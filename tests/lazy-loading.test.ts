@@ -165,3 +165,40 @@ describe('Decision Tree Router', () => {
     expect(parsed.data.suggestedParams.searchTerm).toBe('Wyre Technology');
   });
 });
+
+describe('autotask_update_ticket schema', () => {
+  const updateTicketTool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_update_ticket');
+
+  test('tool definition exists', () => {
+    expect(updateTicketTool).toBeDefined();
+  });
+
+  test('exposes issueType as an optional number', () => {
+    const props = updateTicketTool!.inputSchema.properties as Record<string, any>;
+    expect(props.issueType).toBeDefined();
+    expect(props.issueType.type).toBe('number');
+    expect(updateTicketTool!.inputSchema.required).not.toContain('issueType');
+  });
+
+  test('exposes subIssueType as an optional number', () => {
+    const props = updateTicketTool!.inputSchema.properties as Record<string, any>;
+    expect(props.subIssueType).toBeDefined();
+    expect(props.subIssueType.type).toBe('number');
+    expect(updateTicketTool!.inputSchema.required).not.toContain('subIssueType');
+  });
+
+  test('buildTicketPayload (via handler) forwards issueType and subIssueType to updateTicket', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    const updateSpy = jest.spyOn(service, 'updateTicket').mockResolvedValue(undefined as any);
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    await handler.callTool('autotask_update_ticket', {
+      ticketId: 42,
+      issueType: 7,
+      subIssueType: 13
+    });
+    expect(updateSpy).toHaveBeenCalledTimes(1);
+    const [id, payload] = updateSpy.mock.calls[0];
+    expect(id).toBe(42);
+    expect(payload).toEqual(expect.objectContaining({ issueType: 7, subIssueType: 13 }));
+  });
+});

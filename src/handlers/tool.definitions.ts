@@ -627,6 +627,14 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         contactID: {
           type: 'number',
           description: 'Contact ID for the ticket'
+        },
+        issueType: {
+          type: 'number',
+          description: 'First-level issue type ID (picklist). Required context for subIssueType. Use autotask_get_field_info (entity "Tickets", field "issueType") to discover valid values.'
+        },
+        subIssueType: {
+          type: 'number',
+          description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entity "Tickets", field "subIssueType") to discover valid values.'
         }
       },
       required: ['ticketId']
