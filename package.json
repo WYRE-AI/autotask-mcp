@@ -39,7 +39,7 @@
   "license": "Apache-2.0",
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.3",
-    "autotask-node": "github:wyre-technology/autotask-node#v2.2.0",
+    "autotask-node": "github:wyre-technology/autotask-node#v2.2.1",
     "winston": "^3.11.0",
     "zod": "^3.22.4"
   },
