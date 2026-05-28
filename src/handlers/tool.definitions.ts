@@ -1146,14 +1146,14 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         noteType: {
           type: 'number',
-          description: 'Note type (1=General, 2=Appointment, 3=Task, 4=Ticket, 5=Project, 6=Opportunity)'
+          description: 'Note type picklist ID. Tenant-specific — call autotask_get_field_info with entity "TicketNotes" and field "noteType" to discover the exact label-to-ID mapping before calling this tool. Do not assume values from other Autotask instances apply here.'
         },
         publish: {
           type: 'number',
-          description: 'Publish level (1=Internal Only, 2=All Autotask Users, 3=Everyone)'
+          description: 'Publish/visibility picklist ID. Tenant-specific and security-sensitive (controls whether the note is visible to clients). Call autotask_get_field_info with entity "TicketNotes" and field "publish" to discover the exact label-to-ID mapping before calling this tool. Never guess — the wrong value can expose internal notes to clients.'
         }
       },
-      required: ['ticketId', 'description']
+      required: ['ticketId', 'description', 'noteType', 'publish']
     }
   },
 

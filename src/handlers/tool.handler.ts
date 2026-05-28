@@ -1069,11 +1069,17 @@ export class AutotaskToolHandler {
         const r = await s.searchTicketNotes(a.ticketId, { pageSize: a.pageSize }); return { result: r, message: `Found ${r.length} ticket notes` };
       }],
       ['autotask_create_ticket_note', async (a) => {
+        if (a.noteType === undefined || a.noteType === null) {
+          throw new Error('noteType is required. Picklist values are tenant-specific — call autotask_get_field_info with entity "TicketNotes" and field "noteType" to discover the correct ID.');
+        }
+        if (a.publish === undefined || a.publish === null) {
+          throw new Error('publish is required and security-sensitive (controls client visibility). Picklist values are tenant-specific — call autotask_get_field_info with entity "TicketNotes" and field "publish" to discover the correct ID.');
+        }
         const id = await s.createTicketNote(a.ticketId, {
           title: a.title || 'Note',
           description: a.description,
-          noteType: a.noteType ?? 1,
-          publish: a.publish ?? 1
+          noteType: a.noteType,
+          publish: a.publish
         });
         return { result: id, message: `Successfully created ticket note with ID: ${id}` };
       }],
