@@ -108,7 +108,13 @@ jobs:
     # triggering commit. The MCP Registry verifies tag-pinned images, so
     # tag/version drift breaks publishing.
     needs: [release]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    # Gate on an actual semantic-release. On a non-release push to main,
+    # package.json still holds the previous version (it is never committed back
+    # without @semantic-release/git), so this job would rebuild and re-push
+    # :latest tagged with that stale version, clobbering the correctly-tagged
+    # :latest from the last real release. Skipping docker cascades to
+    # security/deploy/registry (skipped dependency).
+    if: needs.release.outputs.released == 'true'
     permissions:
       contents: read
       packages: write
