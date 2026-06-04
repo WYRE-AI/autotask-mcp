@@ -1,6 +1,6 @@
 /**
  * Unit tests for MappingService
- * Tests caching, singleton behavior, and name resolution
+ * Tests caching, per-instance isolation, and name resolution
  */
 
 import { MappingService } from '../src/utils/mapping.service';
@@ -36,31 +36,35 @@ describe('MappingService', () => {
   let mockService: jest.Mocked<AutotaskService>;
 
   beforeEach(() => {
-    // Reset the singleton between tests
-    (MappingService as any).initPromise = null;
     mockService = createMockAutotaskService();
   });
 
-  describe('getInstance', () => {
-    it('should create a singleton instance', async () => {
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+  describe('create', () => {
+    it('should create an instance', async () => {
+      const instance = await MappingService.create(mockService, mockLogger);
       expect(instance).toBeInstanceOf(MappingService);
     });
 
-    it('should return the same instance on subsequent calls', async () => {
-      const first = await MappingService.getInstance(mockService, mockLogger);
-      const second = await MappingService.getInstance(mockService, mockLogger);
-      expect(first).toBe(second);
+    it('should return a DISTINCT instance on each call (no cross-tenant leak)', async () => {
+      // CRITICAL invariant: every MappingService.create() MUST return a fresh
+      // instance bound to the supplied AutotaskService. Sharing instances
+      // across calls = sharing caches across tenants = cross-tenant data
+      // leak (see incident 2026-06-03). This is the regression guard.
+      const tenantA = createMockAutotaskService();
+      const tenantB = createMockAutotaskService();
+      const first = await MappingService.create(tenantA, mockLogger);
+      const second = await MappingService.create(tenantB, mockLogger);
+      expect(first).not.toBe(second);
     });
 
     it('should initialize cache on creation', async () => {
-      await MappingService.getInstance(mockService, mockLogger);
+      await MappingService.create(mockService, mockLogger);
       expect(mockService.listAllCompanies).toHaveBeenCalled();
       expect(mockService.searchResources).toHaveBeenCalled();
     });
 
     it('should NOT pre-warm cache when lazyLoading is enabled', async () => {
-      await MappingService.getInstance(mockService, mockLogger, { lazyLoading: true });
+      await MappingService.create(mockService, mockLogger, { lazyLoading: true });
       // Both cache-fill paths should be skipped entirely — neither
       // listAllCompanies nor searchResources should fire.
       expect(mockService.listAllCompanies).not.toHaveBeenCalled();
@@ -70,14 +74,14 @@ describe('MappingService', () => {
 
   describe('getCompanyName', () => {
     it('should return cached company name', async () => {
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       const name = await instance.getCompanyName(1);
       expect(name).toBe('Acme Corp');
     });
 
     it('should return null for unknown company ID', async () => {
       mockService.listAllCompanies.mockResolvedValueOnce([]);
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       const name = await instance.getCompanyName(999);
       expect(name).toBeNull();
     });
@@ -89,7 +93,7 @@ describe('MappingService', () => {
       (mockService as any).getCompany = jest
         .fn()
         .mockResolvedValue({ id: 42, companyName: 'Lazy Lookup Co' });
-      const instance = await MappingService.getInstance(mockService, mockLogger, {
+      const instance = await MappingService.create(mockService, mockLogger, {
         lazyLoading: true,
       });
 
@@ -103,7 +107,7 @@ describe('MappingService', () => {
 
   describe('getResourceName', () => {
     it('should return cached resource name', async () => {
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       const name = await instance.getResourceName(10);
       expect(name).toBe('John Doe');
     });
@@ -112,14 +116,14 @@ describe('MappingService', () => {
       mockService.getResource.mockResolvedValueOnce(
         { id: 30, firstName: 'Bob', lastName: 'Jones' } as any
       );
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       const name = await instance.getResourceName(30);
       expect(name).toBe('Bob Jones');
     });
 
     it('should return null when resource endpoint is unavailable', async () => {
       mockService.searchResources.mockResolvedValueOnce([]);
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       // Empty cache means endpoint is unavailable - should return null without direct lookup
       const name = await instance.getResourceName(99);
       expect(name).toBeNull();
@@ -128,7 +132,7 @@ describe('MappingService', () => {
 
   describe('getCacheStats', () => {
     it('should report cache statistics', async () => {
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       const stats = instance.getCacheStats();
       expect(stats.companies.count).toBe(2);
       expect(stats.resources.count).toBe(2);
@@ -139,7 +143,7 @@ describe('MappingService', () => {
 
   describe('clearCache', () => {
     it('should clear all cached data', async () => {
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       instance.clearCache();
       const stats = instance.getCacheStats();
       expect(stats.companies.count).toBe(0);
@@ -163,7 +167,7 @@ describe('MappingService', () => {
       }));
       mockService.listAllCompanies.mockResolvedValueOnce(all as any);
 
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
 
       expect(mockService.listAllCompanies).toHaveBeenCalledTimes(1);
 
@@ -182,7 +186,7 @@ describe('MappingService', () => {
         { id: 1, companyName: 'Only Co' },
       ] as any);
 
-      await MappingService.getInstance(mockService, mockLogger);
+      await MappingService.create(mockService, mockLogger);
 
       expect(mockService.listAllCompanies).toHaveBeenCalledTimes(1);
     });
@@ -198,7 +202,7 @@ describe('MappingService', () => {
         .fn()
         .mockResolvedValue({ id: 207, companyName: 'Stale Name From Direct Get' });
 
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
 
       const first = await instance.getCompanyName(207);
       const second = await instance.getCompanyName(207);
@@ -217,7 +221,7 @@ describe('MappingService', () => {
   describe('error handling', () => {
     it('should handle listAllCompanies failure gracefully', async () => {
       mockService.listAllCompanies.mockRejectedValueOnce(new Error('API error'));
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       // Should still be instantiated, just with empty company cache
       expect(instance).toBeInstanceOf(MappingService);
     });
@@ -226,11 +230,102 @@ describe('MappingService', () => {
       const error = new Error('Method Not Allowed') as any;
       error.response = { status: 405 };
       mockService.searchResources.mockRejectedValueOnce(error);
-      const instance = await MappingService.getInstance(mockService, mockLogger);
+      const instance = await MappingService.create(mockService, mockLogger);
       const stats = instance.getCacheStats();
       expect(stats.resources.count).toBe(0);
       // Cache should still be marked as valid (prevents retry loops)
       expect(stats.resources.isValid).toBe(true);
+    });
+  });
+
+  // Regression coverage for the 2026-06-03 cross-tenant data-leak incident.
+  // The old static-singleton `getInstance()` bound the first caller's
+  // AutotaskService to a class-level promise; every later caller — possibly a
+  // different tenant — received that same instance and read that tenant's
+  // company / resource names. Every test below MUST pass with each
+  // MappingService.create() returning a fresh, fully-isolated instance.
+  describe('tenant isolation (cross-tenant leak regression)', () => {
+    function tenantService(prefix: string): jest.Mocked<AutotaskService> {
+      return {
+        listAllCompanies: jest.fn().mockResolvedValue([
+          { id: 1, companyName: `${prefix}-Company-1` },
+          { id: 2, companyName: `${prefix}-Company-2` },
+        ]),
+        searchCompanies: jest.fn(),
+        searchResources: jest.fn().mockResolvedValue([
+          { id: 10, firstName: prefix, lastName: 'Engineer' },
+        ]),
+        getResource: jest.fn(),
+        getCompany: jest.fn(),
+      } as unknown as jest.Mocked<AutotaskService>;
+    }
+
+    it('returns independent instances for two distinct tenants', async () => {
+      const aSvc = tenantService('A');
+      const bSvc = tenantService('B');
+      const a = await MappingService.create(aSvc, mockLogger);
+      const b = await MappingService.create(bSvc, mockLogger);
+
+      expect(await a.getCompanyName(1)).toBe('A-Company-1');
+      expect(await b.getCompanyName(1)).toBe('B-Company-1');
+      expect(await a.getResourceName(10)).toBe('A Engineer');
+      expect(await b.getResourceName(10)).toBe('B Engineer');
+    });
+
+    it('does NOT cross-pollute resource cache between tenants under concurrent init', async () => {
+      // Simulates the original race: Tenant A and Tenant B initializing
+      // their MappingServices concurrently. Each MUST resolve names from
+      // its OWN AutotaskService — no caller may see the other tenant's data.
+      const aSvc = tenantService('TenantA');
+      const bSvc = tenantService('TenantB');
+
+      const [a, b] = await Promise.all([
+        MappingService.create(aSvc, mockLogger),
+        MappingService.create(bSvc, mockLogger),
+      ]);
+
+      const [aName, bName] = await Promise.all([
+        a.getResourceName(10),
+        b.getResourceName(10),
+      ]);
+      expect(aName).toBe('TenantA Engineer');
+      expect(bName).toBe('TenantB Engineer');
+      expect(aSvc.searchResources).toHaveBeenCalled();
+      expect(bSvc.searchResources).toHaveBeenCalled();
+    });
+
+    it('clearing one tenant\'s cache does not affect another tenant', async () => {
+      const aSvc = tenantService('A');
+      const bSvc = tenantService('B');
+      const a = await MappingService.create(aSvc, mockLogger);
+      const b = await MappingService.create(bSvc, mockLogger);
+
+      a.clearCache();
+      expect(a.getCacheStats().companies.count).toBe(0);
+      expect(b.getCacheStats().companies.count).toBe(2);
+      expect(await b.getCompanyName(1)).toBe('B-Company-1');
+    });
+
+    it('many concurrent tenants each see only their own data', async () => {
+      // High-fan-out version of the race: 10 tenants initialize in parallel,
+      // then each queries the SAME company ID. Every response must reflect
+      // ONLY that tenant's data — never another tenant's.
+      const tenants = Array.from({ length: 10 }, (_, i) => ({
+        id: `T${i}`,
+        svc: tenantService(`T${i}`),
+      }));
+
+      const instances = await Promise.all(
+        tenants.map((t) => MappingService.create(t.svc, mockLogger))
+      );
+
+      const names = await Promise.all(
+        instances.map((m) => m.getCompanyName(1))
+      );
+
+      names.forEach((name, i) => {
+        expect(name).toBe(`T${i}-Company-1`);
+      });
     });
   });
 });

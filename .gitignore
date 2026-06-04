@@ -53,3 +53,4 @@ dev-debug.log
 
 # Cloudflare Workers
 .wrangler/
+graphify-out/

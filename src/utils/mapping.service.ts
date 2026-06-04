@@ -22,7 +22,12 @@ export interface MappingResult {
 }
 
 export class MappingService {
-  private static initPromise: Promise<MappingService> | null = null;
+  // Per-instance init promise (coalesces concurrent initializeCache calls
+  // on the SAME instance). Must NOT be static — a class-level singleton
+  // would bind every tenant's request to whichever AutotaskService warmed
+  // the cache first, leaking that tenant's company/resource names into
+  // every other tenant's response. See incident on 2026-06-03.
+  private initPromise: Promise<void> | null = null;
   private refreshCompanyPromise: Promise<void> | null = null;
   private refreshResourcePromise: Promise<void> | null = null;
 
@@ -31,10 +36,9 @@ export class MappingService {
   private logger: Logger;
   private cacheExpiryMs: number;
   // When true, skip the eager pre-warm and rely on per-ID direct-get fallbacks.
-  // Wired from the LAZY_LOADING env var via MappingService.getInstance().
   private lazyLoading: boolean;
 
-  private constructor(
+  public constructor(
     autotaskService: AutotaskService,
     logger: Logger,
     cacheExpiryMs: number = 30 * 60 * 1000,
@@ -55,26 +59,44 @@ export class MappingService {
   }
 
   /**
-   * Get singleton instance (concurrent calls share the same initialization promise)
+   * Construct and initialize a per-tenant MappingService instance.
+   *
+   * **MUST be called once per AutotaskService (i.e. once per request in
+   * gateway mode), NEVER reused across tenants.** Concurrent calls on the
+   * same instance coalesce via `this.initPromise`; cross-instance calls are
+   * fully independent.
+   *
+   * Replaces the previous static-singleton `getInstance()` which leaked
+   * cached company/resource names across tenants (incident 2026-06-03).
    */
-  public static async getInstance(
+  public static async create(
     autotaskService: AutotaskService,
     logger: Logger,
     options: { lazyLoading?: boolean } = {},
   ): Promise<MappingService> {
-    if (!MappingService.initPromise) {
-      MappingService.initPromise = (async () => {
-        const instance = new MappingService(
-          autotaskService,
-          logger,
-          undefined,
-          options.lazyLoading,
-        );
-        await instance.initializeCache();
-        return instance;
-      })();
+    const instance = new MappingService(
+      autotaskService,
+      logger,
+      undefined,
+      options.lazyLoading,
+    );
+    await instance.ensureInitialized();
+    return instance;
+  }
+
+  /**
+   * Per-instance init coalescing. Multiple concurrent callers on the same
+   * MappingService share one initializeCache promise; once it resolves the
+   * promise is cleared so a future cache-clear can re-init.
+   */
+  public async ensureInitialized(): Promise<void> {
+    if (!this.initPromise) {
+      this.initPromise = this.initializeCache().catch((err) => {
+        this.initPromise = null;
+        throw err;
+      });
     }
-    return MappingService.initPromise;
+    return this.initPromise;
   }
 
   /**

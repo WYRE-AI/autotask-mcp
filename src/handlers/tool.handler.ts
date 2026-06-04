@@ -90,7 +90,11 @@ export class AutotaskToolHandler {
 
   private async getMappingService(): Promise<MappingService> {
     if (!this.mappingService) {
-      this.mappingService = await MappingService.getInstance(this.autotaskService, this.logger, {
+      // Per-toolHandler MappingService instance. In gateway mode this
+      // toolHandler is created per-request (see McpServer.buildPerRequestHandlers),
+      // so each tenant gets a MappingService bound to its own AutotaskService —
+      // company/resource caches cannot leak across tenants.
+      this.mappingService = await MappingService.create(this.autotaskService, this.logger, {
         lazyLoading: this.lazyLoading,
       });
     }

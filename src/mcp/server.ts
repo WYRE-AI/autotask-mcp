@@ -332,6 +332,21 @@ export class AutotaskMcpServer {
             const handlers = this.buildPerRequestHandlers(credentials);
             perRequestToolHandler = handlers.toolHandler;
             perRequestResourceHandler = handlers.resourceHandler;
+          } else {
+            // Gateway mode REQUIRES per-request credentials. Falling through
+            // to the env-configured `this.toolHandler` would serve the server
+            // operator's tenant data to whoever sent the unauthenticated
+            // request — a cross-tenant leak. Reject explicitly instead.
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32001,
+                message: 'Unauthorized: missing required gateway credentials (X-API-Key, X-API-Secret, X-Integration-Code)',
+              },
+              id: null,
+            }));
+            return;
           }
         }
 
