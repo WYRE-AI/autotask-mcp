@@ -21,6 +21,14 @@
 
 ### Fixed
 
+- **`listAllCompanies` and other `query()` callers now clamp the per-page `MaxRecords` body param to the Autotask API limit (500).** `AutotaskHttpClient.query()` previously passed the caller's `opts.maxRecords` value directly as the per-page `MaxRecords` field in the request body. `MappingService.refreshCompanyCache()` calls `listAllCompanies(20_000)`, which produced `MaxRecords: 20000` in the request — Autotask responds with HTTP 500 "maxCountOfRecordsToReturn must be between 1 and 500". The cache pre-warm worked fine on the legacy static-singleton MappingService because it ran exactly once per process and the failure was silently absorbed into an empty cache; once the cache was made per-request the same call ran on every request and surfaced the API error on every call.
+  - Introduced an exported `AUTOTASK_MAX_PAGE_SIZE = 500` constant in `src/services/autotask-http.ts`.
+  - `query()` now treats `opts.maxRecords` as the **total cap** (how many rows to collect across the whole pagination walk) and derives the **per-page size** as `min(totalCap, AUTOTASK_MAX_PAGE_SIZE)`. The cursor walk continues to follow `pageDetails.nextPageUrl` until the total cap is reached.
+  - `childQuery()` clamps its per-page `MaxRecords` to `AUTOTASK_MAX_PAGE_SIZE` for the same reason. `childQuery` does not walk `nextPageUrl`, so only the clamp matters there.
+  - 2 new regression tests in `tests/autotask-service.test.ts` under `Per-page MaxRecords clamping`:
+    - `listAllCompanies` with the default 20_000 cap captures the actual `MaxRecords` value sent and asserts it is `<= 500`, while still returning all 700 records from a multi-page tenant.
+    - `query()` honors a small caller cap (25) by sending exactly `MaxRecords: 25` — small queries don't pay the full 500-row page cost.
+
 - **Per-instance `MappingService` for proper tenant isolation in gateway mode.** Aligns the `MappingService` lifecycle with the per-request `AutotaskToolHandler` introduced in the worker refactor so each request gets its own mapping cache scoped to the request's credentials.
   - Removed `static initPromise` and `private constructor`. Replaced the static `getInstance()` factory with a per-call `MappingService.create(autotaskService, logger, options)` that constructs a fresh instance bound to the supplied `AutotaskService` and awaits its cache initialization. Concurrent inits on the same instance still coalesce via a new per-instance `initPromise`.
   - `AutotaskToolHandler.getMappingService()` now calls `MappingService.create(...)`. Because `AutotaskToolHandler` is already constructed per-request in gateway mode (via `McpServer.buildPerRequestHandlers`, added in the worker refactor), each request now ends up with its own isolated `MappingService`.

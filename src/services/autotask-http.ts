@@ -35,6 +35,16 @@ interface QueryResponse<T> {
 const RAW_REQUEST_METHODS = ['GET', 'POST', 'PATCH', 'DELETE'] as const;
 
 /**
+ * Maximum value Autotask accepts for the per-page `MaxRecords` body param on
+ * `/query` endpoints. Anything outside [1, AUTOTASK_MAX_PAGE_SIZE] returns
+ * HTTP 500 with the body "maxCountOfRecordsToReturn must be between 1 and 500".
+ * This is the per-page page-size limit, NOT a cap on total rows the caller
+ * can retrieve — multi-page walks via `pageDetails.nextPageUrl` aggregate
+ * across pages until the caller's `opts.maxRecords` total cap is reached.
+ */
+export const AUTOTASK_MAX_PAGE_SIZE = 500;
+
+/**
  * Thrown when Autotask returns 429 (per-integration API threshold exceeded).
  * Carries `retryAfterSeconds` parsed from the `Retry-After` header (RFC 7231
  * — either an integer seconds value or an HTTP-date) so callers can back off
@@ -253,9 +263,15 @@ export class AutotaskHttpClient {
   /**
    * POST /{Entity}/query — handles pagination transparently via nextPageUrl.
    *
-   * `maxRecords` caps the server-side page size (Autotask calls this MaxRecords).
-   * This method will keep following pageDetails.nextPageUrl until exhausted OR
-   * until the collected length reaches `maxRecords` (whichever is smaller).
+   * `opts.maxRecords` is the TOTAL CAP — the caller's "stop after this many
+   * rows" budget across the whole pagination walk. The PER-PAGE size sent in
+   * the request body (`MaxRecords`) is a separate concept: Autotask rejects
+   * any value outside [1, AUTOTASK_MAX_PAGE_SIZE] with
+   * HTTP 500 "maxCountOfRecordsToReturn must be between 1 and 500". The
+   * per-page size is therefore clamped to `min(maxRecords, AUTOTASK_MAX_PAGE_SIZE)`
+   * regardless of how large the caller's total cap is, and the walk keeps
+   * following `pageDetails.nextPageUrl` until exhausted or `items.length`
+   * reaches the total cap.
    *
    * Pass an empty filter array to request "all rows" — the caller is expected
    * to supply the Autotask-required `{op:'gte', field:'id', value:0}` sentinel
@@ -266,10 +282,11 @@ export class AutotaskHttpClient {
     filter: QueryFilter[],
     opts: QueryOptions = {}
   ): Promise<T[]> {
-    const maxRecords = opts.maxRecords ?? 500;
+    const totalCap = opts.maxRecords ?? AUTOTASK_MAX_PAGE_SIZE;
+    const pageSize = Math.min(totalCap, AUTOTASK_MAX_PAGE_SIZE);
     const body: Record<string, any> = {
       filter,
-      MaxRecords: maxRecords,
+      MaxRecords: pageSize,
     };
     if (opts.includeFields && opts.includeFields.length > 0) {
       body.IncludeFields = opts.includeFields;
@@ -281,13 +298,13 @@ export class AutotaskHttpClient {
 
     while (
       resp?.pageDetails?.nextPageUrl &&
-      items.length < maxRecords
+      items.length < totalCap
     ) {
       resp = await this.request<QueryResponse<T>>('GET', resp.pageDetails.nextPageUrl);
       if (resp?.items) items.push(...resp.items);
     }
 
-    return items.slice(0, maxRecords);
+    return items.slice(0, totalCap);
   }
 
   /**
@@ -379,9 +396,13 @@ export class AutotaskHttpClient {
     filter: QueryFilter[],
     opts: QueryOptions = {}
   ): Promise<T[]> {
+    // Per-page size sent to Autotask must respect AUTOTASK_MAX_PAGE_SIZE.
+    // childQuery does not walk nextPageUrl, so the request gets at most a
+    // single page; clamping is the only thing that matters here.
+    const pageSize = Math.min(opts.maxRecords ?? AUTOTASK_MAX_PAGE_SIZE, AUTOTASK_MAX_PAGE_SIZE);
     const body: Record<string, any> = {
       filter,
-      MaxRecords: opts.maxRecords ?? 500,
+      MaxRecords: pageSize,
     };
     if (opts.includeFields && opts.includeFields.length > 0) {
       body.IncludeFields = opts.includeFields;

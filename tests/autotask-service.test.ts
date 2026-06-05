@@ -726,6 +726,72 @@ describe('AutotaskService', () => {
       warnSpy.mockRestore();
     });
 
+    // ---- Per-page MaxRecords clamping (regression: listAllCompanies HTTP 500) ----
+
+    test('listAllCompanies clamps per-page MaxRecords to <=500 even when total cap is large', async () => {
+      // Without clamping, `listAllCompanies()` (default cap 20_000) would
+      // send `MaxRecords: 20000` in the request body, which Autotask rejects
+      // with HTTP 500 "maxCountOfRecordsToReturn must be between 1 and 500".
+      // The fix is to separate the caller's TOTAL cap (used as a stop
+      // condition while walking pageDetails.nextPageUrl) from the PER-PAGE
+      // size sent to the API.
+      const capturedMaxRecords: number[] = [];
+      const buildBatch = (start: number, count: number) =>
+        Array.from({ length: count }, (_, i) => ({
+          id: start + i,
+          companyName: `Company ${start + i}`,
+        }));
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && url === `${BASE}/Companies/query`) {
+          const body = JSON.parse(init!.body as string);
+          capturedMaxRecords.push(body.MaxRecords);
+          return jsonResponse({
+            items: buildBatch(1, 500),
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
+          });
+        }
+        if (method === 'GET' && url.includes('Companies/query?page=2')) {
+          return jsonResponse({
+            items: buildBatch(501, 200),
+            pageDetails: { nextPageUrl: null },
+          });
+        }
+        throw new Error(`unexpected fetch ${method} ${url}`);
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const all = await service.listAllCompanies(); // default cap 20_000
+
+      // The body of the initial POST MUST clamp to <=500 even though the
+      // caller wanted up to 20_000 total. The cursor walk handles the rest.
+      expect(capturedMaxRecords).toHaveLength(1);
+      expect(capturedMaxRecords[0]).toBeLessThanOrEqual(500);
+      expect(all).toHaveLength(700);
+    });
+
+    test('query() honors caller total cap smaller than per-page clamp', async () => {
+      // When the caller asks for fewer rows than the per-page max (e.g. 25),
+      // the per-page MaxRecords must equal the caller's small ask — not 500.
+      // Keeps targeted-fetch costs low for small queries.
+      let capturedMaxRecords: number | undefined;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        const body = JSON.parse(init!.body as string);
+        capturedMaxRecords = body.MaxRecords;
+        return jsonResponse({
+          items: Array.from({ length: 25 }, (_, i) => ({ id: i + 1, companyName: `Co ${i + 1}` })),
+          pageDetails: { nextPageUrl: null },
+        });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const result = await service.searchCompanies({ page: 1, pageSize: 25 } as any);
+
+      expect(result).toHaveLength(25);
+      expect(capturedMaxRecords).toBe(25);
+    });
+
     // ---- search* filter translation (regression: issues #104, #105) ----
     //
     // Four search methods (Contracts, ConfigurationItems, Invoices, Tasks)
