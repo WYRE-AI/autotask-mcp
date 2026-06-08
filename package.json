@@ -19,7 +19,7 @@
     "test:mapping": "tsx scripts/test-mapping.js",
     "test:pagination": "tsx scripts/test-pagination.js",
     "test:mapping-simple": "tsx scripts/test-mapping-simple.js",
-    "lint": "eslint src --ext .ts",
+    "lint": "eslint src",
     "lint:fix": "eslint src --ext .ts --fix",
     "clean": "rm -rf dist",
     "prepare": "npm run build",
@@ -48,23 +48,24 @@
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",
+    "@eslint/js": "^10.0.1",
     "@semantic-release/changelog": "^6.0.3",
     "@semantic-release/git": "^10.0.1",
+    "@semantic-release/github": "^12.0.8",
     "@types/jest": "^30.0.0",
     "@types/node": "^25.9.2",
-    "@typescript-eslint/eslint-plugin": "^6.13.0",
-    "@typescript-eslint/parser": "^6.13.0",
     "dotenv": "^17.4.2",
-    "eslint": "^8.54.0",
+    "eslint": "^10.4.1",
+    "globals": "^17.6.0",
     "jest": "^30.4.2",
     "semantic-release": "^25.0.0",
     "ts-jest": "^29.4.11",
     "tsx": "^4.22.4",
     "typescript": "^5.3.0",
-    "@semantic-release/github": "^12.0.8"
+    "typescript-eslint": "^8.61.0"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=20.0.0"
   },
   "overrides": {
     "@isaacs/brace-expansion": "^5.0.1",

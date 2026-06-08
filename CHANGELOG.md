@@ -2,6 +2,14 @@
 
 ### Changed
 
+- **Migrated to ESLint 9/10 flat config** ([#141](https://github.com/wyre-technology/autotask-mcp/issues/141)). ESLint 9 dropped support for the legacy `.eslintrc.json` format, and `@typescript-eslint` v6 can't run under it — so the `eslint`, `@typescript-eslint/parser`, and `@typescript-eslint/eslint-plugin` Dependabot bumps were three coupled breaking changes that could only land together. Replaced `.eslintrc.json` with `eslint.config.mjs` (flat config) using the unified `typescript-eslint` package (bundles parser + plugin in version-lockstep), bumped `eslint` 8 → 10 and typescript-eslint 6 → 8, and added `@eslint/js` + `globals`. The ruleset is unchanged (`no-explicit-any`/`no-unused-vars` as warnings, `no-console` off, same ignores); lint output is identical at 0 errors / 193 warnings. `lint` script simplified from `eslint src --ext .ts` to `eslint src` (flat config infers extensions).
+  - ESLint 10's `preserve-caught-error` rule surfaced three `catch` blocks that re-threw without preserving the original error. Fixed by attaching `{ cause: err }` to the rethrown `Error` in `autotask-http.ts` (network errors) and `config.ts` (zone-detection network + malformed-response errors), improving error chains for debugging. This required adding `ES2022.Error` to the tsconfig `lib` for the `Error(message, { cause })` constructor overload (emit target unchanged at ES2020; Node 18+ supports `Error.cause` at runtime).
+  - Supersedes Dependabot PRs #113 (incorporated), #114 and #124 (parser/plugin replaced by the unified package). TypeScript 6 (#122) remains tracked separately in #141.
+
+### Removed
+
+- **Dropped Node.js 18 support.** ESLint 10 requires Node `^20.19 || ^22.13 || >=24`, and Node 18 reached end-of-life on 2025-04-30. Bumped `engines.node` to `>=20.0.0` and removed Node 18 from the CI test matrix and release pipeline (the Docker image already targets Node 22). Supported runtimes are now Node 20 and 22.
+
 - **Published to GitHub Packages.** The npm package is now scoped to `@wyre-technology/autotask-mcp` (GitHub Packages rejects unscoped names) and `@semantic-release/npm` `npmPublish` is enabled. The release workflow now configures an authenticated `.npmrc` for `npm.pkg.github.com` and grants `packages: write`. The unscoped `bin` command name (`autotask-mcp`), the `io.github.wyre-technology/autotask-mcp` MCP Registry identifier, and the GHCR image name are unchanged.
 
 ### Added

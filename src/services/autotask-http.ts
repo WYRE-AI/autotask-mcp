@@ -163,7 +163,7 @@ export class AutotaskHttpClient {
       response = await fetch(url, init);
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      throw new Error(`Autotask ${method} ${url} network error: ${msg}`);
+      throw new Error(`Autotask ${method} ${url} network error: ${msg}`, { cause: err });
     }
 
     if (response.status === 204) {

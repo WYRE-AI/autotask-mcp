@@ -248,7 +248,8 @@ export async function resolveAutotaskApiUrl(
     );
     throw new Error(
       `Autotask zone auto-detection failed (network error: ${message}). ` +
-        `Set AUTOTASK_API_URL manually — see ${ZONE_DOCS_URL}`
+        `Set AUTOTASK_API_URL manually — see ${ZONE_DOCS_URL}`,
+      { cause: err }
     );
   }
 
@@ -273,7 +274,8 @@ export async function resolveAutotaskApiUrl(
     );
     throw new Error(
       `Autotask zone auto-detection failed (malformed response). ` +
-        `Set AUTOTASK_API_URL manually — see ${ZONE_DOCS_URL}`
+        `Set AUTOTASK_API_URL manually — see ${ZONE_DOCS_URL}`,
+      { cause: err }
     );
   }
 
