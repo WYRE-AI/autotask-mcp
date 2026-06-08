@@ -400,6 +400,18 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         primaryContact: {
           type: 'boolean',
           description: 'Whether this contact is the primary contact for their company'
+        },
+        userDefinedFields: {
+          type: 'array',
+          description: 'User-defined (custom) fields for the contact, as an array of { name, value } objects matching the Autotask REST API shape. Contacts support UDFs (hasUserDefinedFields: true).',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'UDF name' },
+              value: { type: 'string', description: 'UDF value (stringified)' }
+            },
+            required: ['name', 'value']
+          }
         }
       },
       required: ['id']
@@ -3015,7 +3027,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       properties: {
         method: {
           type: 'string',
-          enum: ['GET', 'POST', 'PATCH', 'DELETE'],
+          enum: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
           description: 'HTTP method'
         },
         path: {

@@ -32,7 +32,7 @@ interface QueryResponse<T> {
   pageDetails?: PageDetails;
 }
 
-const RAW_REQUEST_METHODS = ['GET', 'POST', 'PATCH', 'DELETE'] as const;
+const RAW_REQUEST_METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as const;
 
 /**
  * Maximum value Autotask accepts for the per-page `MaxRecords` body param on
@@ -195,7 +195,12 @@ export class AutotaskHttpClient {
           retryAfter,
         );
       }
-      throw new Error(`Autotask ${method} ${path} failed: HTTP ${response.status}: ${detail}`);
+      const httpError = new Error(`Autotask ${method} ${path} failed: HTTP ${response.status}: ${detail}`);
+      // Attach the numeric status so callers can branch on it reliably instead
+      // of substring-matching the message (the message embeds the response body,
+      // which can coincidentally contain a status-like number).
+      (httpError as Error & { status?: number }).status = response.status;
+      throw httpError;
     }
 
     if (!text) return undefined as unknown as T;
@@ -327,9 +332,26 @@ export class AutotaskHttpClient {
    * PATCH /{Entity} with body `{id, ...fields}`. This is the Autotask update
    * pattern — there is NO PATCH /{Entity}/{id} route (the SDK's default
    * generates one and gets 405 Method Not Allowed for every update).
+   *
+   * Zone DE1 (Zone 18) is an exception: its IIS instance does not register the
+   * collection-level PATCH route at all and returns an HTML 404 (issue #133).
+   * When that happens we fall back to `PUT /{Entity}/{id}`, which Autotask
+   * supports universally across zones. The fallback is gated strictly on a 404
+   * status so genuine validation errors (400/422) still surface to the caller.
    */
   async update(entity: string, id: number, body: Record<string, any>): Promise<void> {
-    await this.request<void>('PATCH', `/${entity}`, { id, ...body });
+    try {
+      await this.request<void>('PATCH', `/${entity}`, { id, ...body });
+    } catch (err) {
+      if ((err as { status?: number })?.status === 404) {
+        this.logger.debug(
+          `Autotask PATCH /${entity} returned 404 (likely Zone DE1) — retrying as PUT /${entity}/${id}`
+        );
+        await this.request<void>('PUT', `/${entity}/${id}`, body);
+        return;
+      }
+      throw err;
+    }
   }
 
   /**
