@@ -44,7 +44,7 @@
     "@modelcontextprotocol/sdk": "^1.25.3",
     "autotask-node": "github:wyre-technology/autotask-node#v2.2.1",
     "winston": "^3.11.0",
-    "zod": "^3.22.4"
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",
