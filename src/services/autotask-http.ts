@@ -305,7 +305,12 @@ export class AutotaskHttpClient {
       resp?.pageDetails?.nextPageUrl &&
       items.length < totalCap
     ) {
-      resp = await this.request<QueryResponse<T>>('GET', resp.pageDetails.nextPageUrl);
+      // Autotask's thread-safe pagination returns nextPageUrl as
+      // `/{entity}/query/next?paging=...` and requires the SAME POST + filter
+      // body as the initial query; a GET returns HTTP 405 ("does not support
+      // http method 'GET'"), which silently truncates large result sets (e.g.
+      // the company name cache never loads past the first page).
+      resp = await this.request<QueryResponse<T>>('POST', resp.pageDetails.nextPageUrl, body);
       if (resp?.items) items.push(...resp.items);
     }
 

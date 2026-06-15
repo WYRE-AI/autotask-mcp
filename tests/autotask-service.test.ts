@@ -611,8 +611,9 @@ describe('AutotaskService', () => {
     test('searchCompanies honors page by slicing over http.query cursor pagination', async () => {
       // Simulate a tenant whose /Companies/query endpoint returns:
       //   - first POST  → 200 items + nextPageUrl
-      //   - second GET  → 200 items + nextPageUrl
-      //   - third GET   → 100 items, no nextPage
+      //   - second POST → 200 items + nextPageUrl
+      //   - third POST  → 100 items, no nextPage
+      // Autotask's cursor pagination requires POST on nextPageUrl (a GET 405s).
       const totalRecords = 500;
       const buildBatch = (start: number, count: number) =>
         Array.from({ length: count }, (_, i) => ({
@@ -630,14 +631,14 @@ describe('AutotaskService', () => {
             pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
           });
         }
-        if (method === 'GET' && url.includes('Companies/query?page=2')) {
+        if (method === 'POST' && url.includes('Companies/query?page=2')) {
           callIndex = 2;
           return jsonResponse({
             items: buildBatch(201, 200),
             pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=3` },
           });
         }
-        if (method === 'GET' && url.includes('Companies/query?page=3')) {
+        if (method === 'POST' && url.includes('Companies/query?page=3')) {
           callIndex = 3;
           return jsonResponse({
             items: buildBatch(401, 100),
@@ -675,13 +676,13 @@ describe('AutotaskService', () => {
             pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
           });
         }
-        if (method === 'GET' && url.includes('Companies/query?page=2')) {
+        if (method === 'POST' && url.includes('Companies/query?page=2')) {
           return jsonResponse({
             items: buildBatch(201, 200),
             pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=3` },
           });
         }
-        if (method === 'GET' && url.includes('Companies/query?page=3')) {
+        if (method === 'POST' && url.includes('Companies/query?page=3')) {
           return jsonResponse({
             items: buildBatch(401, 100),
             pageDetails: { nextPageUrl: null },
@@ -695,6 +696,38 @@ describe('AutotaskService', () => {
       expect(all).toHaveLength(500);
       expect(all[0].id).toBe(1);
       expect(all[499].id).toBe(500);
+    });
+
+    test('cursor pagination POSTs the nextPageUrl with the filter body (not GET)', async () => {
+      // Regression: Autotask returns nextPageUrl as `/query/next?paging=...`,
+      // which only accepts POST with the original filter body. A GET returns
+      // HTTP 405 and truncates results to the first page.
+      const calls: Array<{ method: string; url: string; body: any }> = [];
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        const body = init?.body ? JSON.parse(init.body as string) : undefined;
+        calls.push({ method, url, body });
+        if (url.endsWith('/Companies/query')) {
+          return jsonResponse({
+            items: [{ id: 1, companyName: 'A' }],
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?paging=abc` },
+          });
+        }
+        // The next-page request — must be POST; a GET here would mean the bug.
+        if (method !== 'POST') {
+          return new Response('{"Message":"The requested resource does not support http method \'GET\'."}', { status: 405 });
+        }
+        return jsonResponse({ items: [{ id: 2, companyName: 'B' }], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const all = await service.listAllCompanies();
+
+      expect(all.map(c => c.id)).toEqual([1, 2]);
+      const nextCall = calls.find(c => c.url.includes('/query/next'));
+      expect(nextCall?.method).toBe('POST');
+      expect(nextCall?.body).toHaveProperty('filter');
     });
 
     test('listAllCompanies warns and returns when maxRecords cap is hit', async () => {
@@ -752,7 +785,7 @@ describe('AutotaskService', () => {
             pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
           });
         }
-        if (method === 'GET' && url.includes('Companies/query?page=2')) {
+        if (method === 'POST' && url.includes('Companies/query?page=2')) {
           return jsonResponse({
             items: buildBatch(501, 200),
             pageDetails: { nextPageUrl: null },
@@ -893,7 +926,7 @@ describe('AutotaskService', () => {
             pageDetails: { nextPageUrl: `${BASE}/Tasks/query?page=2` },
           });
         }
-        if (method === 'GET' && url.includes('Tasks/query?page=2')) {
+        if (method === 'POST' && url.includes('Tasks/query?page=2')) {
           return jsonResponse({
             items: buildBatch(26, 25),
             pageDetails: { nextPageUrl: null },
