@@ -230,6 +230,12 @@ MCP_HTTP_HOST=0.0.0.0        # HTTP transport bind address
 LOG_LEVEL=info          # error, warn, info, debug
 LOG_FORMAT=simple       # simple, json
 
+# Search-result name enrichment
+# Max concurrent Autotask API calls used to resolve company/resource names on
+# search results. Kept low to stay under Autotask's per-integration
+# concurrent-thread limit (raising it risks HTTP 429 "thread threshold").
+AUTOTASK_ENHANCE_CONCURRENCY=3
+
 # Environment
 NODE_ENV=production
 ```
@@ -602,6 +608,7 @@ npm test -- tests/autotask-service.test.ts
 | `MCP_HTTP_HOST` | ❌ | `0.0.0.0` | HTTP transport bind address |
 | `LOG_LEVEL` | ❌ | `info` | Logging level |
 | `LOG_FORMAT` | ❌ | `simple` | Log output format |
+| `AUTOTASK_ENHANCE_CONCURRENCY` | ❌ | `3` | Max concurrent Autotask API calls used to resolve company/resource names on search results. Kept low to stay under Autotask's concurrent-thread limit. |
 | `NODE_ENV` | ❌ | `development` | Node.js environment |
 
 ### Logging Levels

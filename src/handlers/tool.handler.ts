@@ -8,7 +8,18 @@ import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
+import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
+
+// Default concurrency for company/resource name enrichment. Autotask allows
+// only a handful of concurrent API threads per integration, so enrichment is
+// fanned out in small batches rather than all at once (see enhanceItems).
+const DEFAULT_ENHANCE_CONCURRENCY = 3;
+
+function resolveEnhanceConcurrency(raw: string | undefined): number {
+  const parsed = parseInt(raw ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_ENHANCE_CONCURRENCY;
+}
 
 // Fields accepted by autotask_create_ticket / autotask_update_ticket.
 // Keep this list in sync with the tool definitions in tool.definitions.ts.
@@ -77,11 +88,13 @@ export class AutotaskToolHandler {
   protected mcpServer: Server | null = null;
   private mappingService: MappingService | null = null;
   private lazyLoading: boolean;
+  private enhanceConcurrency: number;
 
   constructor(autotaskService: AutotaskService, logger: Logger, lazyLoading = false) {
     this.autotaskService = autotaskService;
     this.logger = logger;
     this.lazyLoading = lazyLoading;
+    this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
     this.picklistCache = new PicklistCache(
       logger,
       (entityType) => this.autotaskService.getFieldInfo(entityType)
@@ -107,8 +120,14 @@ export class AutotaskToolHandler {
   private async enhanceItems(items: any[]): Promise<any[]> {
     try {
       const mappingService = await this.getMappingService();
-      const enhanced = await Promise.allSettled(
-        items.map(async (item) => {
+      // Bound the fan-out: one item may trigger up to a few Autotask API
+      // calls (company + resource names), and Autotask 429s past its
+      // concurrent-thread limit. mapWithConcurrency keeps us under it so
+      // every row's names resolve instead of most of them being dropped.
+      const enhanced = await mapWithConcurrency(
+        items,
+        this.enhanceConcurrency,
+        async (item) => {
           const result = { ...item };
           if (item.companyID != null && typeof item.companyID === 'number') {
             try {
@@ -129,7 +148,7 @@ export class AutotaskToolHandler {
             } catch { /* skip */ }
           }
           return result;
-        })
+        }
       );
       return enhanced
         .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')

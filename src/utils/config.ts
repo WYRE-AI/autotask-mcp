@@ -327,6 +327,7 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
   MCP_HTTP_HOST            - HTTP host when using http transport (default: 0.0.0.0)
   LOG_LEVEL                - Logging level: error, warn, info, debug (default: info)
   LOG_FORMAT               - Log format: simple, json (default: simple)
+  AUTOTASK_ENHANCE_CONCURRENCY - Max concurrent Autotask API calls used to resolve company/resource names on search results (default: 3). Kept low to stay under Autotask's concurrent-thread limit.
 
 Example (Local Mode):
   AUTOTASK_USERNAME=api-user@example.com
