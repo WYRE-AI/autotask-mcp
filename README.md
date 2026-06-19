@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/wyre-technology-autotask-mcp-badge.png)](https://mseep.ai/app/wyre-technology-autotask-mcp)
+
 # Autotask MCP Server
 
 [![Build Status](https://github.com/wyre-technology/autotask-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/wyre-technology/autotask-mcp/actions/workflows/release.yml)
