@@ -2,283 +2,41 @@ name: Release
 
 on:
   push:
-    branches:
-      - main
-      - next
-      - next-major
-      - beta
-      - alpha
-      - '*.x'
+    branches: [main]
   pull_request:
-    branches:
-      - main
+    branches: [main]
 
+# Thin caller for the canonical reusable release pipeline. The build →
+# semantic-release → Docker → MCP Registry → security chain (tag-based release
+# detection + correct gating) lives in wyre-technology/.github so every *-mcp
+# repo stays in lockstep instead of drifting per-repo. PR-time lint/test gating
+# is each repo's ci.yml concern; this workflow only runs the release path.
+# Caller jobs grant the token scopes the reusable jobs request (a reusable can
+# only reduce, never expand, caller-granted scope).
 jobs:
-  test:
-    name: Test
-    # Delegated to the canonical reusable CI workflow.
-    # See: ~/.claude/skills/mcp-server-fleet-ci-template
-    uses: wyre-technology/.github/.github/workflows/mcp-server-ci.yml@198605d0575e27374cf9b67fba3aa8c7b91de2c0
-    with:
-      node-versions: '["20", "22"]'
-      lint-destructive-warnings: true
-    secrets: inherit
-
   release:
-    name: Release
-    runs-on: ubuntu-latest
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     permissions:
       contents: write
       issues: write
       packages: write
-    outputs:
-      version: ${{ steps.release-version.outputs.version }}
-      released: ${{ steps.release-version.outputs.released }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-        with:
-          fetch-depth: 0
-
-      - name: Setup Node.js
-        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e  # v6.4.0
-        with:
-          node-version: '22.x'
-          cache: 'npm'
-
-      - name: Configure npm for GitHub Packages
-        run: |
-          echo "@wyre-technology:registry=https://npm.pkg.github.com" >> .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
-
-      - name: Install dependencies
-        run: npm ci
-      
-      - name: Build
-        run: npm run build
-
-      - name: Capture pre-release version
-        run: |
-          PRE_VERSION=$(node -p "require('./package.json').version")
-          echo "PRE_VERSION=$PRE_VERSION" >> "$GITHUB_ENV"
-
-      - name: Release
-        id: release
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NODE_AUTH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          NPM_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: npx semantic-release
-
-      - name: Get released version
-        id: release-version
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          VERSION=$(node -p "require('./package.json').version")
-          echo "version=$VERSION" >> $GITHUB_OUTPUT
-          # Check if a release was actually created for this version
-          if [ "$VERSION" != "$PRE_VERSION" ]; then
-            echo "released=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "released=false" >> "$GITHUB_OUTPUT"
-          fi
-
-      - name: Pack and upload MCPB bundle
-        if: steps.release-version.outputs.released == 'true'
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          npm install -g @anthropic-ai/mcpb
-          npm run pack:mcpb
-          gh release upload "v${{ steps.release-version.outputs.version }}" autotask-mcp.mcpb \
-            --repo ${{ github.repository }} --clobber
-
-      - name: Trigger MCP Gateway redeploy
-        if: steps.release-version.outputs.released == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GATEWAY_DEPLOY_PAT }}
-        run: |
-          gh api repos/wyre-technology/mcp-gateway/dispatches \
-            -f event_type=mcp-server-updated \
-            -f "client_payload[server]=${{ github.event.repository.name }}" \
-            -f "client_payload[version]=${{ steps.release-version.outputs.version }}"
-
-  docker:
-    name: Build and Push Docker Image
-    runs-on: ubuntu-latest
-    # Sequence after release so the image tag reflects the bumped version
-    # rather than the pre-release version baked into package.json on the
-    # triggering commit. The MCP Registry verifies tag-pinned images, so
-    # tag/version drift breaks publishing.
-    needs: [release]
-    # Gate on an actual semantic-release. On a non-release push to main,
-    # package.json still holds the previous version (it is never committed back
-    # without @semantic-release/git), so this job would rebuild and re-push
-    # :latest tagged with that stale version, clobbering the correctly-tagged
-    # :latest from the last real release. Skipping docker cascades to
-    # security/deploy/registry (skipped dependency).
-    if: needs.release.outputs.released == 'true'
-    permissions:
-      contents: read
-      packages: write
-    outputs:
-      # The push digest is the only race-proof way to deploy this exact build.
-      # `:latest` is mutable and can resolve to a stale layer through GHCR
-      # edge caches or ACA's image-pull cache; the version tag is safer but
-      # the digest is bulletproof.
-      digest: ${{ steps.push.outputs.digest }}
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-        with:
-          fetch-depth: 0
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@d7f5e7f509e45cec5c76c4d5afdd7de93d0b3df5  # v4.1.0
-
-      - name: Login to GitHub Container Registry
-        uses: docker/login-action@650006c6eb7dba73a995cc03b0b2d7f5ca915bee  # v4.2.0
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Resolve release version
-        id: version
-        # Source of truth is the release job's computed version (semantic-release's
-        # in-memory bump). Reading package.json here would be wrong because
-        # @semantic-release/git's push back to main is silently dropped by
-        # branch protection — package.json on main has been stuck at 2.18.0
-        # for several releases. We use the release output so docker tags match
-        # the GitHub release/git tag.
-        env:
-          RELEASE_VERSION: ${{ needs.release.outputs.version }}
-        run: |
-          if [ -z "$RELEASE_VERSION" ]; then
-            echo "ERROR: needs.release.outputs.version is empty" >&2
-            exit 1
-          fi
-          echo "version=$RELEASE_VERSION" >> "$GITHUB_OUTPUT"
-
-      - name: Extract metadata
-        id: meta
-        uses: docker/metadata-action@80c7e94dd9b9319bd5eb7a0e0fe9291e23a2a2e9  # v6.1.0
-        with:
-          images: ghcr.io/wyre-technology/autotask-mcp
-          tags: |
-            type=ref,event=branch
-            type=ref,event=pr
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
-            type=raw,value=latest,enable={{is_default_branch}}
-
-      - name: Build and push Docker image
-        id: push
-        uses: docker/build-push-action@f9f3042f7e2789586610d6e8b85c8f03e5195baf  # v7.2.0
-        with:
-          context: .
-          platforms: linux/amd64
-          push: true
-          tags: |
-            ghcr.io/wyre-technology/autotask-mcp:latest
-            ghcr.io/wyre-technology/autotask-mcp:v${{ steps.version.outputs.version }}
-          labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-          build-args: |
-            VERSION=${{ steps.version.outputs.version }}
-            COMMIT_SHA=${{ github.sha }}
-            BUILD_DATE=${{ github.event.head_commit.timestamp }}
-
-  security:
-    name: Security Scan
-    runs-on: ubuntu-latest
-    needs: docker
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    permissions:
-      contents: read
+      id-token: write
       security-events: write
+    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@7794e75666ac4956274f7a7d25dabacd56c96bbc
+    with:
+      server-name: autotask-mcp
+      image-name: ghcr.io/wyre-technology/autotask-mcp
+    secrets: inherit
 
-    steps:
-      - name: Run Trivy vulnerability scanner
-        uses: aquasecurity/trivy-action@master
-        with:
-          image-ref: 'ghcr.io/wyre-technology/autotask-mcp:latest'
-          format: 'sarif'
-          output: 'trivy-results.sarif'
-
-      - name: Upload Trivy scan results to GitHub Security tab
-        uses: github/codeql-action/upload-sarif@0daab03d71ff584ef619d027a3fd9146679c5d84  # v3.35.3
-        with:
-          sarif_file: 'trivy-results.sarif'
   deploy:
-    name: Deploy to Azure Container Apps
-    needs: [release, docker]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: release
+    if: needs.release.outputs.released == 'true'
     permissions:
       id-token: write
       contents: read
-    # Delegates to the canonical reusable workflow so the digest-pinned + correct-ACA
-    # deploy logic lives in one place across every wyre-technology/*-mcp repo.
-    uses: wyre-technology/.github/.github/workflows/mcp-server-deploy.yml@198605d0575e27374cf9b67fba3aa8c7b91de2c0
+    uses: wyre-technology/.github/.github/workflows/mcp-server-deploy.yml@7794e75666ac4956274f7a7d25dabacd56c96bbc
     with:
       vendor-slug: autotask
       image-name: ghcr.io/wyre-technology/autotask-mcp
-      digest: ${{ needs.docker.outputs.digest }}
+      digest: ${{ needs.release.outputs.digest }}
       version: ${{ needs.release.outputs.version }}
     secrets: inherit
-
-  mcp-registry:
-    name: Publish to MCP Registry
-    runs-on: ubuntu-latest
-    needs: [release, docker]
-    # Only publish to the registry on actual semantic-release versions
-    if: needs.release.outputs.released == 'true'
-    permissions:
-      id-token: write   # Required for GitHub OIDC auth to the MCP Registry
-      contents: read
-    env:
-      VERSION: ${{ needs.release.outputs.version }}
-    steps:
-      - name: Checkout (post-release commit)
-        uses: actions/checkout@df4cb1c069e1874edd31b4311f1884172cec0e10  # v6.0.3
-        with:
-          ref: main
-
-      - name: Install mcp-publisher
-        run: |
-          curl -L "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
-            | tar xz mcp-publisher
-
-      - name: Stamp version into server.json
-        # server.json is committed with version "0.0.0" placeholders; replace
-        # them with the just-released version so the OCI identifier points at
-        # the image tag the docker job just pushed.
-        run: |
-          jq --arg v "$VERSION" \
-            '.version = $v
-             | .packages[0].identifier = "ghcr.io/wyre-technology/autotask-mcp:v" + $v' \
-            server.json > server.json.tmp
-          mv server.json.tmp server.json
-          cat server.json
-
-      - name: Validate server.json
-        run: ./mcp-publisher validate
-
-      - name: Authenticate to MCP Registry (GitHub OIDC)
-        run: ./mcp-publisher login github-oidc
-
-      - name: Publish to MCP Registry
-        run: ./mcp-publisher publish
-
-      - name: Verify registry listing
-        run: |
-          sleep 5
-          curl -sf "https://registry.modelcontextprotocol.io/v0.1/servers?search=io.github.wyre-technology/autotask-mcp" \
-            | jq '.servers[] | {name, version}'
