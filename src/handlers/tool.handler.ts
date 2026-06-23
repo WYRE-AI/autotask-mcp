@@ -147,6 +147,24 @@ export class AutotaskToolHandler {
               if (name) result.lead = name;
             } catch { /* skip */ }
           }
+          // Time entries reference their technician via resourceID (not
+          // assignedResourceID), so resolve that to a name too — otherwise a
+          // time entry comes back as a bare number and callers can't tell who
+          // logged the work.
+          if (item.resourceID != null && typeof item.resourceID === 'number') {
+            try {
+              const name = await mappingService.getResourceName(item.resourceID);
+              if (name) result.resourceName = name;
+            } catch { /* skip */ }
+          }
+          // Notes record their author via createdByResourceID — resolve it so
+          // "who said this" shows a name, not a number.
+          if (item.createdByResourceID != null && typeof item.createdByResourceID === 'number') {
+            try {
+              const name = await mappingService.getResourceName(item.createdByResourceID);
+              if (name) result.createdByName = name;
+            } catch { /* skip */ }
+          }
           return result;
         }
       );
@@ -1382,8 +1400,20 @@ export class AutotaskToolHandler {
 
       // Time Entries
       ['autotask_search_time_entries', async (a) => {
+        // Allow filtering by resource NAME (e.g. "Melissa Jones"), mirroring
+        // autotask_create_time_entry. Without this, callers must first look up
+        // the numeric resourceID via autotask_search_resources before they can
+        // find a specific person's time entries.
+        let resourceId = a.resourceId;
+        if (resourceId == null && a.resourceName) {
+          const resource = await s.resolveResourceByName(a.resourceName);
+          if (!resource) {
+            throw new Error(`No resource found matching "${a.resourceName}"`);
+          }
+          resourceId = resource.id;
+        }
         const r = await s.searchTimeEntries({
-          resourceId: a.resourceId,
+          resourceId,
           ticketId: a.ticketId,
           projectId: a.projectId,
           taskId: a.taskId,
@@ -1395,6 +1425,88 @@ export class AutotaskToolHandler {
           pageSize: a.pageSize
         } as any);
         return { result: r, message: `Found ${r.length} time entries` };
+      }],
+
+      // Ticket Activity — unified "what happened on this ticket" view.
+      // Aggregates ticket details + notes (what was said) + time entries (what
+      // was done) + change history into ONE chronological timeline, so callers
+      // never have to ask for each source separately. Sources are fetched in
+      // parallel and each is guarded so one failure doesn't sink the whole view.
+      ['autotask_get_ticket_activity', async (a) => {
+        const ticketId = a.ticketID ?? a.ticketId;
+        if (ticketId == null) {
+          throw new Error('ticketID is required');
+        }
+        const pageSize = Math.min(a.pageSize || 100, 500);
+        const includeHistory = a.includeHistory !== false;
+
+        const [ticket, notesRaw, timeRaw, historyRaw] = await Promise.all([
+          s.getTicket(ticketId, true).catch(() => null),
+          s.searchTicketNotes(ticketId, { pageSize }).catch(() => [] as any[]),
+          s.searchTimeEntries({ ticketId, pageSize } as any).catch(() => [] as any[]),
+          includeHistory
+            ? s.searchTicketHistory({ ticketId, pageSize }).catch(() => [] as any[])
+            : Promise.resolve([] as any[]),
+        ]);
+
+        if (!ticket) {
+          return { result: null, message: `No ticket found with ID ${ticketId}` };
+        }
+
+        // Resolve resource/company names on every collection up front.
+        const [ticketEnh] = await this.enhanceItems([ticket]);
+        const notes = await this.enhanceItems(notesRaw);
+        const timeEntries = await this.enhanceItems(timeRaw);
+        const history = await this.enhanceItems(historyRaw);
+
+        // Merge everything into one chronological timeline.
+        const timeline: Array<Record<string, any>> = [];
+        for (const n of notes) {
+          timeline.push({
+            date: n.createDate,
+            type: 'note',
+            who: n.createdByName ?? (n.createdByResourceID != null ? `Resource ${n.createdByResourceID}` : undefined),
+            title: n.title,
+            summary: n.description,
+            noteId: n.id,
+          });
+        }
+        for (const t of timeEntries) {
+          timeline.push({
+            date: t.dateWorked,
+            type: 'time_entry',
+            who: t.resourceName ?? (t.resourceID != null ? `Resource ${t.resourceID}` : undefined),
+            hours: t.hoursWorked,
+            summary: t.summaryNotes,
+            timeEntryId: t.id,
+          });
+        }
+        for (const h of history) {
+          timeline.push({
+            date: h.dateChanged,
+            type: 'history',
+            who: h.resourceName ?? (h.resourceID != null ? `Resource ${h.resourceID}` : undefined),
+            summary: h.description ?? h.title ?? undefined,
+            historyId: h.id,
+          });
+        }
+        // Ascending by date; undated entries sort to the end.
+        timeline.sort((x, y) => String(x.date ?? '~').localeCompare(String(y.date ?? '~')));
+
+        const hoursTotal = timeEntries.reduce(
+          (sum: number, t: any) => sum + (typeof t.hoursWorked === 'number' ? t.hoursWorked : 0),
+          0
+        );
+
+        const result = {
+          ticket: ticketEnh,
+          timeline,
+          counts: { notes: notes.length, timeEntries: timeEntries.length, history: history.length },
+          hoursTotal,
+        };
+        const parts = [`${notes.length} notes`, `${timeEntries.length} time entries`];
+        if (includeHistory) parts.push(`${history.length} history entries`);
+        return { result, message: `Ticket ${ticketId}: ${parts.join(', ')}, ${hoursTotal}h logged` };
       }],
 
       // Meta-tools for progressive discovery

@@ -2512,6 +2512,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by resource (user) ID'
         },
+        resourceName: {
+          type: 'string',
+          description: 'Filter by resource (user) name, e.g. "Melissa Jones". Resolved to a resourceID automatically — use this when you have a name instead of an ID. Each returned entry includes summaryNotes (the work description) and resourceName.'
+        },
         ticketId: {
           type: 'number',
           description: 'Filter by ticket ID'
@@ -2554,6 +2558,34 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         }
       },
       required: []
+    }
+  },
+  {
+    name: 'autotask_get_ticket_activity',
+    description: 'Get the COMPLETE activity for one ticket in a single call: ticket details, every note (what was said), every time entry (what was done — with who, hours, and the work description), and the change history — merged into one chronological timeline with names resolved. Use this for any "what happened / what was said / what was done on ticket X" question, so the user never has to ask for notes and time entries separately. Returns { ticket, timeline[], counts, hoursTotal }.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketID: {
+          type: 'number',
+          description: 'The ticket ID to retrieve all activity for.'
+        },
+        includeHistory: {
+          type: 'boolean',
+          description: 'Include the ticket change-history audit trail (status/assignment/field changes). Default true.'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Max records pulled from each source (notes, time entries, history). Default 100, max 500.',
+          minimum: 1,
+          maximum: 500
+        }
+      },
+      required: ['ticketID']
+    },
+    annotations: {
+      title: 'Get ticket activity (notes + time + history)',
+      readOnlyHint: true
     }
   },
 
@@ -3065,7 +3097,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   tickets: {
     description: 'Search, create, update tickets and manage ticket notes, attachments, charges, and audit history',
-    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
+    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_get_ticket_activity', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
   },
   projects: {
     description: 'Search and create projects, tasks, phases, and project notes',
