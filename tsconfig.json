@@ -2,7 +2,10 @@
   "compilerOptions": {
     "target": "ES2020",
     "module": "commonjs",
-    "lib": ["ES2020", "ES2022.Error"],
+    "lib": [
+      "ES2020",
+      "ES2022.Error"
+    ],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -20,7 +23,12 @@
     "noUnusedParameters": true,
     "exactOptionalPropertyTypes": true,
     "resolveJsonModule": true,
-    "allowSyntheticDefaultImports": true
+    "allowSyntheticDefaultImports": true,
+    "types": [
+      "node",
+      "jest"
+    ],
+    "ignoreDeprecations": "6.0"
   },
   "include": [
     "src/**/*"
@@ -31,4 +39,4 @@
     "**/*.test.ts",
     "**/*.spec.ts"
   ]
-} 
+}
