@@ -312,26 +312,38 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Updating contact ${id}:`, updates);
-      // Contacts are a child entity of Companies. On some Autotask zone hosts
-      // the collection-level PATCH /Contacts route is not registered (HTML 404
-      // -- the Zone DE1 behaviour from issue #133) AND the item-level
-      // PUT /Contacts/{id} fallback is rejected with 405, so BOTH legs of
-      // AutotaskHttpClient.update() fail and contact updates are impossible.
-      // The child route PATCH /Companies/{companyID}/Contacts is the update
-      // path Autotask documents for child entities and works on all zones, so
-      // use it directly. Resolve the parent companyID from the updates payload
-      // when provided, otherwise from the existing record.
-      let companyID = (updates as Record<string, any>).companyID as number | undefined;
-      if (companyID === undefined || companyID === null) {
-        const existing = await this.getContact(id);
-        companyID = (existing as Record<string, any> | null)?.companyID;
-      }
-      if (companyID === undefined || companyID === null) {
-        throw new Error(
-          `Cannot update contact ${id}: unable to resolve parent companyID for the Companies/{id}/Contacts child route`
+      try {
+        await http.update('Contacts', id, updates as Record<string, any>);
+      } catch (err) {
+        // Some zone hosts register NEITHER route update() tries: the
+        // collection-level PATCH /Contacts returns an HTML 404 (the Zone DE1
+        // behaviour from issue #133) AND the PUT /Contacts/{id} fallback is
+        // rejected with 405 (#197), so every contact update fails with no
+        // workaround. Contacts are a child entity of Companies, so retry
+        // through the documented child route
+        // PATCH /Companies/{companyID}/Contacts — resolving the parent from
+        // the update payload when supplied, otherwise from the existing
+        // record. The fallback is gated on 404/405 so genuine validation
+        // errors (400/422) surface unchanged, and ordered last so zones where
+        // update() works (including DE1's PUT fallback) keep their behaviour.
+        const status = (err as { status?: number })?.status;
+        if (status !== 404 && status !== 405) throw err;
+        let companyID = (updates as Record<string, any>).companyID as number | null | undefined;
+        if (companyID === undefined || companyID === null) {
+          companyID = ((await this.getContact(id)) as Record<string, any> | null)?.companyID;
+        }
+        if (companyID === undefined || companyID === null) {
+          throw new Error(
+            `Cannot update contact ${id}: unable to resolve parent companyID for the ` +
+            `Companies/{companyID}/Contacts child route (does the contact still exist?)`,
+            { cause: err }
+          );
+        }
+        this.logger.debug(
+          `Contact ${id}: update() failed with HTTP ${status} — retrying via Companies/${companyID}/Contacts child route`
         );
+        await http.childUpdate('Companies', companyID, 'Contacts', id, updates as Record<string, any>);
       }
-      await http.childUpdate('Companies', companyID, 'Contacts', id, updates as Record<string, any>);
       this.logger.info(`Contact ${id} updated successfully`);
     } catch (error) {
       this.logger.error(`Failed to update contact ${id}:`, error);
