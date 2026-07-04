@@ -21,7 +21,7 @@ jobs:
       packages: write
       id-token: write
       security-events: write
-    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@a61021de876d0fd44dac777fa90f963fea25b0c3
+    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@a925b43adb22aa8885b8243e1056e6a42cdce4d1
     with:
       server-name: autotask-mcp
       image-name: ghcr.io/wyre-technology/autotask-mcp
