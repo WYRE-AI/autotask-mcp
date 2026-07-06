@@ -1,5 +1,5 @@
 # Multi-stage build for efficient container size
-FROM node:22-alpine AS builder
+FROM node:26-alpine AS builder
 
 # Build arguments
 ARG VERSION="unknown"
@@ -40,7 +40,7 @@ RUN if [ "${VERSION}" != "unknown" ]; then \
 RUN npm run build
 
 # Production stage
-FROM node:22-alpine AS production
+FROM node:26-alpine AS production
 
 # Pull latest Alpine package fixes (e.g. OpenSSL) even when the base layer is cached
 RUN apk -U upgrade --no-cache
