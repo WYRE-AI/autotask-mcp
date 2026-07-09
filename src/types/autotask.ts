@@ -40,6 +40,7 @@ export interface AutotaskTicket {
   companyID?: number;
   contactID?: number;
   assignedResourceID?: number;
+  assignedResourceRoleID?: number;
   title?: string;
   description?: string;
   status?: number;
@@ -77,6 +78,24 @@ export interface AutotaskResource {
   title?: string;
   resourceType?: number;
   userType?: number;
+  [key: string]: any;
+}
+
+export interface AutotaskResourceRole {
+  id?: number;
+  resourceID?: number;
+  roleID?: number;
+  departmentID?: number;
+  queueID?: number;
+  isActive?: boolean;
+  [key: string]: any;
+}
+
+export interface AutotaskTicketSecondaryResource {
+  id?: number;
+  ticketID?: number;
+  resourceID?: number;
+  roleID?: number;
   [key: string]: any;
 }
 

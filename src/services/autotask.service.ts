@@ -44,6 +44,8 @@ import {
   AutotaskServiceCall,
   AutotaskServiceCallTicket,
   AutotaskServiceCallTicketResource,
+  AutotaskResourceRole,
+  AutotaskTicketSecondaryResource,
   AutotaskPhase
 } from '../types/autotask';
 import { McpServerConfig } from '../types/mcp';
@@ -546,6 +548,62 @@ export class AutotaskService {
   }
 
   // =====================================================
+  // Ticket Secondary Resources (child of Tickets)
+  // =====================================================
+
+  async searchTicketSecondaryResources(
+    options: { ticketId?: number; resourceId?: number; pageSize?: number } = {}
+  ): Promise<AutotaskTicketSecondaryResource[]> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Searching ticket secondary resources with options:', options);
+      const filters: QueryFilter[] = [];
+      pushEq(filters, 'ticketID', options.ticketId);
+      pushEq(filters, 'resourceID', options.resourceId);
+      const pageSize = Math.min(options.pageSize || 25, 200);
+      const items = await http.query<AutotaskTicketSecondaryResource>(
+        'TicketSecondaryResources',
+        filters.length > 0 ? filters : MATCH_ALL,
+        { maxRecords: pageSize }
+      );
+      this.logger.info(`Retrieved ${items.length} ticket secondary resources`);
+      return items;
+    } catch (error) {
+      this.logger.error('Failed to search ticket secondary resources:', error);
+      throw error;
+    }
+  }
+
+  async createTicketSecondaryResource(data: Partial<AutotaskTicketSecondaryResource>): Promise<number> {
+    const http = await this.ensureClient();
+    try {
+      if (!data.ticketID) {
+        throw new Error('ticketID is required to create a ticket secondary resource');
+      }
+      this.logger.debug('Creating ticket secondary resource:', data);
+      // TicketSecondaryResources is a child entity — create via parent URL.
+      const id = await http.childCreate('Tickets', data.ticketID, 'SecondaryResources', data);
+      this.logger.info(`Ticket secondary resource created with ID: ${id}`);
+      return id;
+    } catch (error) {
+      this.logger.error('Failed to create ticket secondary resource:', error);
+      throw error;
+    }
+  }
+
+  async deleteTicketSecondaryResource(ticketId: number, secondaryResourceId: number): Promise<void> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Deleting ticket secondary resource ${secondaryResourceId} from ticket ${ticketId}`);
+      await http.childDelete('Tickets', ticketId, 'SecondaryResources', secondaryResourceId);
+      this.logger.info(`Ticket secondary resource ${secondaryResourceId} deleted`);
+    } catch (error) {
+      this.logger.error(`Failed to delete ticket secondary resource ${secondaryResourceId}:`, error);
+      throw error;
+    }
+  }
+
+  // =====================================================
   // Ticket History (read-only audit trail of field changes)
   // =====================================================
 
@@ -844,6 +902,58 @@ export class AutotaskService {
     } catch (error) {
       this.logger.error('Failed to search resources:', error);
       throw error;
+    }
+  }
+
+  // =====================================================
+  // Resource Roles
+  // =====================================================
+
+  async searchResourceRoles(
+    options: { resourceId?: number; roleId?: number; isActive?: boolean; pageSize?: number } = {}
+  ): Promise<AutotaskResourceRole[]> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Searching resource roles with options:', options);
+      const filters: QueryFilter[] = [];
+      pushEq(filters, 'resourceID', options.resourceId);
+      pushEq(filters, 'roleID', options.roleId);
+      pushEq(filters, 'isActive', options.isActive);
+      const pageSize = Math.min(options.pageSize || 25, 500);
+      const roles = await http.query<AutotaskResourceRole>(
+        'ResourceRoles',
+        filters.length > 0 ? filters : MATCH_ALL,
+        { maxRecords: pageSize }
+      );
+      this.logger.info(`Retrieved ${roles.length} resource roles`);
+      return roles;
+    } catch (error) {
+      this.logger.error('Failed to search resource roles:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Resolve a role ID to use when assigning `resourceId` to a ticket and the
+   * caller did not supply assignedResourceRoleID (Autotask requires one
+   * whenever assignedResourceID is set). Prefers the resource's default
+   * service desk role; falls back to the resource's first active
+   * ResourceRoles entry. Returns null when nothing can be resolved — the
+   * caller should let Autotask reject the request with its own error.
+   */
+  async resolveDefaultRoleForResource(resourceId: number): Promise<number | null> {
+    try {
+      const resource = await this.getResource(resourceId);
+      const defaultRole = (resource as any)?.defaultServiceDeskRoleID;
+      if (typeof defaultRole === 'number' && defaultRole > 0) {
+        return defaultRole;
+      }
+      const roles = await this.searchResourceRoles({ resourceId, isActive: true, pageSize: 1 });
+      const roleId = roles[0]?.roleID;
+      return typeof roleId === 'number' ? roleId : null;
+    } catch (error) {
+      this.logger.warn(`Could not resolve default role for resource ${resourceId}:`, error);
+      return null;
     }
   }
 

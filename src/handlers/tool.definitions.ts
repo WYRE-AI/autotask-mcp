@@ -523,11 +523,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         assignedResourceID: {
           type: 'number',
-          description: 'Assigned resource ID. If set, assignedResourceRoleID is also required by Autotask.'
+          description: 'Assigned resource ID. Autotask requires assignedResourceRoleID alongside this; if omitted, the resource\'s default role is resolved and filled in automatically.'
         },
         assignedResourceRoleID: {
           type: 'number',
-          description: 'Role ID for the assigned resource. Required by Autotask when assignedResourceID is set.'
+          description: 'Role ID for the assigned resource. Optional — auto-resolved from the resource\'s default role when omitted. Use autotask_search_resource_roles to discover valid values.'
         },
         contactID: {
           type: 'number',
@@ -572,6 +572,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         projectID: {
           type: 'number',
           description: 'Project ID to associate the ticket with. Links the ticket to an existing project.'
+        },
+        dueDateTime: {
+          type: 'string',
+          description: 'Due date and time in ISO 8601 format (e.g. 2026-03-15T17:00:00Z)'
         },
         ticketAdditionalContacts: {
           type: 'array',
@@ -626,11 +630,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         assignedResourceID: {
           type: 'number',
-          description: 'Assigned resource ID. If set, assignedResourceRoleID is also required by Autotask.'
+          description: 'Assigned resource ID. Autotask requires assignedResourceRoleID alongside this; if omitted, the resource\'s default role is resolved and filled in automatically.'
         },
         assignedResourceRoleID: {
           type: 'number',
-          description: 'Role ID for the assigned resource. Required by Autotask when assignedResourceID is set.'
+          description: 'Role ID for the assigned resource. Optional — auto-resolved from the resource\'s default role when omitted. Use autotask_search_resource_roles to discover valid values.'
         },
         dueDateTime: {
           type: 'string',
@@ -647,9 +651,133 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         subIssueType: {
           type: 'number',
           description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entity "Tickets", field "subIssueType") to discover valid values.'
+        },
+        queueID: {
+          type: 'number',
+          description: 'Queue ID to route the ticket to. Use autotask_list_queues to discover valid IDs.'
+        },
+        ticketCategory: {
+          type: 'number',
+          description: 'Ticket category ID (picklist). Use autotask_get_field_info with entity "Tickets" and field "ticketCategory" to discover valid values.'
+        },
+        ticketType: {
+          type: 'number',
+          description: 'Ticket type ID (picklist, e.g. Service Request, Incident, Problem, Change).'
+        },
+        source: {
+          type: 'number',
+          description: 'Ticket source ID (picklist, e.g. Phone, Email, Portal). Use autotask_get_field_info (entity "Tickets", field "source") to discover valid values.'
+        },
+        billingCodeID: {
+          type: 'number',
+          description: 'Work type / billing code ID used for billing this ticket.'
+        },
+        serviceLevelAgreementID: {
+          type: 'number',
+          description: 'Service Level Agreement (SLA) ID to apply to the ticket.'
+        },
+        estimatedHours: {
+          type: 'number',
+          description: 'Estimated hours of work for the ticket.'
+        },
+        projectID: {
+          type: 'number',
+          description: 'Project ID to associate the ticket with. Links the ticket to an existing project.'
+        },
+        resolution: {
+          type: 'string',
+          description: 'Ticket-level resolution text. This is the Resolution field on the ticket itself, NOT a ticket note.'
+        },
+        userDefinedFields: {
+          type: 'array',
+          description: 'User-defined (custom) fields for the ticket, as an array of { name, value } objects matching the Autotask REST API shape.',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'UDF name' },
+              value: { type: 'string', description: 'UDF value (stringified)' }
+            },
+            required: ['name', 'value']
+          }
         }
       },
       required: ['ticketId']
+    }
+  },
+
+  // Ticket Secondary Resource tools
+  {
+    name: 'autotask_search_ticket_secondary_resources',
+    description: 'Search secondary resource (technician) assignments on tickets. Provide ticketId for best performance.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: {
+          type: 'number',
+          description: 'Filter by ticket ID (recommended)'
+        },
+        resourceId: {
+          type: 'number',
+          description: 'Filter by resource (technician) ID'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Number of results to return (default: 25)',
+          minimum: 1,
+          maximum: 200
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'autotask_create_ticket_secondary_resource',
+    description: 'Add a secondary resource (additional technician) to a ticket, alongside the primary assignedResourceID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketID: {
+          type: 'number',
+          description: 'The ticket ID to add the secondary resource to'
+        },
+        resourceID: {
+          type: 'number',
+          description: 'The resource (technician) ID to add'
+        },
+        roleID: {
+          type: 'number',
+          description: 'Role ID for the resource on this ticket. Optional — auto-resolved from the resource\'s default role when omitted. Use autotask_search_resource_roles to discover valid values.'
+        }
+      },
+      required: ['ticketID', 'resourceID']
+    }
+  },
+  {
+    name: 'autotask_delete_ticket_secondary_resource',
+    description:
+      '⚠ DESTRUCTIVE — IRREVERSIBLE. Permanently removes a secondary resource ' +
+      'assignment from a ticket. This action cannot be undone. ' +
+      'Confirm with the user before invoking.',
+    annotations: {
+      title: 'Remove ticket secondary resource assignment (irreversible)',
+      readOnlyHint: false,
+      destructiveHint: true,
+      idempotentHint: false,
+      openWorldHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketId: {
+          type: 'number',
+          description: 'The ticket ID the secondary resource belongs to'
+        },
+        secondaryResourceId: {
+          type: 'number',
+          description: 'The ticket secondary resource record ID to delete (from autotask_search_ticket_secondary_resources, NOT the resource ID)'
+        }
+      },
+      required: ['ticketId', 'secondaryResourceId']
     }
   },
 
@@ -1091,6 +1219,34 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         pageSize: {
           type: 'number',
           description: 'Max 500',
+          minimum: 1,
+          maximum: 500
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'autotask_search_resource_roles',
+    description: 'Search resource-role associations. Use this to discover valid role IDs for a resource before assigning them to a ticket (assignedResourceRoleID) or adding them as a secondary resource.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resourceId: {
+          type: 'number',
+          description: 'Filter by resource (technician) ID'
+        },
+        roleId: {
+          type: 'number',
+          description: 'Filter by role ID'
+        },
+        isActive: {
+          type: 'boolean',
+          description: 'Filter by active state (true recommended when looking up assignable roles)'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Number of results to return (default: 25, max: 500)',
           minimum: 1,
           maximum: 500
         }
@@ -3072,8 +3228,8 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
     tools: ['autotask_search_contacts', 'autotask_create_contact']
   },
   tickets: {
-    description: 'Search, create, update tickets and manage ticket notes, attachments, charges, and audit history',
-    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
+    description: 'Search, create, update tickets and manage ticket notes, attachments, charges, secondary resources, and audit history',
+    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_search_ticket_secondary_resources', 'autotask_create_ticket_secondary_resource', 'autotask_delete_ticket_secondary_resource', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
   },
   projects: {
     description: 'Search and create projects, tasks, phases, and project notes',
@@ -3092,8 +3248,8 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
     tools: ['autotask_get_product', 'autotask_search_products', 'autotask_get_service', 'autotask_search_services', 'autotask_get_service_bundle', 'autotask_search_service_bundles']
   },
   resources: {
-    description: 'Search for Autotask resources (technicians/staff)',
-    tools: ['autotask_search_resources']
+    description: 'Search for Autotask resources (technicians/staff) and their role associations',
+    tools: ['autotask_search_resources', 'autotask_search_resource_roles']
   },
   configuration_items: {
     description: 'Search configuration items (assets/devices)',

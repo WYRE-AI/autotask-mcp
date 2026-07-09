@@ -30,6 +30,8 @@ const TICKET_WRITABLE_FIELDS = [
   'status',
   'priority',
   'assignedResourceID',
+  'assignedResourceRoleID',
+  'dueDateTime',
   'contactID',
   'queueID',
   'ticketCategory',
@@ -112,6 +114,26 @@ export class AutotaskToolHandler {
       });
     }
     return this.mappingService;
+  }
+
+  /**
+   * Autotask rejects any ticket write that sets assignedResourceID without
+   * assignedResourceRoleID. When the caller supplied only the resource,
+   * resolve the resource's default role and fill it in so assignment "just
+   * works". Leaves the payload untouched when nothing can be resolved —
+   * Autotask's own validation error is more actionable than ours.
+   */
+  private async fillAssignedResourceRole(payload: Record<string, any>): Promise<void> {
+    if (payload.assignedResourceID === undefined || payload.assignedResourceRoleID !== undefined) {
+      return;
+    }
+    const roleId = await this.autotaskService.resolveDefaultRoleForResource(payload.assignedResourceID);
+    if (roleId !== null) {
+      payload.assignedResourceRoleID = roleId;
+      this.logger.debug(
+        `Auto-resolved assignedResourceRoleID=${roleId} for resource ${payload.assignedResourceID}`
+      );
+    }
   }
 
   /**
@@ -846,12 +868,14 @@ export class AutotaskToolHandler {
       }],
       ['autotask_create_ticket', async (a) => {
         const payload = buildTicketPayload(a);
+        await this.fillAssignedResourceRole(payload);
         const id = await s.createTicket(payload);
         return { result: id, message: `Successfully created ticket with ID: ${id}` };
       }],
       ['autotask_update_ticket', async (a) => {
         const { ticketId, ...rest } = a;
         const payload = buildTicketPayload(rest);
+        await this.fillAssignedResourceRole(payload);
         await s.updateTicket(ticketId, payload);
         return { result: ticketId, message: `Successfully updated ticket ${ticketId}` };
       }],
@@ -873,6 +897,28 @@ export class AutotaskToolHandler {
         const { chargeId, ...updates } = a;
         await s.updateTicketCharge(chargeId, updates);
         return { result: chargeId, message: `Successfully updated ticket charge ${chargeId}` };
+      }],
+      // Ticket Secondary Resources
+      ['autotask_search_ticket_secondary_resources', async (a) => {
+        const r = await s.searchTicketSecondaryResources(a);
+        return { result: r, message: `Found ${r.length} ticket secondary resources` };
+      }],
+      ['autotask_create_ticket_secondary_resource', async (a) => {
+        const payload: Record<string, any> = {
+          ticketID: a.ticketID,
+          resourceID: a.resourceID,
+          ...(a.roleID !== undefined && { roleID: a.roleID })
+        };
+        if (payload.roleID === undefined) {
+          const roleId = await s.resolveDefaultRoleForResource(a.resourceID);
+          if (roleId !== null) payload.roleID = roleId;
+        }
+        const id = await s.createTicketSecondaryResource(payload);
+        return { result: id, message: `Successfully added secondary resource with ID: ${id}` };
+      }],
+      ['autotask_delete_ticket_secondary_resource', async (a) => {
+        await s.deleteTicketSecondaryResource(a.ticketId, a.secondaryResourceId);
+        return { result: a.secondaryResourceId, message: `Successfully removed ticket secondary resource ${a.secondaryResourceId}` };
       }],
       ['autotask_delete_ticket_charge', async (a) => {
         await s.deleteTicketCharge(a.ticketId, a.chargeId);
@@ -1021,6 +1067,10 @@ export class AutotaskToolHandler {
       // Resources
       ['autotask_search_resources', async (a) => {
         const r = await s.searchResources(a); return { result: r, message: `Found ${r.length} resources` };
+      }],
+      ['autotask_search_resource_roles', async (a) => {
+        const r = await s.searchResourceRoles(a);
+        return { result: r, message: `Found ${r.length} resource roles` };
       }],
 
       // Configuration Items

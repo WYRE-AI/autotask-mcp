@@ -7,7 +7,7 @@
 
 **Give your AI assistant direct access to Autotask.** Search tickets, create time entries, look up companies, manage projects — all through natural language. No more copy-pasting between browser tabs and chat windows.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that connects Claude (or any MCP-compatible AI) to your Autotask PSA environment. Your AI assistant gets 39 tools covering the operations MSP teams use daily: ticket triage, time logging, company lookups, project management, billing review, and more.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that connects Claude (or any MCP-compatible AI) to your Autotask PSA environment. Your AI assistant gets 102 tools covering the operations MSP teams use daily: ticket triage, time logging, company lookups, project management, billing review, and more.
 
 If you run an MSP on Autotask and you're tired of the context-switching tax, this is for you.
 
@@ -55,7 +55,7 @@ See [Installation](#installation) for Docker and from-source methods.
 ## Features
 
 - **🔌 MCP Protocol Compliance**: Full support for MCP resources and tools
-- **🛠️ Comprehensive API Coverage**: 39 tools spanning companies, contacts, tickets, projects, billing items, time entries, notes, attachments, and more
+- **🛠️ Comprehensive API Coverage**: 102 tools spanning companies, contacts, tickets, projects, billing items, time entries, notes, attachments, and more
 - **🔍 Advanced Search**: Powerful search capabilities with filters across all entities
 - **📝 CRUD Operations**: Create, read, update operations for core Autotask entities
 - **🔄 ID-to-Name Mapping**: Automatic resolution of company and resource IDs to human-readable names
@@ -316,7 +316,7 @@ Resources provide read-only access to Autotask data:
 
 ### Tools
 
-The server provides 39 tools for interacting with Autotask:
+The server provides 102 tools for interacting with Autotask:
 
 #### Company Operations
 - `autotask_search_companies` - Search companies with filters
@@ -330,7 +330,11 @@ The server provides 39 tools for interacting with Autotask:
 #### Ticket Operations
 - `autotask_search_tickets` - Search tickets with filters
 - `autotask_get_ticket_details` - Get full ticket details by ID
-- `autotask_create_ticket` - Create new ticket
+- `autotask_create_ticket` - Create new ticket (supports assignment, type/subtype, queue, category, source, due date)
+- `autotask_update_ticket` - Update ticket (status, priority, assignment, type/subtype, queue, category, resolution, and more)
+- `autotask_search_ticket_secondary_resources` / `autotask_create_ticket_secondary_resource` / `autotask_delete_ticket_secondary_resource` - Manage additional technicians on a ticket
+
+When assigning a resource (`assignedResourceID`) without an explicit `assignedResourceRoleID`, the server automatically resolves the resource's default role — Autotask requires a role with every assignment.
 
 #### Time Entry Operations
 - `autotask_create_time_entry` - Log time entry
@@ -347,6 +351,7 @@ The server provides 39 tools for interacting with Autotask:
 
 #### Resource Operations
 - `autotask_search_resources` - Search resources (technicians/users)
+- `autotask_search_resource_roles` - Discover valid role IDs for a resource (needed for ticket assignment)
 
 #### Note Operations
 - `autotask_get_ticket_note` / `autotask_search_ticket_notes` / `autotask_create_ticket_note`
