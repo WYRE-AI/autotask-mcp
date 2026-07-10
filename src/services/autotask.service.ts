@@ -2309,11 +2309,16 @@ export class AutotaskService {
       // opposite situation from TimeEntries) - Autotask's own docs: "If this
       // entity has a Parent relationship, you must perform all Create,
       // Update, and Delete actions on the parent entity." A flat POST to
-      // /ServiceCallTickets 404s.
+      // /ServiceCallTickets 404s. The child segment also drops the
+      // redundant parent-name prefix - it's /ServiceCalls/{id}/Tickets, not
+      // /ServiceCalls/{id}/ServiceCallTickets (same convention as
+      // Tickets/Attachments, not Tickets/TicketAttachments, elsewhere in
+      // this file). Confirmed against the entity-mapping table in
+      // @apigrate/autotask-restapi's README.
       if (!data.serviceCallID) {
         throw new Error('createServiceCallTicket requires serviceCallID');
       }
-      const id = await http.childCreate('ServiceCalls', data.serviceCallID, 'ServiceCallTickets', data);
+      const id = await http.childCreate('ServiceCalls', data.serviceCallID, 'Tickets', data);
       this.logger.info(`Service call ticket created with ID: ${id}`);
       return id;
     } catch (error) {
@@ -2367,12 +2372,15 @@ export class AutotaskService {
       this.logger.debug('Creating service call ticket resource:', data);
       // ServiceCallTicketResources is a genuine child entity of
       // ServiceCallTickets - same "must go through the parent" rule as
-      // ServiceCallTickets itself. A flat POST to
-      // /ServiceCallTicketResources 404s.
+      // ServiceCallTickets itself, and the same dropped-prefix convention:
+      // it's /ServiceCallTickets/{id}/Resources, not
+      // /ServiceCallTickets/{id}/ServiceCallTicketResources. Confirmed
+      // against the entity-mapping table in @apigrate/autotask-restapi's
+      // README.
       if (!data.serviceCallTicketID) {
         throw new Error('createServiceCallTicketResource requires serviceCallTicketID');
       }
-      const id = await http.childCreate('ServiceCallTickets', data.serviceCallTicketID, 'ServiceCallTicketResources', data);
+      const id = await http.childCreate('ServiceCallTickets', data.serviceCallTicketID, 'Resources', data);
       this.logger.info(`Service call ticket resource created with ID: ${id}`);
       return id;
     } catch (error) {
