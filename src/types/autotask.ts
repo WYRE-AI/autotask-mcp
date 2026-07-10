@@ -107,6 +107,7 @@ export interface AutotaskProject {
 export interface AutotaskTimeEntry {
   id?: number;
   resourceID?: number;
+  roleID?: number;  // required by Autotask for ticket-linked time entries
   ticketID?: number;
   projectID?: number;
   taskID?: number;

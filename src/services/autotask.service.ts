@@ -593,28 +593,30 @@ export class AutotaskService {
     try {
       this.logger.debug('Creating time entry:', timeEntry);
 
-      // Ticket-scoped
-      if (timeEntry.ticketID) {
-        const id = await http.childCreate('Tickets', timeEntry.ticketID, 'TimeEntries', timeEntry);
-        this.logger.info(`Time entry created with ID: ${id}`);
-        return id;
+      // TimeEntries is a flat, top-level Autotask entity regardless of whether
+      // it's linked to a Ticket, Task, or Project — the link is expressed via
+      // the ticketID/taskID/projectID field in the request body, not via a
+      // nested URL path. A previous version of this method POSTed to
+      // /Tickets/{id}/TimeEntries (http.childCreate) for ticket/task/project-
+      // scoped entries, which 404s — Autotask has no such nested route for
+      // this entity. Confirmed against the Autotask REST API TimeEntries
+      // entity documentation.
+      let payload = timeEntry;
+      if (payload.ticketID && !payload.roleID) {
+        // Autotask rejects ticket-linked time entries without a roleID
+        // ("TimeEntries for Tickets must have a roleID"). Default to the
+        // ticket's own assigned resource role so callers logging time
+        // against their own assigned ticket don't need to look this up
+        // themselves first.
+        const ticket = await this.getTicket(payload.ticketID, true);
+        const assignedRoleID = (ticket as unknown as { assignedResourceRoleID?: number } | null)?.assignedResourceRoleID;
+        if (assignedRoleID) {
+          payload = { ...payload, roleID: assignedRoleID };
+        }
       }
-      // Task-scoped
-      if (timeEntry.taskID) {
-        const id = await http.childCreate('Tasks', timeEntry.taskID, 'TimeEntries', timeEntry);
-        this.logger.info(`Time entry created with ID: ${id}`);
-        return id;
-      }
-      // Project-scoped
-      if (timeEntry.projectID) {
-        const id = await http.childCreate('Projects', timeEntry.projectID, 'TimeEntries', timeEntry);
-        this.logger.info(`Time entry created with ID: ${id}`);
-        return id;
-      }
-      // Regular (no parent — meetings, admin, etc.)
-      // Autotask accepts a POST /TimeEntries with no parent for regular entries.
-      const id = await http.create('TimeEntries', timeEntry);
-      this.logger.info(`Regular time entry created with ID: ${id}`);
+
+      const id = await http.create('TimeEntries', payload);
+      this.logger.info(`Time entry created with ID: ${id}`);
       return id;
     } catch (error) {
       this.logger.error('Failed to create time entry:', error);

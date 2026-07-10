@@ -880,6 +880,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Name of the resource/user (e.g., "Will Spence"). Will be resolved to a resourceID automatically. Use this instead of resourceID for convenience.'
         },
+        roleID: {
+          type: 'number',
+          description: 'Role ID for the time entry. Required by Autotask for ticket-linked entries, but usually safe to omit — if ticketID is set and roleID is not, it defaults to that ticket\'s own assignedResourceRoleID. Only specify this to log time under a different role than the ticket\'s assigned one.'
+        },
         category: {
           type: 'string',
           description: 'Category name for Regular Time entries (e.g., "Internal Meeting", "Office Management", "Training", "Research", "HR/Recruiting", "Travel Time", "Holiday", "PTO"). Required for Regular Time entries (when no ticket/task/project is specified).'
