@@ -2305,7 +2305,15 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating service call ticket:', data);
-      const id = await http.create('ServiceCallTickets', data);
+      // ServiceCallTickets is a genuine child entity of ServiceCalls (the
+      // opposite situation from TimeEntries) - Autotask's own docs: "If this
+      // entity has a Parent relationship, you must perform all Create,
+      // Update, and Delete actions on the parent entity." A flat POST to
+      // /ServiceCallTickets 404s.
+      if (!data.serviceCallID) {
+        throw new Error('createServiceCallTicket requires serviceCallID');
+      }
+      const id = await http.childCreate('ServiceCalls', data.serviceCallID, 'ServiceCallTickets', data);
       this.logger.info(`Service call ticket created with ID: ${id}`);
       return id;
     } catch (error) {
@@ -2357,7 +2365,14 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating service call ticket resource:', data);
-      const id = await http.create('ServiceCallTicketResources', data);
+      // ServiceCallTicketResources is a genuine child entity of
+      // ServiceCallTickets - same "must go through the parent" rule as
+      // ServiceCallTickets itself. A flat POST to
+      // /ServiceCallTicketResources 404s.
+      if (!data.serviceCallTicketID) {
+        throw new Error('createServiceCallTicketResource requires serviceCallTicketID');
+      }
+      const id = await http.childCreate('ServiceCallTickets', data.serviceCallTicketID, 'ServiceCallTicketResources', data);
       this.logger.info(`Service call ticket resource created with ID: ${id}`);
       return id;
     } catch (error) {
