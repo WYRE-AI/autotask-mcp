@@ -2331,7 +2331,20 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Deleting service call ticket ${id}`);
-      await http.delete('ServiceCallTickets', id);
+      // Delete is parent-scoped, same as Create (see createServiceCallTicket
+      // above) - a flat DELETE /ServiceCallTickets/{id} 404s. The caller only
+      // has the child's own id, so look up the record first (query is flat
+      // even for child entities, per searchServiceCallTickets above) to get
+      // its serviceCallID, then delete through the parent-scoped route.
+      const [record] = await http.query<AutotaskServiceCallTicket>(
+        'ServiceCallTickets',
+        [{ op: 'eq', field: 'id', value: id }],
+        { maxRecords: 1 }
+      );
+      if (!record?.serviceCallID) {
+        throw new Error(`Service call ticket ${id} not found or missing serviceCallID`);
+      }
+      await http.childDelete('ServiceCalls', record.serviceCallID, 'Tickets', id);
       this.logger.info(`Service call ticket ${id} deleted`);
     } catch (error) {
       this.logger.error(`Failed to delete service call ticket ${id}:`, error);
@@ -2393,7 +2406,18 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Deleting service call ticket resource ${id}`);
-      await http.delete('ServiceCallTicketResources', id);
+      // Same parent-scoped-delete issue as deleteServiceCallTicket above -
+      // look up the record to get its serviceCallTicketID, then delete
+      // through the parent-scoped route.
+      const [record] = await http.query<AutotaskServiceCallTicketResource>(
+        'ServiceCallTicketResources',
+        [{ op: 'eq', field: 'id', value: id }],
+        { maxRecords: 1 }
+      );
+      if (!record?.serviceCallTicketID) {
+        throw new Error(`Service call ticket resource ${id} not found or missing serviceCallTicketID`);
+      }
+      await http.childDelete('ServiceCallTickets', record.serviceCallTicketID, 'Resources', id);
       this.logger.info(`Service call ticket resource ${id} deleted`);
     } catch (error) {
       this.logger.error(`Failed to delete service call ticket resource ${id}:`, error);
