@@ -12,9 +12,10 @@
  * Rendering uses DOM construction (no innerHTML) — ticket titles and notes
  * are untrusted PSA data, so text only ever lands in text nodes.
  *
- * White-label: the card defaults to WYRE branding but applies an injected
- * `window.__BRAND__` override (set by the MCP server or, eventually, the
- * gateway per-org) so the same card can render in any customer's brand.
+ * Branding: the card is neutral by default (this is a published server) and
+ * applies an injected `window.__BRAND__` override — set by the server from
+ * MCP_BRAND_* env vars at serve time, or by a gateway per-org — so the same
+ * card can render in any operator's brand.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
 
@@ -50,7 +51,8 @@ interface TicketCard {
 }
 
 const brand: Brand = window.__BRAND__ ?? {};
-const brandName = brand.name ?? "WYRE";
+// No brand injected → no brand identity rendered (neutral default).
+const brandName = brand.name ?? "";
 
 // Apply any injected brand overrides onto the CSS custom properties.
 function applyBrand(): void {
@@ -114,15 +116,17 @@ function noteEl(n: { title?: string; description: string }): HTMLElement {
 function render(t: TicketCard): void {
   current = t;
 
+  // Empty when no brand is injected — the span still occupies the flex slot
+  // so the ticket number stays right-aligned.
   const brandId = el("span", "brandid");
   if (brand.logoUrl) {
     const logo = document.createElement("img");
     logo.src = brand.logoUrl;
-    logo.alt = brandName;
+    logo.alt = brandName || "logo";
     logo.style.display = "inline-block";
     brandId.append(logo);
   }
-  brandId.append(el("span", "brand", brandName));
+  if (brandName) brandId.append(el("span", "brand", brandName));
 
   const notesSection = el("div", "notes", el("div", "notes__h", `Notes (${t.notes.length})`));
   for (const n of t.notes) notesSection.append(noteEl(n));

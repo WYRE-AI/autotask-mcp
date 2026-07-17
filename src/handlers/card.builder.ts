@@ -24,6 +24,47 @@ export const TICKET_CARD_META = {
   ui: { resourceUri: TICKET_CARD_RESOURCE_URI },
 } as const;
 
+/** Mirror of Brand in ui/ticket-card.ts — keep in sync. */
+export interface CardBrand {
+  name?: string;
+  logoUrl?: string;
+  primaryColor?: string;
+  accentColor?: string;
+  bg?: string;
+  text?: string;
+}
+
+const BRAND_INJECT_MARKER = /<!--\s*BRAND_INJECT[\s\S]*?-->/;
+
+/**
+ * Operator branding from MCP_BRAND_* env vars. The card ships neutral (this is
+ * a published server); self-hosters brand it without rebuilding by setting
+ * these, and a gateway can inject window.__BRAND__ per-org the same way.
+ */
+export function resolveBrandFromEnv(
+  env: Record<string, string | undefined> = typeof process !== 'undefined' ? process.env : {},
+): CardBrand {
+  const brand: CardBrand = {};
+  if (env.MCP_BRAND_NAME) brand.name = env.MCP_BRAND_NAME;
+  if (env.MCP_BRAND_LOGO_URL) brand.logoUrl = env.MCP_BRAND_LOGO_URL;
+  if (env.MCP_BRAND_PRIMARY_COLOR) brand.primaryColor = env.MCP_BRAND_PRIMARY_COLOR;
+  if (env.MCP_BRAND_ACCENT_COLOR) brand.accentColor = env.MCP_BRAND_ACCENT_COLOR;
+  if (env.MCP_BRAND_BG) brand.bg = env.MCP_BRAND_BG;
+  if (env.MCP_BRAND_TEXT) brand.text = env.MCP_BRAND_TEXT;
+  return brand;
+}
+
+/**
+ * Replace the card's BRAND_INJECT marker with a window.__BRAND__ script.
+ * An empty brand returns the HTML unchanged (neutral defaults). "<" is
+ * escaped so brand values can never break out of the script element.
+ */
+export function applyBrandInjection(html: string, brand: CardBrand): string {
+  if (Object.keys(brand).length === 0) return html;
+  const json = JSON.stringify(brand).replace(/</g, '\\u003c');
+  return html.replace(BRAND_INJECT_MARKER, `<script>window.__BRAND__=${json}</script>`);
+}
+
 /** Mirror of TicketCard in ui/ticket-card.ts — keep in sync. */
 export interface TicketCard {
   id: number;

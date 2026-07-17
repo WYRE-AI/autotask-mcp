@@ -3,7 +3,12 @@
 
 import { AutotaskService } from '../services/autotask.service.js';
 import { Logger } from '../utils/logger.js';
-import { TICKET_CARD_RESOURCE_URI, MCP_APP_RESOURCE_MIME } from './card.builder.js';
+import {
+  TICKET_CARD_RESOURCE_URI,
+  MCP_APP_RESOURCE_MIME,
+  applyBrandInjection,
+  resolveBrandFromEnv,
+} from './card.builder.js';
 import { TICKET_CARD_HTML } from '../generated/ticket-card-html.js';
 
 export interface McpResource {
@@ -113,7 +118,8 @@ export class AutotaskResourceHandler {
       return {
         uri,
         mimeType: MCP_APP_RESOURCE_MIME,
-        text: TICKET_CARD_HTML
+        // Neutral by default; MCP_BRAND_* env vars rebrand at serve time.
+        text: applyBrandInjection(TICKET_CARD_HTML, resolveBrandFromEnv())
       };
     }
 

@@ -4,27 +4,21 @@
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Autotask Ticket Card</title>
-    <!-- Best-effort brand fonts; falls back to system sans if host CSP blocks. -->
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito+Sans:wght@400;600;700;900&display=swap"
-      rel="stylesheet"
-    />
     <style>
-      /* Brand tokens. Defaults are WYRE; an MCP server (or the gateway) can
-         override them per-tenant by injecting window.__BRAND__ — see the
-         BRAND_INJECT marker below and ticket-card.ts. */
+      /* Brand tokens. Defaults are deliberately neutral (this is a published
+         server); an operator or gateway can rebrand per-tenant by injecting
+         window.__BRAND__ — see the injection marker at the end of <head>,
+         ticket-card.ts, and the MCP_BRAND_* env vars in card.builder.ts. */
       :root {
-        --brand-primary: #00c9db; /* headings, links, status accent */
-        --brand-accent: #ede947;  /* fills / CTA */
+        --brand-primary: #2563eb; /* headings, links, status accent */
+        --brand-accent: #e5e7eb;  /* fills / CTA */
         --brand-bg: #ffffff;
         --brand-text: #333333;
         --brand-muted: #666666;
         --brand-line: #e6e6e6;
-        --brand-font-heading: "Oswald", system-ui, sans-serif;
-        --brand-font-body: "Nunito Sans", system-ui, sans-serif;
-        --brand-radius: 2px;
+        --brand-font-heading: system-ui, -apple-system, "Segoe UI", sans-serif;
+        --brand-font-body: system-ui, -apple-system, "Segoe UI", sans-serif;
+        --brand-radius: 4px;
       }
       * { box-sizing: border-box; }
       body {
@@ -148,7 +142,8 @@
     </style>
     <!-- BRAND_INJECT: a server/gateway replaces this comment with
          <script>window.__BRAND__={name,logoUrl,primaryColor,accentColor,bg,text}</script>
-         to theme the card per-tenant. No injection = WYRE defaults above. -->
+         to theme the card per-tenant (this server does so from MCP_BRAND_* env
+         vars — see card.builder.ts). No injection = neutral defaults above. -->
   </head>
   <body>
     <div id="root"><p class="loading">Loading ticket…</p></div>

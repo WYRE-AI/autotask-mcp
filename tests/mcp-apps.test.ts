@@ -9,6 +9,8 @@ import { TOOL_DEFINITIONS } from '../src/handlers/tool.definitions';
 import { AutotaskResourceHandler } from '../src/handlers/resource.handler';
 import {
   buildTicketCard,
+  applyBrandInjection,
+  resolveBrandFromEnv,
   TICKET_CARD_RESOURCE_URI,
   MCP_APP_RESOURCE_MIME,
 } from '../src/handlers/card.builder';
@@ -58,6 +60,40 @@ describe('MCP Apps ticket card', () => {
       // The vite build must have inlined the bridge script — a bare <script src>
       // would be unloadable from a resources/read HTML string.
       expect(content.text).not.toContain('src="./ticket-card.ts"');
+    });
+
+    it('default bundle is brand-neutral (published server — no baked-in identity)', () => {
+      expect(TICKET_CARD_HTML).not.toMatch(/WYRE/i);
+      expect(TICKET_CARD_HTML).not.toContain('fonts.googleapis.com');
+    });
+  });
+
+  describe('brand injection', () => {
+    it('replaces the BRAND_INJECT marker with a window.__BRAND__ script', () => {
+      const out = applyBrandInjection(TICKET_CARD_HTML, { name: 'Acme MSP', primaryColor: '#123456' });
+      expect(out).not.toContain('BRAND_INJECT');
+      expect(out).toContain('window.__BRAND__={"name":"Acme MSP","primaryColor":"#123456"}');
+    });
+
+    it('serves the HTML unchanged when no brand is configured', () => {
+      expect(applyBrandInjection(TICKET_CARD_HTML, {})).toBe(TICKET_CARD_HTML);
+    });
+
+    it('escapes "<" so brand values cannot break out of the script element', () => {
+      const out = applyBrandInjection(TICKET_CARD_HTML, { name: '</script><script>alert(1)' });
+      expect(out).not.toContain('</script><script>alert(1)');
+      expect(out).toContain('\\u003c/script>');
+    });
+
+    it('resolveBrandFromEnv maps MCP_BRAND_* vars and ignores everything else', () => {
+      expect(
+        resolveBrandFromEnv({
+          MCP_BRAND_NAME: 'Acme MSP',
+          MCP_BRAND_PRIMARY_COLOR: '#123456',
+          UNRELATED: 'x',
+        }),
+      ).toEqual({ name: 'Acme MSP', primaryColor: '#123456' });
+      expect(resolveBrandFromEnv({})).toEqual({});
     });
   });
 
