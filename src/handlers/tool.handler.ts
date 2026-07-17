@@ -10,6 +10,7 @@ import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '.
 import { MappingService } from '../utils/mapping.service.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
+import { buildTicketCard } from './card.builder.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
 // only a handful of concurrent API threads per integration, so enrichment is
@@ -71,6 +72,8 @@ export interface McpTool {
     idempotentHint?: boolean;
     openWorldHint?: boolean;
   };
+  /** MCP Apps (SEP-1865) metadata, e.g. `ui/resourceUri` linking a ui:// card. */
+  _meta?: Record<string, unknown>;
 }
 
 export interface McpToolResult {
@@ -1510,7 +1513,14 @@ export class AutotaskToolHandler {
         responseText = JSON.stringify({ message, data: enhanced });
       } else if (result && typeof result === 'object' && !Array.isArray(result)) {
         const enhanced = await this.enhanceItems([result]);
-        responseText = JSON.stringify({ message, data: enhanced[0] || result });
+        const data = enhanced[0] || result;
+        // MCP Apps: attach the normalized card payload the ui:// ticket card
+        // renders from. Best-effort — a null card just means no UI surface.
+        if (name === 'autotask_get_ticket_details') {
+          const card = await buildTicketCard(data, this.picklistCache, this.autotaskService, this.logger);
+          if (card) data._card = card;
+        }
+        responseText = JSON.stringify({ message, data });
       } else {
         responseText = JSON.stringify({ message, data: result });
       }

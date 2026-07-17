@@ -3,6 +3,8 @@
 
 import { AutotaskService } from '../services/autotask.service.js';
 import { Logger } from '../utils/logger.js';
+import { TICKET_CARD_RESOURCE_URI, MCP_APP_RESOURCE_MIME } from './card.builder.js';
+import { TICKET_CARD_HTML } from '../generated/ticket-card-html.js';
 
 export interface McpResource {
   uri: string;
@@ -34,6 +36,15 @@ export class AutotaskResourceHandler {
     this.logger.debug('Listing available Autotask resources');
 
     const resources: McpResource[] = [
+      // MCP Apps (SEP-1865) UI surface — the interactive ticket card rendered
+      // by hosts for autotask_get_ticket_details results.
+      {
+        uri: TICKET_CARD_RESOURCE_URI,
+        name: 'Autotask Ticket Card',
+        description: 'Interactive MCP Apps card rendering an Autotask ticket',
+        mimeType: MCP_APP_RESOURCE_MIME
+      },
+
       // Company resources
       {
         uri: 'autotask://companies',
@@ -94,6 +105,17 @@ export class AutotaskResourceHandler {
    */
   async readResource(uri: string): Promise<McpResourceContent> {
     this.logger.debug(`Reading resource: ${uri}`);
+
+    // The ui:// ticket card is static HTML embedded at build time — no
+    // Autotask API access needed (and none possible on e.g. Workers' fs-less
+    // runtime, which is why the HTML is embedded rather than read from disk).
+    if (uri === TICKET_CARD_RESOURCE_URI) {
+      return {
+        uri,
+        mimeType: MCP_APP_RESOURCE_MIME,
+        text: TICKET_CARD_HTML
+      };
+    }
 
     // Parse the URI to determine the resource type and ID
     const { resourceType, resourceId } = this.parseUri(uri);

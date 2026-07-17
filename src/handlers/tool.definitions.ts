@@ -2,6 +2,7 @@
 // Declarative schema definitions for all MCP tools
 
 import { McpTool } from './tool.handler.js';
+import { TICKET_CARD_META } from './card.builder.js';
 
 export const TOOL_DEFINITIONS: McpTool[] = [
   // Connection testing
@@ -479,6 +480,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_ticket_details',
     description: 'Get full ticket details including notes, time entries, and custom fields.',
+    _meta: TICKET_CARD_META,
     inputSchema: {
       type: 'object',
       properties: {
@@ -1141,6 +1143,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_create_ticket_note',
     description: 'Create a new note for a ticket',
+    _meta: TICKET_CARD_META,
     inputSchema: {
       type: 'object',
       properties: {

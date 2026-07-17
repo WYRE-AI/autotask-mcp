@@ -1,0 +1,157 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Autotask Ticket Card</title>
+    <!-- Best-effort brand fonts; falls back to system sans if host CSP blocks. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Nunito+Sans:wght@400;600;700;900&display=swap"
+      rel="stylesheet"
+    />
+    <style>
+      /* Brand tokens. Defaults are WYRE; an MCP server (or the gateway) can
+         override them per-tenant by injecting window.__BRAND__ — see the
+         BRAND_INJECT marker below and ticket-card.ts. */
+      :root {
+        --brand-primary: #00c9db; /* headings, links, status accent */
+        --brand-accent: #ede947;  /* fills / CTA */
+        --brand-bg: #ffffff;
+        --brand-text: #333333;
+        --brand-muted: #666666;
+        --brand-line: #e6e6e6;
+        --brand-font-heading: "Oswald", system-ui, sans-serif;
+        --brand-font-body: "Nunito Sans", system-ui, sans-serif;
+        --brand-radius: 2px;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        background: var(--brand-bg);
+        color: var(--brand-text);
+        font-family: var(--brand-font-body);
+        font-size: 15px;
+        line-height: 1.5;
+        padding: 16px;
+      }
+      .card {
+        max-width: 560px;
+        border: 1px solid var(--brand-line);
+        border-radius: var(--brand-radius);
+        box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+        overflow: hidden;
+      }
+      .card__bar { height: 4px; background: var(--brand-primary); }
+      .card__body { padding: 20px 24px 24px; }
+      .brandrow {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 12px;
+      }
+      .brandid { display: flex; align-items: center; gap: 8px; }
+      .brandid img { height: 18px; width: auto; display: none; }
+      .brand {
+        font-family: var(--brand-font-heading);
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        color: var(--brand-text);
+        font-size: 15px;
+      }
+      .ticketno {
+        font-family: var(--brand-font-heading);
+        color: var(--brand-muted);
+        font-size: 14px;
+        letter-spacing: 0.04em;
+      }
+      h1 {
+        font-family: var(--brand-font-heading);
+        color: var(--brand-primary);
+        font-weight: 600;
+        font-size: 21px;
+        line-height: 1.15;
+        margin: 0 0 16px;
+      }
+      .badges { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px; }
+      .badge {
+        font-family: var(--brand-font-heading);
+        font-size: 12px;
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        padding: 4px 10px;
+        border-radius: var(--brand-radius);
+        border: 1px solid var(--brand-line);
+        color: var(--brand-text);
+      }
+      .badge--status { border-color: var(--brand-primary); color: var(--brand-primary); }
+      .badge--prio { background: var(--brand-accent); border-color: var(--brand-accent); }
+      .grid {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 12px 24px;
+        margin-bottom: 18px;
+      }
+      .field__label {
+        font-family: var(--brand-font-heading);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 11px;
+        color: var(--brand-muted);
+        margin-bottom: 2px;
+      }
+      .field__value { font-size: 14px; font-weight: 600; }
+      .sla { display: flex; align-items: center; gap: 8px; }
+      .dot { width: 8px; height: 8px; border-radius: 50%; background: var(--brand-primary); }
+      .notes { border-top: 1px solid var(--brand-line); padding-top: 14px; }
+      .notes__h {
+        font-family: var(--brand-font-heading);
+        text-transform: uppercase;
+        letter-spacing: 0.06em;
+        font-size: 11px;
+        color: var(--brand-muted);
+        margin-bottom: 8px;
+      }
+      .note {
+        font-size: 14px;
+        padding: 8px 10px;
+        background: #fafafa;
+        border-left: 2px solid var(--brand-primary);
+        margin-bottom: 6px;
+      }
+      .note__title { font-weight: 700; }
+      .addnote { display: flex; gap: 8px; margin-top: 12px; }
+      .addnote input {
+        flex: 1;
+        font-family: var(--brand-font-body);
+        font-size: 14px;
+        padding: 8px 10px;
+        border: 1px solid var(--brand-line);
+        border-radius: var(--brand-radius);
+      }
+      .btn {
+        background: var(--brand-accent);
+        color: var(--brand-text);
+        border: 0;
+        border-radius: var(--brand-radius);
+        padding: 8px 16px;
+        font-family: var(--brand-font-heading);
+        font-weight: 600;
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+        font-size: 13px;
+        cursor: pointer;
+      }
+      .btn:disabled { opacity: 0.5; cursor: default; }
+      .loading { color: var(--brand-muted); font-style: italic; }
+    </style>
+    <!-- BRAND_INJECT: a server/gateway replaces this comment with
+         <script>window.__BRAND__={name,logoUrl,primaryColor,accentColor,bg,text}</script>
+         to theme the card per-tenant. No injection = WYRE defaults above. -->
+  </head>
+  <body>
+    <div id="root"><p class="loading">Loading ticket…</p></div>
+    <script type="module" src="./ticket-card.ts"></script>
+  </body>
+</html>

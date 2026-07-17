@@ -55,6 +55,7 @@ See [Installation](#installation) for Docker and from-source methods.
 ## Features
 
 - **🔌 MCP Protocol Compliance**: Full support for MCP resources and tools
+- **🎴 Interactive Ticket Card (MCP Apps)**: `autotask_get_ticket_details` renders as a branded, interactive card in MCP Apps hosts (Claude Desktop/web) with an in-card "Add note" round-trip; plain-JSON behavior is unchanged in other hosts
 - **🛠️ Comprehensive API Coverage**: 39 tools spanning companies, contacts, tickets, projects, billing items, time entries, notes, attachments, and more
 - **🔍 Advanced Search**: Powerful search capabilities with filters across all entities
 - **📝 CRUD Operations**: Create, read, update operations for core Autotask entities
