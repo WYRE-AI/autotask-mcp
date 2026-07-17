@@ -873,6 +873,8 @@ export class AutotaskService {
       pushEq(filters, 'companyID', o.companyID);
       pushEq(filters, 'isActive', o.isActive);
       pushEq(filters, 'productID', o.productID);
+      pushEq(filters, 'configurationItemType', o.configurationItemType);
+      pushEq(filters, 'configurationItemCategoryID', o.configurationItemCategoryID);
       if (o.searchTerm) {
         filters.push({ op: 'contains', field: 'referenceTitle', value: o.searchTerm });
       }

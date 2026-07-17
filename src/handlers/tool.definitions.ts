@@ -2111,6 +2111,14 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by product ID'
         },
+        configurationItemType: {
+          type: 'number',
+          description: 'Filter by configuration item type (numeric picklist value)'
+        },
+        configurationItemCategoryID: {
+          type: 'number',
+          description: 'Filter by configuration item category ID'
+        },
         pageSize: {
           type: 'number',
           description: 'Number of results to return (default: 25, max: 500)',

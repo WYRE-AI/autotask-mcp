@@ -880,6 +880,20 @@ describe('AutotaskService', () => {
       expect(body.filter).toContainEqual({ op: 'contains', field: 'referenceTitle', value: 'laptop' });
     });
 
+    test('searchConfigurationItems translates configurationItemType and configurationItemCategoryID', async () => {
+      const capture = captureFilter('ConfigurationItems');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchConfigurationItems({
+        companyID: 999,
+        configurationItemType: 2,
+        configurationItemCategoryID: 5,
+      } as any);
+      const body = capture();
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'companyID', value: 999 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'configurationItemType', value: 2 });
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'configurationItemCategoryID', value: 5 });
+    });
+
     test('searchInvoices translates companyID, invoiceNumber, isVoided', async () => {
       const capture = captureFilter('Invoices');
       const service = new AutotaskService(configWithUrl, mockLogger);
