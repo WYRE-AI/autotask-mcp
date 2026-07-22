@@ -570,6 +570,8 @@ export interface AutotaskQueryOptionsExtended extends AutotaskQueryOptions {
   opportunityId?: number;
   searchTerm?: string;
   status?: number;
+  priority?: number;
+  queueID?: number;
   assignedResourceID?: number;
   unassigned?: boolean;
   // Date filters for ticket searches

@@ -442,6 +442,14 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by ticket status ID (omit for all open tickets)'
         },
+        priority: {
+          type: 'number',
+          description: 'Filter by ticket priority ID. Use autotask_list_ticket_priorities to discover valid IDs.'
+        },
+        queueID: {
+          type: 'number',
+          description: 'Filter by queue ID. Use autotask_list_queues to discover valid IDs.'
+        },
         assignedResourceID: {
           type: 'number',
           description: 'Filter by assigned resource ID'

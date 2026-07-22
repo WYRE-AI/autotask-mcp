@@ -354,6 +354,14 @@ export class AutotaskService {
         filters.push({ op: 'ne', field: 'status', value: 5 }); // 5 = Complete
       }
 
+      if (options.queueID !== undefined) {
+        filters.push({ op: 'eq', field: 'queueID', value: options.queueID });
+      }
+
+      if (options.priority !== undefined) {
+        filters.push({ op: 'eq', field: 'priority', value: options.priority });
+      }
+
       if (options.unassigned === true) {
         filters.push({ op: 'eq', field: 'assignedResourceID', value: null });
       } else if (options.assignedResourceID !== undefined) {

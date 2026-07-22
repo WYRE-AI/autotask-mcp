@@ -957,5 +957,35 @@ describe('AutotaskService', () => {
       expect(result[0].id).toBe(26);
       expect(result[result.length - 1].id).toBe(50);
     });
+
+    // ---- Ticket search filters (regression: issue #208) ----
+
+    test('searchTickets translates queueID into an eq filter', async () => {
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        expect(url).toBe(`${BASE}/Tickets/query`);
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchTickets({ queueID: 1, pageSize: 5 } as any);
+
+      expect(capturedFilters).toContainEqual({ op: 'eq', field: 'queueID', value: 1 });
+    });
+
+    test('searchTickets translates priority into an eq filter', async () => {
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchTickets({ priority: 3 } as any);
+
+      expect(capturedFilters).toContainEqual({ op: 'eq', field: 'priority', value: 3 });
+    });
   });
 });

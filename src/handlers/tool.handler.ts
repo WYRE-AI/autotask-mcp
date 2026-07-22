@@ -833,7 +833,8 @@ export class AutotaskToolHandler {
       // Tickets
       ['autotask_search_tickets', async (a) => {
         // Elicitation for zero-filter ticket searches
-        const hasFilters = a.searchTerm || a.companyID || a.status !== undefined ||
+        const hasFilters = a.searchTerm || a.companyID || a.contactID || a.status !== undefined ||
+          a.priority !== undefined || a.queueID !== undefined ||
           a.assignedResourceID || a.unassigned || a.createdAfter || a.createdBefore || a.lastActivityAfter;
         if (!hasFilters && this.mcpServer) {
           const dateChoice = await this.elicitDateRange();
