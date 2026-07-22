@@ -351,7 +351,7 @@ export class AutotaskService {
       if (options.status !== undefined) {
         filters.push({ op: 'eq', field: 'status', value: options.status });
       } else {
-        filters.push({ op: 'ne', field: 'status', value: 5 }); // 5 = Complete
+        filters.push({ op: 'noteq', field: 'status', value: 5 }); // 5 = Complete (Autotask REST uses 'noteq', not 'ne')
       }
 
       if (options.queueID !== undefined) {

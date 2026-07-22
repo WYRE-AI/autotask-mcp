@@ -987,5 +987,37 @@ describe('AutotaskService', () => {
 
       expect(capturedFilters).toContainEqual({ op: 'eq', field: 'priority', value: 3 });
     });
+
+    // Regression (#193): the default "open tickets only" filter must use the
+    // Autotask REST operator `noteq`, not `ne`. Autotask silently drops the
+    // invalid `ne` operator, so a status-less search returned Complete tickets.
+    test('searchTickets defaults to excluding Complete via noteq (not the invalid ne)', async () => {
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchTickets({ queueID: 1 } as any); // no status → default open-only filter
+
+      expect(capturedFilters).toContainEqual({ op: 'noteq', field: 'status', value: 5 });
+      expect(capturedFilters).not.toContainEqual({ op: 'ne', field: 'status', value: 5 });
+    });
+
+    // When an explicit status is supplied it must use `eq` and not add the default.
+    test('searchTickets uses eq for an explicit status and omits the noteq default', async () => {
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchTickets({ status: 1 } as any);
+
+      expect(capturedFilters).toContainEqual({ op: 'eq', field: 'status', value: 1 });
+      expect(capturedFilters).not.toContainEqual({ op: 'noteq', field: 'status', value: 5 });
+    });
   });
 });
