@@ -18,10 +18,11 @@ jobs:
     permissions:
       contents: write
       issues: write
+      pull-requests: write  # required by reusable release job: @semantic-release/github success step reads/comments on associated PRs
       packages: write
       id-token: write
       security-events: write
-    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@a925b43adb22aa8885b8243e1056e6a42cdce4d1
+    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@d28a612a00a1bd0c36aff09e686ce2d1e10ef552
     with:
       server-name: autotask-mcp
       image-name: ghcr.io/wyre-technology/autotask-mcp
