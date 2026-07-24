@@ -1,6 +1,19 @@
 ## [Unreleased]
 
+### Changed
+
+- **Migrated from `@modelcontextprotocol/sdk` v1 to the v2 SDK (`@modelcontextprotocol/server` + `@modelcontextprotocol/node` 2.0.0-beta.5) with dual-era serving.** All three entrypoints now consume one shared per-request server factory (`AutotaskMcpServer.requestFactory()`), so the tool/resource/prompt surface can never drift between protocol eras:
+  - **stdio** is served via `serveStdio(factory)` — the opening handshake pins the connection to its era (classic 2025 `initialize` or modern 2026-07-28).
+  - **Node HTTP** is served via `createMcpHandler(factory, { legacy: 'stateless' })` wrapped with `toNodeHandler`. Modern 2026-07-28 envelope traffic is served natively; 2025-era traffic is served by the SDK's default stateless legacy fallback — a fresh server per request, the same per-request stateless idiom this server has always used. CORS, `/health`, and the gateway 401 credential gate are unchanged.
+  - **Cloudflare Workers** uses the same `createMcpHandler` (memoized per isolate) through its web-standard `fetch` face, replacing the hand-wired `WebStandardStreamableHTTPServerTransport` per-request plumbing.
+  - The gateway credential contract is byte-identical: `X-API-Key`, `X-API-Secret`, `X-Integration-Code`, and optional `X-API-Url` headers are read per request (now from the handler's `ctx.requestInfo`) and bind an isolated per-tenant `AutotaskService`; missing credentials in gateway mode still answer 401 before any MCP processing.
+  - The tool surface is unchanged: same 98 tool names and input schemas from `tool.definitions.ts` served to both eras (pinned by `scripts/smoke-dual-era.mjs`).
+  - Wire-visible behavior notes for legacy (2025-era) clients: successful POST responses now arrive as single-message `text/event-stream` SSE frames instead of plain JSON bodies (both are canonical Streamable HTTP; every spec-conforming client accepts SSE), and GET/DELETE session operations on `/mcp` answer 405 from inside the SDK's stateless fallback rather than from hand-rolled routing.
+  - Internal API renames: `McpError`/`ErrorCode` → `ProtocolError`/`ProtocolErrorCode`, `setRequestHandler(SomeRequestSchema, …)` → `setRequestHandler('method/name', …)`. Local result types tightened to the v2 SDK's literal-typed wire shapes (`inputSchema.type: 'object'`, content `type: 'text'`, resource contents text-xor-blob).
+
 ### Added
+
+- **Dual-era smoke test** (`scripts/smoke-dual-era.mjs`): boots the built HTTP server with dummy credentials and proves a hand-crafted 2025-era JSON-RPC client (classic `initialize` → `notifications/initialized` → `tools/list`) and a modern `@modelcontextprotocol/client@2` StreamableHTTP session both see the identical non-empty tool surface. Exits non-zero on any failure.
 
 - **Interactive ticket card via MCP Apps (SEP-1865).** `autotask_get_ticket_details` results now render as an interactive card in MCP Apps hosts (Claude Desktop/web, and other hosts advertising the `io.modelcontextprotocol/ui` extension), instead of a wall of JSON. The card shows status/priority/queue as human-readable labels, company and assignee names, dates, and recent notes — and includes a working "Add note" round-trip that calls `autotask_create_ticket_note` from inside the card. Non-App hosts are unaffected: the tool's JSON payload is unchanged apart from a new `_card` field.
   - The card is **brand-neutral by default** (system fonts, neutral palette, no baked-in identity — this is a published server) and brandable without rebuilding: `MCP_BRAND_NAME`, `MCP_BRAND_LOGO_URL`, `MCP_BRAND_PRIMARY_COLOR`, `MCP_BRAND_ACCENT_COLOR`, `MCP_BRAND_BG`, and `MCP_BRAND_TEXT` env vars are injected as `window.__BRAND__` at serve time (a gateway can inject the same object per-org). A test pins the default bundle to zero brand identity and zero external font fetches.
