@@ -1,10 +1,22 @@
 // Main MCP Server Implementation
-import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
-import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
-import { Server, Transport, ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
-
 // Handles the Model Context Protocol server setup and integration with Autotask
 // Supports both local (env-based) and gateway (header-based) credential modes
+//
+// Serving is built on the v2 SDK's dual-era entries: one shared
+// McpServerFactory feeds createMcpHandler (HTTP, modern 2026-07-28 envelope
+// traffic natively + 2025-era traffic via the default stateless legacy
+// fallback) and serveStdio (stdio, same factory, era pinned per connection).
+
+import {
+  createMcpHandler,
+  Server,
+  ProtocolError,
+  ProtocolErrorCode,
+  type McpHttpHandler,
+  type McpServerFactory,
+} from '@modelcontextprotocol/server';
+import { serveStdio, type StdioServerHandle } from '@modelcontextprotocol/server/stdio';
+import { toNodeHandler } from '@modelcontextprotocol/node';
 
 import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
 import { AutotaskService } from '../services/autotask.service.js';
@@ -16,7 +28,6 @@ import { AutotaskToolHandler } from '../handlers/tool.handler.js';
 import { registerPromptHandlers } from './prompts.js';
 
 export class AutotaskMcpServer {
-  private server: Server;
   private config: McpServerConfig;
   private autotaskService: AutotaskService;
   private resourceHandler: AutotaskResourceHandler;
@@ -24,6 +35,8 @@ export class AutotaskMcpServer {
   private logger: Logger;
   private envConfig: EnvironmentConfig | undefined;
   private httpServer?: HttpServer;
+  private mcpHandler: McpHttpHandler | undefined;
+  private stdioHandle: StdioServerHandle | undefined;
   private lazyLoading: boolean;
 
   constructor(config: McpServerConfig, logger: Logger, envConfig?: EnvironmentConfig) {
@@ -38,9 +51,30 @@ export class AutotaskMcpServer {
     // Initialize handlers
     this.resourceHandler = new AutotaskResourceHandler(this.autotaskService, logger);
     this.toolHandler = new AutotaskToolHandler(this.autotaskService, logger, this.lazyLoading);
+  }
 
-    // Create default server (used for stdio mode)
-    this.server = this.createFreshServer();
+  /**
+   * The shared per-request/per-connection server factory consumed by every
+   * serving entry (createMcpHandler for Node HTTP and Workers, serveStdio for
+   * stdio). One factory backs both protocol eras, so the tool surface can
+   * never drift between legacy (2025) and modern (2026-07-28) clients.
+   *
+   * In gateway mode, per-request credentials are read from the inbound HTTP
+   * request's headers (ctx.requestInfo) — the exact same X-API-Key /
+   * X-API-Secret / X-Integration-Code / X-API-Url contract as before. stdio
+   * connections have no requestInfo and always use env-configured credentials.
+   */
+  public requestFactory(): McpServerFactory {
+    const isGatewayMode = this.envConfig?.auth?.mode === 'gateway';
+    return (ctx) => {
+      let credentials: GatewayCredentials | undefined;
+      if (isGatewayMode && ctx.requestInfo) {
+        credentials = parseCredentialsFromHeaders(
+          Object.fromEntries(ctx.requestInfo.headers) as Record<string, string | undefined>
+        );
+      }
+      return this.createRequestServer(credentials);
+    };
   }
 
   /**
@@ -242,10 +276,15 @@ export class AutotaskMcpServer {
 
   /**
    * Start with stdio transport (default)
+   *
+   * serveStdio owns the era decision for the connection: a classic 2025
+   * `initialize` handshake pins a legacy-era instance, a modern opening pins
+   * a 2026-07-28 instance — both built by the same factory.
    */
   private async startStdioTransport(): Promise<void> {
-    const transport = new StdioServerTransport();
-    await this.server.connect(transport);
+    this.stdioHandle = serveStdio(this.requestFactory(), {
+      onerror: (error) => this.logger.error('MCP stdio serving error:', error),
+    });
     this.logger.info('Autotask MCP Server started and connected to stdio transport');
   }
 
@@ -257,6 +296,19 @@ export class AutotaskMcpServer {
     const port = this.envConfig?.transport?.port || 8080;
     const host = this.envConfig?.transport?.host || '0.0.0.0';
     const isGatewayMode = this.envConfig?.auth?.mode === 'gateway';
+
+    // One dual-era handler for the process: modern (2026-07-28 envelope)
+    // traffic is served natively; legacy 2025-era traffic is served by the
+    // default stateless fallback ('stateless') — a fresh factory-built server
+    // per request, exactly the per-request stateless idiom this server has
+    // always used. Legacy GET/DELETE session operations answer 405 by design.
+    this.mcpHandler = createMcpHandler(this.requestFactory(), {
+      legacy: 'stateless',
+      onerror: (error) => this.logger.error('MCP handler error:', error),
+    });
+    const nodeMcpHandler = toNodeHandler(this.mcpHandler, {
+      onerror: (error) => this.logger.error('MCP node adapter error:', error),
+    });
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
       const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
@@ -298,36 +350,18 @@ export class AutotaskMcpServer {
         return;
       }
 
-      // MCP endpoint — stateless: fresh server + transport per request
+      // MCP endpoint — dual-era handler (fresh factory-built server per
+      // request in both eras; nothing is shared between requests)
       if (url.pathname === '/mcp') {
-        // Only POST is supported in stateless mode
-        if (req.method !== 'POST') {
-          res.writeHead(405, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({
-            jsonrpc: '2.0',
-            error: { code: -32000, message: 'Method not allowed' },
-            id: null,
-          }));
-          return;
-        }
-
-        // In gateway mode, build per-request service + handlers from the
-        // injected credential headers. Each request gets its own isolated
-        // AutotaskService so concurrent requests for different tenants
-        // never interfere with each other.
-        let perRequestToolHandler: AutotaskToolHandler | undefined;
-        let perRequestResourceHandler: AutotaskResourceHandler | undefined;
+        // In gateway mode, require the injected credential headers up front.
+        // Falling through to the env-configured handlers would serve the
+        // server operator's tenant data to whoever sent the unauthenticated
+        // request — a cross-tenant leak. Reject explicitly instead. The
+        // factory re-reads the same headers from ctx.requestInfo to build the
+        // per-request, tenant-isolated AutotaskService.
         if (isGatewayMode) {
           const credentials = parseCredentialsFromHeaders(req.headers as Record<string, string | string[] | undefined>);
-          if (credentials.username && credentials.secret && credentials.integrationCode) {
-            const handlers = this.buildPerRequestHandlers(credentials);
-            perRequestToolHandler = handlers.toolHandler;
-            perRequestResourceHandler = handlers.resourceHandler;
-          } else {
-            // Gateway mode REQUIRES per-request credentials. Falling through
-            // to the env-configured `this.toolHandler` would serve the server
-            // operator's tenant data to whoever sent the unauthenticated
-            // request — a cross-tenant leak. Reject explicitly instead.
+          if (!credentials.username || !credentials.secret || !credentials.integrationCode) {
             res.writeHead(401, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({
               jsonrpc: '2.0',
@@ -341,20 +375,13 @@ export class AutotaskMcpServer {
           }
         }
 
-        // Stateless: create fresh server + transport for each request
-        const server = this.createFreshServer(perRequestToolHandler, perRequestResourceHandler);
-        const transport = new NodeStreamableHTTPServerTransport({
-          enableJsonResponse: true,
-        });
-
-        res.on('close', () => {
-          transport.close();
-          server.close();
-        });
-
-        server.connect(transport as unknown as Transport).then(() => {
-          transport.handleRequest(req, res);
-        }).catch((err) => {
+        // Delegate to the dual-era handler. Legacy (2025) traffic is served
+        // per-request statelessly; modern (2026-07-28) traffic natively.
+        // Legacy-era GET/DELETE answer 405 inside the handler, as before.
+        // Cast: the adapter's duck-typed NodeIncomingMessageLike declares
+        // `method?: string`, which node:http's IncomingMessage doesn't satisfy
+        // under exactOptionalPropertyTypes (v2.0.0-beta.5 typings papercut).
+        nodeMcpHandler(req as unknown as Parameters<typeof nodeMcpHandler>[0], res).catch((err) => {
           this.logger.error('MCP transport error:', err);
           if (!res.headersSent) {
             res.writeHead(500, { 'Content-Type': 'application/json' });
@@ -394,7 +421,14 @@ export class AutotaskMcpServer {
         this.httpServer!.close((err) => err ? reject(err) : resolve());
       });
     }
-    await this.server.close();
+    if (this.mcpHandler) {
+      await this.mcpHandler.close();
+      this.mcpHandler = undefined;
+    }
+    if (this.stdioHandle) {
+      await this.stdioHandle.close();
+      this.stdioHandle = undefined;
+    }
     this.logger.info('Autotask MCP Server stopped');
   }
 

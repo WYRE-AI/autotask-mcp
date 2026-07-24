@@ -1,12 +1,12 @@
-import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
-import type { Transport } from "@modelcontextprotocol/server";
-
 // Cloudflare Workers entry point for the Autotask MCP Server.
 //
-// Serves the full MCP server over the Streamable HTTP transport using the SDK's
-// Web Standard transport (Request/Response), which runs natively on Workers.
-// It reuses the exact same handler wiring as the stdio / Node HTTP entrypoints
-// via AutotaskMcpServer.createRequestServer(), so there is no second tool
+// Serves the full MCP server via the v2 SDK's createMcpHandler, whose
+// web-standard fetch face runs natively on Workers. Modern (2026-07-28
+// envelope) traffic is served natively; legacy 2025-era traffic is served by
+// the default stateless fallback — a fresh server per request, the same
+// per-request idiom this Worker has always used. It reuses the exact same
+// factory as the stdio / Node HTTP entrypoints via
+// AutotaskMcpServer.requestFactory(), so there is no second tool
 // implementation to maintain.
 //
 // The Autotask service layer talks to the REST API through AutotaskHttpClient,
@@ -27,12 +27,12 @@ import type { Transport } from "@modelcontextprotocol/server";
 //
 // `tools/list` and `initialize` work without credentials; only `tools/call`
 // requires them.
+import { createMcpHandler, type McpHttpHandler } from '@modelcontextprotocol/server';
 import { AutotaskMcpServer } from './mcp/server.js';
 import { Logger } from './utils/logger.js';
 import {
   getServerVersion,
   parseCredentialsFromHeaders,
-  type GatewayCredentials,
 } from './utils/config.js';
 import type { McpServerConfig } from './types/mcp.js';
 
@@ -116,6 +116,21 @@ function getAppServer(env: Env): AutotaskMcpServer {
   return appServer;
 }
 
+/**
+ * Build (once per isolate) the dual-era MCP handler over the shared factory.
+ * Per-request credential isolation happens inside the factory, which reads
+ * the gateway headers from each request via ctx.requestInfo.
+ */
+let mcpHandler: McpHttpHandler | undefined;
+function getMcpHandler(env: Env): McpHttpHandler {
+  if (!mcpHandler) {
+    mcpHandler = createMcpHandler(getAppServer(env).requestFactory(), {
+      legacy: 'stateless',
+    });
+  }
+  return mcpHandler;
+}
+
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const url = new URL(request.url);
@@ -139,7 +154,6 @@ export default {
     if (url.pathname === '/mcp') {
       const isGatewayMode = (env.AUTH_MODE ?? 'env') === 'gateway';
 
-      let credentials: GatewayCredentials | undefined;
       if (isGatewayMode) {
         const parsed = parseCredentialsFromHeaders(
           Object.fromEntries(request.headers) as Record<
@@ -159,28 +173,13 @@ export default {
             401
           );
         }
-        credentials = parsed;
       }
 
-      // Fresh server + transport per request (stateless). The handler factory
-      // (AutotaskMcpServer) is memoized per isolate; createRequestServer()
-      // produces an isolated server bound to the per-request credentials.
-      const server = getAppServer(env).createRequestServer(credentials);
-      // Omit `sessionIdGenerator` entirely (rather than passing `undefined`)
-      // to satisfy exactOptionalPropertyTypes; an absent generator yields the
-      // same stateless behavior.
-      const transport = new WebStandardStreamableHTTPServerTransport({
-        enableJsonResponse: true,
-      });
-      await server.connect(transport as unknown as Transport);
-
-      try {
-        const response = await transport.handleRequest(request);
-        return withCors(response);
-      } finally {
-        await transport.close();
-        await server.close();
-      }
+      // Dual-era serving; both eras get a fresh factory-built server per
+      // request. The factory reads the gateway credential headers from
+      // ctx.requestInfo, so per-tenant isolation is unchanged.
+      const response = await getMcpHandler(env).fetch(request);
+      return withCors(response);
     }
 
     return json({ error: 'Not found', endpoints: ['/mcp', '/health'] }, 404);

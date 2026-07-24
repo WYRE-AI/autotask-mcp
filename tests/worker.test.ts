@@ -1,8 +1,8 @@
 // Tests for the Cloudflare Workers entrypoint.
 //
 // Drives the exported `fetch` handler directly with Web Standard Request objects
-// (available natively in Node 18+), exercising the same WebStandardStreamableHTTP
-// transport the Worker uses in production.
+// (available natively in Node 18+), exercising the same createMcpHandler
+// dual-era serving the Worker uses in production.
 
 import worker, { type Env } from '../src/worker.js';
 
@@ -10,6 +10,24 @@ const MCP_HEADERS = {
   Accept: 'application/json, text/event-stream',
   'Content-Type': 'application/json',
 };
+
+/**
+ * Parse a JSON-RPC response body that may arrive either as plain JSON or as
+ * an SSE stream. The v2 SDK's stateless legacy fallback answers 2025-era
+ * POSTs with `text/event-stream` (one `message` event per response) — the
+ * canonical Streamable HTTP shape every spec-conforming client accepts.
+ */
+async function mcpBody<T>(res: Response): Promise<T> {
+  const text = await res.text();
+  const contentType = res.headers.get('content-type') ?? '';
+  if (contentType.includes('text/event-stream')) {
+    const dataLines = text.split('\n').filter((line) => line.startsWith('data:'));
+    const last = dataLines[dataLines.length - 1];
+    if (!last) throw new Error(`No data frame in SSE body: ${text}`);
+    return JSON.parse(last.slice('data:'.length).trim()) as T;
+  }
+  return JSON.parse(text) as T;
+}
 
 async function mcp(
   body: unknown,
@@ -63,9 +81,9 @@ describe('Cloudflare Worker entrypoint', () => {
       },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await mcpBody<{
       result?: { serverInfo?: { name?: string } };
-    };
+    }>(res);
     expect(body.result?.serverInfo?.name).toBe('autotask-mcp');
   });
 
@@ -77,9 +95,9 @@ describe('Cloudflare Worker entrypoint', () => {
       params: {},
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await mcpBody<{
       result?: { tools?: { name: string }[] };
-    };
+    }>(res);
     const names = (body.result?.tools ?? []).map((t) => t.name);
     expect(names).toContain('autotask_test_connection');
     expect(names).toContain('autotask_search_companies');
@@ -94,9 +112,9 @@ describe('Cloudflare Worker entrypoint', () => {
       params: { name: 'autotask_test_connection', arguments: {} },
     });
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await mcpBody<{
       result?: { isError?: boolean; content?: { text?: string }[] };
-    };
+    }>(res);
     expect(body.result?.isError).toBe(true);
   });
 
@@ -129,9 +147,9 @@ describe('Cloudflare Worker entrypoint', () => {
       }
     );
     expect(res.status).toBe(200);
-    const body = (await res.json()) as {
+    const body = await mcpBody<{
       result?: { tools?: { name: string }[] };
-    };
+    }>(res);
     expect((body.result?.tools ?? []).length).toBeGreaterThan(10);
   });
 });

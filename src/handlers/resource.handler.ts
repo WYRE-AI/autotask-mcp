@@ -18,12 +18,13 @@ export interface McpResource {
   mimeType?: string;
 }
 
-export interface McpResourceContent {
-  uri: string;
-  mimeType: string;
-  text?: string;
-  blob?: string;
-}
+// text XOR blob, matching the v2 SDK's resources/read result type, which
+// requires exactly one of the two to be present. The `?: never` form keeps
+// `.text` / `.blob` accessible without narrowing.
+export type McpResourceContent = { uri: string; mimeType: string } & (
+  | { text: string; blob?: never }
+  | { blob: string; text?: never }
+);
 
 export class AutotaskResourceHandler {
   private autotaskService: AutotaskService;
