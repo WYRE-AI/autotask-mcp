@@ -1,3 +1,6 @@
+import { WebStandardStreamableHTTPServerTransport } from "@modelcontextprotocol/server";
+import type { Transport } from "@modelcontextprotocol/server";
+
 // Cloudflare Workers entry point for the Autotask MCP Server.
 //
 // Serves the full MCP server over the Streamable HTTP transport using the SDK's
@@ -24,9 +27,6 @@
 //
 // `tools/list` and `initialize` work without credentials; only `tools/call`
 // requires them.
-
-import { WebStandardStreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import type { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
 import { AutotaskMcpServer } from './mcp/server.js';
 import { Logger } from './utils/logger.js';
 import {

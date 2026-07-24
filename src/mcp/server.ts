@@ -1,21 +1,12 @@
 // Main MCP Server Implementation
+import { NodeStreamableHTTPServerTransport } from "@modelcontextprotocol/node";
+import { StdioServerTransport } from "@modelcontextprotocol/server/stdio";
+import { Server, Transport, ProtocolError, ProtocolErrorCode } from "@modelcontextprotocol/server";
+
 // Handles the Model Context Protocol server setup and integration with Autotask
 // Supports both local (env-based) and gateway (header-based) credential modes
 
 import { createServer, IncomingMessage, ServerResponse, Server as HttpServer } from 'node:http';
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
-import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
-import { Transport } from '@modelcontextprotocol/sdk/shared/transport.js';
-import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListResourcesRequestSchema,
-  ListToolsRequestSchema,
-  McpError,
-  ReadResourceRequestSchema,
-} from '@modelcontextprotocol/sdk/types.js';
-
 import { AutotaskService } from '../services/autotask.service.js';
 import { Logger } from '../utils/logger.js';
 import { McpServerConfig } from '../types/mcp.js';
@@ -164,52 +155,52 @@ export class AutotaskMcpServer {
     this.logger.info('Setting up MCP request handlers...');
 
     // List available resources
-    server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    server.setRequestHandler('resources/list', async () => {
       try {
         this.logger.debug('Handling list resources request');
         const resources = await resourceHandler.listResources();
         return { resources };
       } catch (error) {
         this.logger.error('Failed to list resources:', error);
-        throw new McpError(
-          ErrorCode.InternalError,
+        throw new ProtocolError(
+          ProtocolErrorCode.InternalError,
           `Failed to list resources: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     });
 
     // Read a specific resource
-    server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    server.setRequestHandler('resources/read', async (request) => {
       try {
         this.logger.debug(`Handling read resource request for: ${request.params.uri}`);
         const content = await resourceHandler.readResource(request.params.uri);
         return { contents: [content] };
       } catch (error) {
         this.logger.error(`Failed to read resource ${request.params.uri}:`, error);
-        throw new McpError(
-          ErrorCode.InternalError,
+        throw new ProtocolError(
+          ProtocolErrorCode.InternalError,
           `Failed to read resource: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     });
 
     // List available tools
-    server.setRequestHandler(ListToolsRequestSchema, async () => {
+    server.setRequestHandler('tools/list', async () => {
       try {
         this.logger.debug('Handling list tools request');
         const tools = await toolHandler.listTools();
         return { tools };
       } catch (error) {
         this.logger.error('Failed to list tools:', error);
-        throw new McpError(
-          ErrorCode.InternalError,
+        throw new ProtocolError(
+          ProtocolErrorCode.InternalError,
           `Failed to list tools: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
     });
 
     // Call a tool
-    server.setRequestHandler(CallToolRequestSchema, async (request) => {
+    server.setRequestHandler('tools/call', async (request) => {
       try {
         this.logger.debug(`Handling tool call: ${request.params.name}`);
         const result = await toolHandler.callTool(
@@ -222,8 +213,8 @@ export class AutotaskMcpServer {
         };
       } catch (error) {
         this.logger.error(`Failed to call tool ${request.params.name}:`, error);
-        throw new McpError(
-          ErrorCode.InternalError,
+        throw new ProtocolError(
+          ProtocolErrorCode.InternalError,
           `Failed to call tool: ${error instanceof Error ? error.message : 'Unknown error'}`
         );
       }
@@ -352,7 +343,7 @@ export class AutotaskMcpServer {
 
         // Stateless: create fresh server + transport for each request
         const server = this.createFreshServer(perRequestToolHandler, perRequestResourceHandler);
-        const transport = new StreamableHTTPServerTransport({
+        const transport = new NodeStreamableHTTPServerTransport({
           enableJsonResponse: true,
         });
 

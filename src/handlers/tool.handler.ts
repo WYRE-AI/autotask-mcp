@@ -1,7 +1,7 @@
+import { Server } from "@modelcontextprotocol/server";
+
 // Autotask Tool Handler
 // Handles MCP tool calls for Autotask operations (search, create, update)
-
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
 import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
