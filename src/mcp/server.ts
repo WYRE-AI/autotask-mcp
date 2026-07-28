@@ -26,6 +26,7 @@ import { EnvironmentConfig, parseCredentialsFromHeaders, GatewayCredentials, get
 import { AutotaskResourceHandler } from '../handlers/resource.handler.js';
 import { AutotaskToolHandler } from '../handlers/tool.handler.js';
 import { registerPromptHandlers } from './prompts.js';
+import { verifyS2sHeader, S2S_HEADER } from './s2s-verify.js';
 
 export class AutotaskMcpServer {
   private config: McpServerConfig;
@@ -353,6 +354,28 @@ export class AutotaskMcpServer {
       // MCP endpoint — dual-era handler (fresh factory-built server per
       // request in both eras; nothing is shared between requests)
       if (url.pathname === '/mcp') {
+        // Gateway S2S verification (gateway#377 parity). Runs before any
+        // credential extraction — see src/mcp/s2s-verify.ts. Empty secret
+        // means S2S enforcement isn't provisioned for this vendor yet, so
+        // we don't call verifyS2sHeader at all (dark-by-default).
+        const s2sSecret = process.env.CONDUIT_S2S_SECRET || '';
+        if (s2sSecret) {
+          const s2sHeader = req.headers[S2S_HEADER] as string | undefined;
+          if (!verifyS2sHeader(s2sHeader, s2sSecret)) {
+            this.logger.warn('Rejected request with missing/invalid gateway S2S header');
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+              jsonrpc: '2.0',
+              error: {
+                code: -32001,
+                message: 'Unauthorized: missing or invalid gateway S2S authentication header',
+              },
+              id: null,
+            }));
+            return;
+          }
+        }
+
         // In gateway mode, require the injected credential headers up front.
         // Falling through to the env-configured handlers would serve the
         // server operator's tenant data to whoever sent the unauthenticated
