@@ -5,6 +5,7 @@ FROM node:26-alpine AS builder
 ARG VERSION="unknown"
 ARG COMMIT_SHA="unknown"
 ARG BUILD_DATE="unknown"
+ARG GITHUB_TOKEN
 
 # node:22-alpine ships with npm 10.x — no need to install globally
 # Set working directory
@@ -14,7 +15,10 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies (--ignore-scripts prevents 'prepare' from running before source is copied)
-RUN npm ci --ignore-scripts
+# GitHub Packages auth for @wyre-technology scope (autotask-node is consumed via the registry)
+RUN echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc && \
+    echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> .npmrc && \
+    npm ci --ignore-scripts && rm -f .npmrc
 
 # Copy source code
 COPY . .

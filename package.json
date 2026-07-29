@@ -57,7 +57,7 @@
     "@semantic-release/github": "^12.0.8",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
-    "autotask-node": "github:wyre-technology/autotask-node#v2.2.1",
+    "autotask-node": "npm:@wyre-technology/autotask-node@^2.3.0",
     "dotenv": "^17.4.2",
     "eslint": "^10.4.1",
     "globals": "^17.6.0",
