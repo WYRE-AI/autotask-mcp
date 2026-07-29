@@ -52,8 +52,8 @@
     "@eslint/js": "^10.0.1",
     "@modelcontextprotocol/client": "^2.0.0-beta.5",
     "@modelcontextprotocol/ext-apps": "^1.7.3",
-    "@semantic-release/changelog": "^6.0.3",
-    "@semantic-release/git": "^10.0.1",
+    "@semantic-release/changelog": "^7.0.0",
+    "@semantic-release/git": "^11.0.1",
     "@semantic-release/github": "^12.0.8",
     "@types/jest": "^30.0.0",
     "@types/node": "^26.0.1",
@@ -65,9 +65,9 @@
     "semantic-release": "^25.0.0",
     "ts-jest": "^29.4.11",
     "tsx": "^4.22.4",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "typescript-eslint": "^8.61.0",
-    "vite": "^6.0.0",
+    "vite": "^8.1.5",
     "vite-plugin-singlefile": "^2.1.0"
   },
   "engines": {
