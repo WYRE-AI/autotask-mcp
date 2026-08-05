@@ -1,5 +1,7 @@
 # Autotask MCP Server
 
+[![MCP Toplist](https://mcptoplist.com/badge/glama%2Fasachs01%2Fautotask-mcp.svg)](https://mcptoplist.com/server/glama%2Fasachs01%2Fautotask-mcp)
+
 [![Build Status](https://github.com/wyre-technology/autotask-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/wyre-technology/autotask-mcp/actions/workflows/release.yml)
 [![codecov](https://codecov.io/gh/wyre-technology/autotask-mcp/graph/badge.svg)](https://codecov.io/gh/wyre-technology/autotask-mcp)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
