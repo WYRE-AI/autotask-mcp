@@ -711,7 +711,15 @@ export class AutotaskToolHandler {
     }
 
     // Contract operations
-    if (/\b(?:contract|agreement)\b/.test(intent)) {
+    if (/\b(?:contract|agreement)s?\b/.test(intent) && /expir|renew|laps/.test(intent)) {
+      return {
+        suggestedTool: 'autotask_list_expiring_contracts',
+        suggestedParams: {},
+        description: 'List contracts expiring soon (or already expired)',
+        requiredParams: [],
+      };
+    }
+    if (/\b(?:contract|agreement)s?\b/.test(intent)) {
       return {
         suggestedTool: 'autotask_search_contracts',
         suggestedParams: {},
@@ -1037,6 +1045,18 @@ export class AutotaskToolHandler {
       // Contracts
       ['autotask_search_contracts', async (a) => {
         const r = await s.searchContracts(a); return { result: r, message: `Found ${r.length} contracts` };
+      }],
+      ['autotask_get_contract', async (a) => {
+        const r = await s.getContract(a.id); return { result: r, message: `Retrieved contract ${a.id}` };
+      }],
+      ['autotask_list_expiring_contracts', async (a) => {
+        const r = await s.listExpiringContracts(a);
+        return { result: r, message: `Found ${r.length} contracts with end dates within ${a.daysAhead ?? 60} days` };
+      }],
+      ['autotask_create_contracts_bulk', async (a) => {
+        const r = await s.createContracts(a.contracts);
+        const ok = r.filter((item) => item.success).length;
+        return { result: r, message: `Created ${ok}/${r.length} contracts` };
       }],
       ['autotask_create_contract', async (a) => {
         const id = await s.createContract(a); return { result: id, message: `Successfully created contract with ID: ${id}` };

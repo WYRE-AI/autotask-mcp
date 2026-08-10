@@ -13,6 +13,13 @@
 
 ### Added
 
+- **Contract management tools** ([#237](https://github.com/wyre-technology/autotask-mcp/issues/237)). Contract coverage now spans the full read/report/create lifecycle:
+  - `autotask_get_contract` — single contract header by ID (the service method existed but was never exposed as a tool).
+  - `autotask_search_contracts` gained `contractType` and `endDateFrom`/`endDateTo` filters alongside the existing name/company/status ones.
+  - `autotask_list_expiring_contracts` — dedicated expiring/expired-contracts report: contracts whose end date falls within the next `daysAhead` days (default 60), optionally including already-lapsed contracts (`includeExpired`), scoped to one company or the whole org.
+  - `autotask_create_contracts_bulk` — create up to 50 contract shells (header records, no service lines) in one call, e.g. onboarding a customer with several location-based contracts. Shells POST sequentially (Autotask has no batch endpoint and bursts risk 429 thresholds); a failed shell doesn't abort the batch — each item reports its own `success`/`id`/`error` so callers can retry just the failures.
+  - The `financial` tool category now lists every contract tool (the previously-added write tools were missing from it), and the intent router recognizes "expiring/renewing contract" phrasing.
+
 - **Dual-era smoke test** (`scripts/smoke-dual-era.mjs`): boots the built HTTP server with dummy credentials and proves a hand-crafted 2025-era JSON-RPC client (classic `initialize` → `notifications/initialized` → `tools/list`) and a modern `@modelcontextprotocol/client@2` StreamableHTTP session both see the identical non-empty tool surface. Exits non-zero on any failure.
 
 - **Interactive ticket card via MCP Apps (SEP-1865).** `autotask_get_ticket_details` results now render as an interactive card in MCP Apps hosts (Claude Desktop/web, and other hosts advertising the `io.modelcontextprotocol/ui` extension), instead of a wall of JSON. The card shows status/priority/queue as human-readable labels, company and assignee names, dates, and recent notes — and includes a working "Add note" round-trip that calls `autotask_create_ticket_note` from inside the card. Non-App hosts are unaffected: the tool's JSON payload is unchanged apart from a new `_card` field.

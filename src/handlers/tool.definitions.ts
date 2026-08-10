@@ -4,6 +4,45 @@
 import { McpTool } from './tool.handler.js';
 import { TICKET_CARD_META } from './card.builder.js';
 
+// Contract shell fields shared by autotask_create_contract and
+// autotask_create_contracts_bulk (issue #237). Field names match the
+// Autotask REST API exactly.
+const CONTRACT_SHELL_PROPERTIES = {
+  companyID: { type: 'number', description: 'Company ID the contract is associated with' },
+  contractName: { type: 'string', description: 'Contract name' },
+  contractType: { type: 'number', description: 'Contract type picklist ID' },
+  contractCategory: { type: 'number', description: 'Contract category picklist ID' },
+  startDate: { type: 'string', description: 'Contract start date (ISO YYYY-MM-DD)' },
+  endDate: { type: 'string', description: 'Contract end date (ISO YYYY-MM-DD)' },
+  contactID: { type: 'number', description: 'Primary contact ID for the contract' },
+  contractNumber: { type: 'string', description: 'External-facing contract number' },
+  contractPeriodType: { type: 'number', description: 'Period type picklist ID' },
+  description: { type: 'string', description: 'Contract description / notes' },
+  estimatedCost: { type: 'number', description: 'Estimated cost' },
+  estimatedHours: { type: 'number', description: 'Estimated hours' },
+  estimatedRevenue: { type: 'number', description: 'Estimated revenue' },
+  setupFee: { type: 'number', description: 'Setup fee amount' },
+  overageBillingRate: { type: 'number', description: 'Overage billing rate' },
+  serviceLevelAgreementID: { type: 'number', description: 'SLA ID' },
+  purchaseOrderNumber: { type: 'string', description: 'Customer purchase order number' },
+  opportunityID: { type: 'number', description: 'Originating opportunity ID' },
+  billingPreference: { type: 'number', description: 'Billing preference picklist ID' },
+  billToCompanyID: { type: 'number', description: 'Bill-to company ID' },
+  billToCompanyContactID: { type: 'number', description: 'Bill-to contact ID' },
+  exclusionContractID: { type: 'number', description: 'Exclusion contract ID' },
+  isDefaultContract: { type: 'boolean', description: 'Whether this is the default contract for the company' },
+  internalCurrencySetupFee: { type: 'number', description: 'Setup fee in internal currency' },
+  internalCurrencyOverageBillingRate: { type: 'number', description: 'Overage rate in internal currency' },
+  organizationalLevelAssociationID: { type: 'number', description: 'Org level association ID' },
+  contractExclusionSetID: { type: 'number', description: 'Contract exclusion set ID' },
+  renewedContractID: { type: 'number', description: 'ID of the contract this renewed' },
+  setupFeeBillingCodeID: { type: 'number', description: 'Billing code ID for the setup fee' },
+  status: { type: 'number', description: 'Contract status (1=In Effect, 0=Inactive)' },
+  timeReportingRequiresStartAndStopTimes: { type: 'number', description: 'Whether time entries require start/stop times' }
+};
+
+const CONTRACT_SHELL_REQUIRED = ['companyID', 'contractName', 'contractType', 'contractCategory', 'startDate', 'endDate'];
+
 export const TOOL_DEFINITIONS: McpTool[] = [
   // Connection testing
   {
@@ -2157,9 +2196,68 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by contract status (1=In Effect, 3=Terminated)'
         },
+        contractType: {
+          type: 'number',
+          description: 'Filter by contract type picklist ID'
+        },
+        endDateFrom: {
+          type: 'string',
+          description: 'Only contracts ending on or after this date (ISO YYYY-MM-DD)'
+        },
+        endDateTo: {
+          type: 'string',
+          description: 'Only contracts ending on or before this date (ISO YYYY-MM-DD)'
+        },
         pageSize: {
           type: 'number',
           description: 'Number of results to return (default: 25, max: 500)',
+          minimum: 1,
+          maximum: 500
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'autotask_get_contract',
+    description: 'Get a single contract by ID (header fields only, no service lines)',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: {
+          type: 'number',
+          description: 'Contract ID'
+        }
+      },
+      required: ['id']
+    }
+  },
+  {
+    name: 'autotask_list_expiring_contracts',
+    description: 'List contracts whose end date falls within the next N days (expiring-contracts report). Optionally include already-expired contracts, and scope to one company or the whole org.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        daysAhead: {
+          type: 'number',
+          description: 'Look-ahead window in days (default: 60)',
+          minimum: 0
+        },
+        companyID: {
+          type: 'number',
+          description: 'Limit the report to one company (omit for the whole org)'
+        },
+        includeExpired: {
+          type: 'boolean',
+          description: 'Also include contracts whose end date is already in the past (default: false)'
+        },
+        status: {
+          type: 'number',
+          description: 'Filter by contract status (1=In Effect, 3=Terminated)'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Number of results to return (default: 100, max: 500)',
           minimum: 1,
           maximum: 500
         }
@@ -2923,40 +3021,29 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     description: 'Create a new Contract in Autotask. Field names match the Autotask REST API exactly. status: 1=In Effect, 0=Inactive. Dates are ISO format (YYYY-MM-DD).',
     inputSchema: {
       type: 'object',
+      properties: CONTRACT_SHELL_PROPERTIES,
+      required: CONTRACT_SHELL_REQUIRED
+    }
+  },
+  {
+    name: 'autotask_create_contracts_bulk',
+    description: 'Create multiple contract shells (header records, no service lines) in one call — e.g. onboarding a customer with several location-based contracts. Shells are created one at a time; a failure on one shell does not stop the rest, and each item reports its own success or error.',
+    inputSchema: {
+      type: 'object',
       properties: {
-        companyID: { type: 'number', description: 'Company ID the contract is associated with' },
-        contractName: { type: 'string', description: 'Contract name' },
-        contractType: { type: 'number', description: 'Contract type picklist ID' },
-        contractCategory: { type: 'number', description: 'Contract category picklist ID' },
-        startDate: { type: 'string', description: 'Contract start date (ISO YYYY-MM-DD)' },
-        endDate: { type: 'string', description: 'Contract end date (ISO YYYY-MM-DD)' },
-        contactID: { type: 'number', description: 'Primary contact ID for the contract' },
-        contractNumber: { type: 'string', description: 'External-facing contract number' },
-        contractPeriodType: { type: 'number', description: 'Period type picklist ID' },
-        description: { type: 'string', description: 'Contract description / notes' },
-        estimatedCost: { type: 'number', description: 'Estimated cost' },
-        estimatedHours: { type: 'number', description: 'Estimated hours' },
-        estimatedRevenue: { type: 'number', description: 'Estimated revenue' },
-        setupFee: { type: 'number', description: 'Setup fee amount' },
-        overageBillingRate: { type: 'number', description: 'Overage billing rate' },
-        serviceLevelAgreementID: { type: 'number', description: 'SLA ID' },
-        purchaseOrderNumber: { type: 'string', description: 'Customer purchase order number' },
-        opportunityID: { type: 'number', description: 'Originating opportunity ID' },
-        billingPreference: { type: 'number', description: 'Billing preference picklist ID' },
-        billToCompanyID: { type: 'number', description: 'Bill-to company ID' },
-        billToCompanyContactID: { type: 'number', description: 'Bill-to contact ID' },
-        exclusionContractID: { type: 'number', description: 'Exclusion contract ID' },
-        isDefaultContract: { type: 'boolean', description: 'Whether this is the default contract for the company' },
-        internalCurrencySetupFee: { type: 'number', description: 'Setup fee in internal currency' },
-        internalCurrencyOverageBillingRate: { type: 'number', description: 'Overage rate in internal currency' },
-        organizationalLevelAssociationID: { type: 'number', description: 'Org level association ID' },
-        contractExclusionSetID: { type: 'number', description: 'Contract exclusion set ID' },
-        renewedContractID: { type: 'number', description: 'ID of the contract this renewed' },
-        setupFeeBillingCodeID: { type: 'number', description: 'Billing code ID for the setup fee' },
-        status: { type: 'number', description: 'Contract status (1=In Effect, 0=Inactive)' },
-        timeReportingRequiresStartAndStopTimes: { type: 'number', description: 'Whether time entries require start/stop times' }
+        contracts: {
+          type: 'array',
+          description: 'Contract shells to create, in order. Same fields as autotask_create_contract.',
+          minItems: 1,
+          maxItems: 50,
+          items: {
+            type: 'object',
+            properties: CONTRACT_SHELL_PROPERTIES,
+            required: CONTRACT_SHELL_REQUIRED
+          }
+        }
       },
-      required: ['companyID', 'contractName', 'contractType', 'contractCategory', 'startDate', 'endDate']
+      required: ['contracts']
     }
   },
   {
@@ -3096,7 +3183,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   financial: {
     description: 'Quotes, quote items, opportunities, invoices, and contracts',
-    tools: ['autotask_get_quote', 'autotask_search_quotes', 'autotask_create_quote', 'autotask_get_quote_item', 'autotask_search_quote_items', 'autotask_create_quote_item', 'autotask_update_quote_item', 'autotask_delete_quote_item', 'autotask_get_opportunity', 'autotask_search_opportunities', 'autotask_create_opportunity', 'autotask_search_invoices', 'autotask_search_contracts']
+    tools: ['autotask_get_quote', 'autotask_search_quotes', 'autotask_create_quote', 'autotask_get_quote_item', 'autotask_search_quote_items', 'autotask_create_quote_item', 'autotask_update_quote_item', 'autotask_delete_quote_item', 'autotask_get_opportunity', 'autotask_search_opportunities', 'autotask_create_opportunity', 'autotask_search_invoices', 'autotask_search_contracts', 'autotask_get_contract', 'autotask_list_expiring_contracts', 'autotask_create_contract', 'autotask_create_contracts_bulk', 'autotask_update_contract', 'autotask_create_contract_service', 'autotask_update_contract_service']
   },
   products_and_services: {
     description: 'Products, services, and service bundles catalog',

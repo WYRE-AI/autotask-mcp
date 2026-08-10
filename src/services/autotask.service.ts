@@ -981,8 +981,15 @@ export class AutotaskService {
 
       pushEq(filters, 'companyID', o.companyID);
       pushEq(filters, 'status', o.status);
+      pushEq(filters, 'contractType', o.contractType);
       if (o.searchTerm) {
         filters.push({ op: 'contains', field: 'contractName', value: o.searchTerm });
+      }
+      if (o.endDateFrom) {
+        filters.push({ op: 'gte', field: 'endDate', value: o.endDateFrom });
+      }
+      if (o.endDateTo) {
+        filters.push({ op: 'lte', field: 'endDate', value: o.endDateTo });
       }
       mergeFilterEscapeHatch(filters, options.filter);
 
@@ -994,6 +1001,44 @@ export class AutotaskService {
       );
     } catch (error) {
       this.logger.error('Failed to search contracts:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Expiring/expired contracts report (issue #237): contracts whose endDate
+   * falls within the next `daysAhead` days (default 60). With
+   * `includeExpired`, already-lapsed contracts are included too. Scope to one
+   * company via `companyID`, or the whole org by omitting it.
+   */
+  async listExpiringContracts(options: {
+    daysAhead?: number;
+    companyID?: number;
+    includeExpired?: boolean;
+    status?: number;
+    pageSize?: number;
+  } = {}): Promise<AutotaskContract[]> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Listing expiring contracts with options:', options);
+      const daysAhead = options.daysAhead ?? 60;
+      const dayMs = 24 * 60 * 60 * 1000;
+      const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+      const today = new Date();
+
+      const filters: QueryFilter[] = [
+        { op: 'lte', field: 'endDate', value: isoDay(new Date(today.getTime() + daysAhead * dayMs)) },
+      ];
+      if (!options.includeExpired) {
+        filters.push({ op: 'gte', field: 'endDate', value: isoDay(today) });
+      }
+      pushEq(filters, 'companyID', options.companyID);
+      pushEq(filters, 'status', options.status);
+
+      const pageSize = Math.min(options.pageSize || 100, 500);
+      return await http.query<AutotaskContract>('Contracts', filters, { maxRecords: pageSize });
+    } catch (error) {
+      this.logger.error('Failed to list expiring contracts:', error);
       throw error;
     }
   }
@@ -1013,6 +1058,43 @@ export class AutotaskService {
       this.logger.error('Failed to create contract:', error);
       throw error;
     }
+  }
+
+  /**
+   * Bulk contract-shell creation (issue #237). The Autotask REST API has no
+   * batch endpoint for Contracts, so shells are POSTed one at a time —
+   * sequentially, to stay under the per-integration API thresholds. A failed
+   * shell doesn't abort the batch; each item reports its own outcome so
+   * callers can retry just the failures.
+   */
+  async createContracts(contracts: Partial<AutotaskContract>[]): Promise<Array<{
+    index: number;
+    contractName?: string | undefined;
+    success: boolean;
+    id?: number | undefined;
+    error?: string | undefined;
+  }>> {
+    const results: Array<{
+      index: number;
+      contractName?: string | undefined;
+      success: boolean;
+      id?: number | undefined;
+      error?: string | undefined;
+    }> = [];
+    for (const [index, contract] of contracts.entries()) {
+      try {
+        const id = await this.createContract(contract);
+        results.push({ index, contractName: contract.contractName, success: true, id });
+      } catch (error) {
+        results.push({
+          index,
+          contractName: contract.contractName,
+          success: false,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+    return results;
   }
 
   async updateContract(id: number, updates: Partial<AutotaskContract>): Promise<void> {
