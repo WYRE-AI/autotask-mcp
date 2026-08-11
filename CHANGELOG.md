@@ -1,5 +1,14 @@
 ## [Unreleased]
 
+### Added
+
+- **Contract management tools** (backported from [wyre-technology/autotask-mcp#237](https://github.com/wyre-technology/autotask-mcp/issues/237)). Contract coverage now spans the full read/report/create lifecycle:
+  - `autotask_get_contract` — single contract header by ID (the service method existed but was never exposed as a tool).
+  - `autotask_search_contracts` gained `contractType` and `endDateFrom`/`endDateTo` filters alongside the existing name/company/status ones.
+  - `autotask_list_expiring_contracts` — dedicated expiring/expired-contracts report: contracts whose end date falls within the next `daysAhead` days (default 60), optionally including already-lapsed contracts (`includeExpired`), scoped to one company or the whole org.
+  - `autotask_create_contracts_bulk` — create up to 50 contract shells (header records, no service lines) in one call, e.g. onboarding a customer with several location-based contracts. Shells POST sequentially (Autotask has no batch endpoint and bursts risk 429 thresholds); a failed shell doesn't abort the batch — each item reports its own `success`/`id`/`error` so callers can retry just the failures.
+  - The `financial` tool category now lists every contract tool (the previously-added write tools were missing from it), and the intent router recognizes "expiring/renewing contract" phrasing.
+
 ### Changed
 
 - **Migrated to ESLint 9/10 flat config** ([#141](https://github.com/wyre-technology/autotask-mcp/issues/141)). ESLint 9 dropped support for the legacy `.eslintrc.json` format, and `@typescript-eslint` v6 can't run under it — so the `eslint`, `@typescript-eslint/parser`, and `@typescript-eslint/eslint-plugin` Dependabot bumps were three coupled breaking changes that could only land together. Replaced `.eslintrc.json` with `eslint.config.mjs` (flat config) using the unified `typescript-eslint` package (bundles parser + plugin in version-lockstep), bumped `eslint` 8 → 10 and typescript-eslint 6 → 8, and added `@eslint/js` + `globals`. The ruleset is unchanged (`no-explicit-any`/`no-unused-vars` as warnings, `no-console` off, same ignores); lint output is identical at 0 errors / 193 warnings. `lint` script simplified from `eslint src --ext .ts` to `eslint src` (flat config infers extensions).

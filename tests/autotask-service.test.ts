@@ -864,6 +864,90 @@ describe('AutotaskService', () => {
       expect(capture().filter).toEqual(MATCH_ALL);
     });
 
+    // ---- Contract management tools (issue #237) ----
+
+    test('searchContracts translates contractType and endDate range', async () => {
+      const capture = captureFilter('Contracts');
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchContracts({
+        contractType: 7,
+        endDateFrom: '2026-01-01',
+        endDateTo: '2026-12-31',
+      } as any);
+      const body = capture();
+      expect(body.filter).toContainEqual({ op: 'eq', field: 'contractType', value: 7 });
+      expect(body.filter).toContainEqual({ op: 'gte', field: 'endDate', value: '2026-01-01' });
+      expect(body.filter).toContainEqual({ op: 'lte', field: 'endDate', value: '2026-12-31' });
+    });
+
+    // Freeze only Date (not timers — AbortSignal.timeout and async plumbing
+    // must keep running) so the expiring-window math is deterministic.
+    const withFrozenDate = async (iso: string, fn: () => Promise<void>) => {
+      jest.useFakeTimers({
+        now: new Date(iso),
+        doNotFake: [
+          'setTimeout', 'clearTimeout', 'setInterval', 'clearInterval',
+          'setImmediate', 'clearImmediate', 'queueMicrotask',
+          'nextTick', 'performance',
+        ],
+      });
+      try {
+        await fn();
+      } finally {
+        jest.useRealTimers();
+      }
+    };
+
+    test('listExpiringContracts queries the endDate window [today, today+daysAhead]', async () => {
+      await withFrozenDate('2026-08-10T12:00:00Z', async () => {
+        const capture = captureFilter('Contracts');
+        const service = new AutotaskService(configWithUrl, mockLogger);
+        await service.listExpiringContracts({ daysAhead: 30 });
+        const body = capture();
+        expect(body.filter).toContainEqual({ op: 'gte', field: 'endDate', value: '2026-08-10' });
+        expect(body.filter).toContainEqual({ op: 'lte', field: 'endDate', value: '2026-09-09' });
+      });
+    });
+
+    test('listExpiringContracts with includeExpired drops the lower bound and scopes by company', async () => {
+      await withFrozenDate('2026-08-10T12:00:00Z', async () => {
+        const capture = captureFilter('Contracts');
+        const service = new AutotaskService(configWithUrl, mockLogger);
+        await service.listExpiringContracts({ daysAhead: 14, includeExpired: true, companyID: 77 });
+        const body = capture();
+        expect(body.filter).toContainEqual({ op: 'eq', field: 'companyID', value: 77 });
+        expect(body.filter).toContainEqual({ op: 'lte', field: 'endDate', value: '2026-08-24' });
+        expect(body.filter).not.toContainEqual(
+          expect.objectContaining({ op: 'gte', field: 'endDate' })
+        );
+      });
+    });
+
+    test('createContracts creates each shell and continues past per-item failures', async () => {
+      let postCount = 0;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (input, init) => {
+        const url = typeof input === 'string' ? input : (input as URL).toString();
+        const method = (init?.method || 'GET').toUpperCase();
+        if (method === 'POST' && url === `${BASE}/Contracts`) {
+          postCount++;
+          if (postCount === 1) return jsonResponse({ errors: ['boom'] }, 500);
+          return jsonResponse({ itemId: 901 });
+        }
+        throw new Error(`unexpected ${method} ${url}`);
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const results = await service.createContracts([
+        { companyID: 1, contractName: 'A', contractType: 7, contractCategory: 3, startDate: '2026-01-01', endDate: '2026-12-31' },
+        { companyID: 2, contractName: 'B', contractType: 7, contractCategory: 3, startDate: '2026-01-01', endDate: '2026-12-31' },
+      ]);
+
+      expect(results).toHaveLength(2);
+      expect(results[0]).toMatchObject({ index: 0, contractName: 'A', success: false });
+      expect(results[0].error).toBeTruthy();
+      expect(results[1]).toMatchObject({ index: 1, contractName: 'B', success: true, id: 901 });
+    });
+
     test('searchConfigurationItems translates companyID, isActive, productID, searchTerm', async () => {
       const capture = captureFilter('ConfigurationItems');
       const service = new AutotaskService(configWithUrl, mockLogger);
