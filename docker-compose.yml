@@ -6,8 +6,10 @@ services:
       context: .
       dockerfile: Dockerfile
       target: production
-    image: autotask-mcp:latest
-    container_name: autotask-mcp-server
+      args:
+        GITHUB_TOKEN: ${GITHUB_TOKEN}
+    image: ghcr.io/itw-sunshine/autotask-mcp
+    container_name: autotask-mcp
     restart: unless-stopped
     env_file:
       - .env
@@ -16,6 +18,7 @@ services:
       - AUTOTASK_USERNAME=${AUTOTASK_USERNAME}
       - AUTOTASK_SECRET=${AUTOTASK_SECRET}
       - AUTOTASK_INTEGRATION_CODE=${AUTOTASK_INTEGRATION_CODE}
+      - GITHUB_TOKEN=${GITHUB_TOKEN}
       
       # Optional configuration
       - AUTOTASK_API_URL=${AUTOTASK_API_URL:-}

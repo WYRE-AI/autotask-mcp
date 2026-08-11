@@ -1,18 +1,18 @@
 {
   "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
-  "name": "io.github.wyre-technology/autotask-mcp",
+  "name": "io.github.itw-sunshine/autotask-mcp",
   "title": "Autotask",
   "description": "MCP server for Kaseya Autotask PSA — companies, tickets, projects, time entries, and more.",
   "repository": {
-    "url": "https://github.com/wyre-technology/autotask-mcp",
+    "url": "https://github.com/ITW-Sunshine/autotask-mcp",
     "source": "github"
   },
   "version": "0.0.0",
-  "websiteUrl": "https://github.com/wyre-technology/autotask-mcp",
+  "websiteUrl": "https://github.com/ITW-Sunshine/autotask-mcp",
   "packages": [
     {
       "registryType": "oci",
-      "identifier": "ghcr.io/wyre-technology/autotask-mcp:0.0.0",
+      "identifier": "ghcr.io/itw-sunshine/autotask-mcp",
       "transport": {
         "type": "stdio"
       },

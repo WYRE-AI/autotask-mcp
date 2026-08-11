@@ -19,7 +19,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Company tools
   {
     name: 'autotask_search_companies',
-    description: 'Search companies by name or status. Max 200/page.',
+    description: 'Search companies by name or status. Max 200/page. The organization name you are given will not match the one in Autotask. Multiple queries may have to be executed until you find the organization in Autotask.',
     inputSchema: {
       type: 'object',
       properties: {

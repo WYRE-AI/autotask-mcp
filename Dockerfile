@@ -106,7 +106,7 @@ ARG COMMIT_SHA="unknown"
 ARG BUILD_DATE="unknown"
 
 # Labels for metadata
-LABEL maintainer="engineering@wyre.ai"
+LABEL maintainer="rwong@itworksco.com"
 LABEL version="${VERSION}"
 LABEL description="Autotask MCP Server - Model Context Protocol server for Kaseya Autotask PSA"
 LABEL org.opencontainers.image.title="autotask-mcp"
@@ -114,11 +114,11 @@ LABEL org.opencontainers.image.description="Model Context Protocol server for Ka
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/wyre-technology/autotask-mcp"
-LABEL org.opencontainers.image.documentation="https://github.com/wyre-technology/autotask-mcp/blob/main/README.md"
-LABEL org.opencontainers.image.url="https://github.com/wyre-technology/autotask-mcp/pkgs/container/autotask-mcp"
-LABEL org.opencontainers.image.vendor="Wyre Technology"
+LABEL org.opencontainers.image.source="https://github.com/itw-sunshine/autotask-mcp"
+LABEL org.opencontainers.image.documentation="https://github.com/itw-sunshine/autotask-mcp/blob/main/README.md"
+LABEL org.opencontainers.image.url="https://github.com/itw-sunshine/autotask-mcp/pkgs/container/autotask-mcp"
+LABEL org.opencontainers.image.vendor="ITW-Sunshine Forked from Wyre Technology"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # MCP Registry ownership annotation (must match `name` in server.json)
-LABEL io.modelcontextprotocol.server.name="io.github.wyre-technology/autotask-mcp"
+LABEL io.modelcontextprotocol.server.name="io.github.itw-sunshine/autotask-mcp"
