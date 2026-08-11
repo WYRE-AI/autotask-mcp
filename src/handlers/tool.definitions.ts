@@ -275,9 +275,13 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        searchTerm: {
+        firstName: {
           type: 'string',
-          description: 'Search term for contact name or email'
+          description: 'First name of the contact'
+        },
+        lastName: {
+          type: 'string',
+          description: 'Last name of the contact'
         },
         companyID: {
           type: 'number',

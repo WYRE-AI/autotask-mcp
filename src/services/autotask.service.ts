@@ -9,6 +9,7 @@
 import { resolveAutotaskApiUrl } from '../utils/config';
 import { AutotaskHttpClient, QueryFilter } from './autotask-http';
 import {
+  AutotaskContactQueryOptions,
   AutotaskCompany,
   AutotaskContact,
   AutotaskTicket,
@@ -257,21 +258,17 @@ export class AutotaskService {
     }
   }
 
-  async searchContacts(options: AutotaskQueryOptions = {}): Promise<AutotaskContact[]> {
+  async searchContacts(options: AutotaskContactQueryOptions = {}): Promise<AutotaskContact[]> {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching contacts with options:', options);
 
       const filters: QueryFilter[] = [];
-      if (options.searchTerm) {
-        filters.push({
-          op: 'or',
-          items: [
-            { op: 'contains', field: 'firstName', value: options.searchTerm },
-            { op: 'contains', field: 'lastName', value: options.searchTerm },
-            { op: 'contains', field: 'emailAddress', value: options.searchTerm }
-          ]
-        });
+      if (options.firstName) {
+        filters.push({ op: 'contains', field: 'firstName', value: options.firstName });
+      }
+      if (options.lastName){
+        filters.push({ op: 'contains', field: 'lastName', value: options.lastName } )
       }
       if (options.companyID !== undefined) {
         filters.push({ op: 'eq', field: 'companyID', value: options.companyID });

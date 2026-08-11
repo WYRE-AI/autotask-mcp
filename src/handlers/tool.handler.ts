@@ -598,7 +598,7 @@ export class AutotaskToolHandler {
       if (quotedStrings[0]) params.searchTerm = quotedStrings[0];
       return {
         suggestedTool: 'autotask_search_projects',
-        suggestedParams: params,
+        suggestedParams: {},
         description: 'Search for projects',
         requiredParams: [],
       };
