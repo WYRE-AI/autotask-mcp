@@ -557,6 +557,21 @@ export interface AutotaskQueryOptions {
   isActive?: boolean | number;
 }
 
+export interface AutotaskContactQueryOptions{
+    filter?: Record<string, any>;
+  sort?: string;
+  page?: number;
+  pageSize?: number;
+  // first & last name of the contact since search term returns not found
+  // THe search term sets the firstname as the full name so the query does not work.
+  // This is a workaround.
+  firstName?: string;
+  lastName?: string;
+  companyID?: number;
+  isActive?: boolean | number;
+}
+
+
 // Extended query options for more advanced queries
 export interface AutotaskQueryOptionsExtended extends AutotaskQueryOptions {
   includeFields?: string[];
