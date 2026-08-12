@@ -6,7 +6,7 @@
 //
 // Zero new runtime deps — Node 18+ built-in `fetch` only.
 
-import { resolveAutotaskApiUrl } from '../utils/config';
+import { resolveAutotaskApiUrl, invalidateZoneUrlCache } from '../utils/config';
 import { Logger } from '../utils/logger';
 
 export interface QueryFilter {
@@ -145,7 +145,7 @@ export class AutotaskHttpClient {
    * (resolved against the zone base URL) or an absolute URL (used by
    * pageDetails.nextPageUrl pagination).
    */
-  private async request<T>(method: string, path: string, body?: any): Promise<T> {
+  private async request<T>(method: string, path: string, body?: any, isZoneRetry = false): Promise<T> {
     const url = path.startsWith('http') ? path : `${await this.baseUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
 
     this.logger.debug(`Autotask HTTP ${method} ${url}`);
@@ -173,6 +173,20 @@ export class AutotaskHttpClient {
     const text = await response.text().catch(() => '');
 
     if (!response.ok) {
+      // A 401 against a relative (zone-resolved) path — as opposed to an
+      // absolute pageDetails.nextPageUrl, which is already baked to a host
+      // we can't safely rewrite — most often means our cached zone URL is
+      // stale (e.g. a data-center migration moved this tenant to a new
+      // zone after we cached the old one). Drop the cache and retry once
+      // against a freshly-resolved zone before giving up.
+      if (response.status === 401 && !isZoneRetry && !path.startsWith('http')) {
+        this.logger.debug(
+          `Autotask ${method} ${path} returned 401 — invalidating cached zone for ${this.username} and retrying once`
+        );
+        this.resolvedBaseUrl = null;
+        invalidateZoneUrlCache(this.username);
+        return this.request<T>(method, path, body, true);
+      }
       let detail = text.slice(0, 1000);
       try {
         const parsed = JSON.parse(text);

@@ -186,6 +186,18 @@ export function _resetZoneUrlCache(): void {
 }
 
 /**
+ * Drop the cached zone URL for a single username. Call this when a real
+ * Autotask API request (not the zoneInformation lookup itself) comes back
+ * 401 — the cache has no TTL, so a data-center migration that moves a
+ * tenant to a new zone after we've already cached the old one would
+ * otherwise pin that tenant to the wrong host for the rest of the process
+ * lifetime. The next resolveAutotaskApiUrl call re-resolves from scratch.
+ */
+export function invalidateZoneUrlCache(username: string): void {
+  zoneUrlCache.delete(username.toLowerCase());
+}
+
+/**
  * Minimal logger shape accepted by resolveAutotaskApiUrl so we don't
  * have a hard dep on the Logger class (keeps this pre-auth bootstrap simple).
  */
