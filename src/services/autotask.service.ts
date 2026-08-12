@@ -97,6 +97,16 @@ export class AutotaskService {
   }
 
   /**
+   * Stable identity of the tenant these credentials belong to (lowercased
+   * API username), used to key per-tenant caches that outlive a single
+   * request. Null when credentials aren't configured.
+   */
+  getTenantKey(): string | null {
+    const username = this.config.autotask.username;
+    return username ? username.toLowerCase() : null;
+  }
+
+  /**
    * Initialize the Autotask HTTP client with credentials.
    *
    * We only validate credentials here — the zone-resolved URL is fetched

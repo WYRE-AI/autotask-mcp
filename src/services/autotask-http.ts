@@ -69,6 +69,17 @@ export class AutotaskRateLimitError extends Error {
   }
 }
 
+/**
+ * Per-request ceiling for a single Autotask REST call. Distant zones (e.g.
+ * an Azure US region talking to the Sydney zone) add meaningful RTT, and
+ * heavyweight requests (500-row query pages, entityInformation) can
+ * legitimately run long — cutting them off early just wastes the work.
+ * Callers above us (gateway, MCP client) enforce their own end-to-end
+ * budgets, so this is a backstop against a truly hung connection, not the
+ * primary timeout.
+ */
+const REQUEST_TIMEOUT_MS = 60_000;
+
 // Default backoff when Autotask doesn't send a parseable Retry-After header.
 // One minute is conservative: their thresholds reset on a rolling hour window,
 // so waiting longer than a minute is rarely useful, and waiting less risks
@@ -108,7 +119,7 @@ function assertSafeRelativePath(path: string): void {
  * All public methods:
  * - use the zone-resolved base URL (cached per-username via resolveAutotaskApiUrl)
  * - send the standard ApiIntegrationcode/UserName/Secret auth headers
- * - apply a 30-second timeout via AbortSignal.timeout
+ * - apply a 60-second timeout via AbortSignal.timeout (REQUEST_TIMEOUT_MS)
  * - throw an Error on non-2xx with the API error array when available
  */
 export class AutotaskHttpClient {
@@ -155,7 +166,7 @@ export class AutotaskHttpClient {
       const init: RequestInit = {
         method,
         headers: this.headers(),
-        signal: AbortSignal.timeout(30_000),
+        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       };
       if (body !== undefined) {
         init.body = JSON.stringify(body);

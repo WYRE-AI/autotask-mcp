@@ -21,6 +21,50 @@ export interface MappingResult {
   found: boolean;
 }
 
+/**
+ * How long a request is allowed to block on cache warm-up before proceeding
+ * with fallback (per-ID) lookups. The full pre-warm walks EVERY company in
+ * the tenant (thousands of records for large MSPs, taking 30s+), which
+ * exceeds the gateway's tool-call timeout — so responses must never wait
+ * for it. The warm-up
+ * continues in the background and lands in the shared tenant store for
+ * subsequent requests.
+ */
+const WARM_WAIT_BUDGET_MS = 2_500;
+
+/**
+ * Cross-request cache store, keyed by tenant (lowercased API username).
+ *
+ * In gateway mode a new MappingService is constructed per request; without
+ * this store every request re-ran the full company pre-warm (30s+ on large
+ * tenants), stalling responses past the gateway timeout. Sharing the DATA
+ * keyed by tenant credential keeps requests fast while preserving the
+ * per-tenant isolation that the per-instance design exists to guarantee
+ * (incident 2026-06-03): two tenants can never share a store entry because
+ * the key IS the tenant identity.
+ */
+const tenantCacheStore = new Map<string, MappingCache>();
+
+/**
+ * Reset the tenant cache store. Intended for tests only.
+ */
+export function _resetTenantCacheStore(): void {
+  tenantCacheStore.clear();
+}
+
+function tenantCacheFor(tenantKey: string): MappingCache {
+  let entry = tenantCacheStore.get(tenantKey);
+  if (!entry) {
+    entry = {
+      companies: new Map<number, string>(),
+      resources: new Map<number, string>(),
+      lastUpdated: { companies: null, resources: null },
+    };
+    tenantCacheStore.set(tenantKey, entry);
+  }
+  return entry;
+}
+
 export class MappingService {
   // Per-instance init promise (coalesces concurrent initializeCache calls
   // on the SAME instance). Must NOT be static — a class-level singleton
@@ -37,25 +81,36 @@ export class MappingService {
   private cacheExpiryMs: number;
   // When true, skip the eager pre-warm and rely on per-ID direct-get fallbacks.
   private lazyLoading: boolean;
+  // Max time any caller may block on a cache warm-up/refresh before
+  // proceeding with whatever data is available. See WARM_WAIT_BUDGET_MS.
+  private warmWaitMs: number;
 
   public constructor(
     autotaskService: AutotaskService,
     logger: Logger,
     cacheExpiryMs: number = 30 * 60 * 1000,
     lazyLoading: boolean = false,
+    tenantKey?: string,
+    warmWaitMs: number = WARM_WAIT_BUDGET_MS,
   ) { // 30 minutes default
     this.autotaskService = autotaskService;
     this.logger = logger;
     this.cacheExpiryMs = cacheExpiryMs;
     this.lazyLoading = lazyLoading;
-    this.cache = {
-      companies: new Map<number, string>(),
-      resources: new Map<number, string>(),
-      lastUpdated: {
-        companies: null,
-        resources: null,
-      },
-    };
+    this.warmWaitMs = warmWaitMs;
+    // With a tenantKey, cache DATA is shared across instances of the same
+    // tenant via tenantCacheStore (see its doc comment). Without one (tests,
+    // or credentials not yet known), fall back to instance-local data.
+    this.cache = tenantKey
+      ? tenantCacheFor(tenantKey.toLowerCase())
+      : {
+          companies: new Map<number, string>(),
+          resources: new Map<number, string>(),
+          lastUpdated: {
+            companies: null,
+            resources: null,
+          },
+        };
   }
 
   /**
@@ -72,16 +127,54 @@ export class MappingService {
   public static async create(
     autotaskService: AutotaskService,
     logger: Logger,
-    options: { lazyLoading?: boolean } = {},
+    options: {
+      lazyLoading?: boolean;
+      tenantKey?: string | undefined;
+      warmWaitMs?: number | undefined;
+    } = {},
   ): Promise<MappingService> {
     const instance = new MappingService(
       autotaskService,
       logger,
       undefined,
       options.lazyLoading,
+      options.tenantKey,
+      options.warmWaitMs,
     );
-    await instance.ensureInitialized();
+    // Kick off the warm-up but only block for the budget: the full company
+    // pre-warm takes 30s+ on large tenants, which is longer than the
+    // gateway's tool-call timeout. If it doesn't finish in time, the caller
+    // proceeds with per-ID fallback lookups and the warm-up completes in
+    // the background (landing in the shared tenant store when keyed).
+    await instance.waitWithBudget(instance.ensureInitialized(), 'warm-up');
     return instance;
+  }
+
+  /**
+   * Await `work` for at most `warmWaitMs`, then proceed regardless. Errors
+   * are swallowed (logged upstream by the refresh methods) — mapping is a
+   * best-effort decoration and must never fail or stall the actual tool call.
+   */
+  private async waitWithBudget(work: Promise<void>, label: string): Promise<void> {
+    const settled = work.then(
+      () => true,
+      () => true,
+    );
+    if (this.warmWaitMs <= 0) return;
+    let timer: NodeJS.Timeout | undefined;
+    const timedOut = await Promise.race([
+      settled.then(() => false),
+      new Promise<boolean>((resolve) => {
+        timer = setTimeout(() => resolve(true), this.warmWaitMs);
+        timer.unref?.();
+      }),
+    ]);
+    if (timer) clearTimeout(timer);
+    if (timedOut) {
+      this.logger.info(
+        `Mapping cache ${label} exceeded ${this.warmWaitMs}ms budget — continuing in background; this response uses fallback name lookups.`
+      );
+    }
   }
 
   /**
@@ -117,12 +210,14 @@ export class MappingService {
     }
 
     this.logger.info('Initializing mapping cache...');
+    // The refresh methods stamp lastUpdated themselves on their own success
+    // paths. Stamping unconditionally here would mark a FAILED warm-up as
+    // valid for the full expiry window — with the shared tenant store that
+    // would pin an empty cache on every request for that tenant.
     await Promise.all([
       this.refreshCompanyCache(),
       this.refreshResourceCache()
     ]);
-    this.cache.lastUpdated.companies = new Date();
-    this.cache.lastUpdated.resources = new Date();
     this.logger.info('Mapping cache initialized successfully', {
       companies: this.cache.companies.size,
       resources: this.cache.resources.size
@@ -167,7 +262,10 @@ export class MappingService {
    */
   public async getCompanyName(companyId: number): Promise<string | null> {
     try {
-      await this.refreshCacheIfNeeded();
+      // Budget-bounded: an expired cache triggers a refresh, but we serve
+      // the previous (stale) entries rather than stalling the response for
+      // the full re-walk — company names change rarely, timeouts hurt always.
+      await this.waitWithBudget(this.refreshCacheIfNeeded(), 'refresh');
 
       const cachedName = this.cache.companies.get(companyId);
       if (cachedName) {
@@ -195,7 +293,7 @@ export class MappingService {
    */
   public async getResourceName(resourceId: number): Promise<string | null> {
     try {
-      await this.refreshCacheIfNeeded();
+      await this.waitWithBudget(this.refreshCacheIfNeeded(), 'refresh');
       
       // Try cache first
       const cachedName = this.cache.resources.get(resourceId);

@@ -111,9 +111,14 @@ export class AutotaskToolHandler {
       // Per-toolHandler MappingService instance. In gateway mode this
       // toolHandler is created per-request (see McpServer.buildPerRequestHandlers),
       // so each tenant gets a MappingService bound to its own AutotaskService —
-      // company/resource caches cannot leak across tenants.
+      // company/resource caches cannot leak across tenants. The tenantKey
+      // lets same-tenant instances share warmed cache DATA across requests
+      // (keyed by credential, so isolation still holds) — without it, every
+      // request re-walked the tenant's full company list, stalling responses
+      // past the gateway timeout on large tenants.
       this.mappingService = await MappingService.create(this.autotaskService, this.logger, {
         lazyLoading: this.lazyLoading,
+        tenantKey: this.autotaskService.getTenantKey() ?? undefined,
       });
     }
     return this.mappingService;
