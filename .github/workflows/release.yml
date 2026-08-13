@@ -22,7 +22,12 @@ jobs:
       packages: write
       id-token: write
       security-events: write
-    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@d28a612a00a1bd0c36aff09e686ce2d1e10ef552
+    # Pin includes the `mcpb` job (wyre-technology/.github#43), which restores
+    # packing + attaching autotask-mcp.mcpb to the GitHub release. That step
+    # existed in this repo's hand-rolled workflow and was dropped by the
+    # centralization in #183, so every release from v2.30.0 on shipped with no
+    # assets while the README still pointed users at the bundle (#244).
+    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@ebbdf5a23203c35249e32cca64891ab94269ebb6
     with:
       server-name: autotask-mcp
       image-name: ghcr.io/wyre-technology/autotask-mcp
