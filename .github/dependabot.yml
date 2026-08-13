@@ -29,6 +29,15 @@ updates:
         update-types: ["minor", "patch"]
     # Production MAJORS are intentionally NOT grouped → individual PRs, held for
     # human review (never auto-merged).
+    ignore:
+      # typescript 7.x breaks this fleet's toolchain: DTS emit (tsup/rollup-plugin-dts
+      # TS5101 baseUrl-deprecated-as-error), and typescript-eslint (still <6.1.0 as of
+      # 8.66.0, no TS7 support yet). Has broken main 3x on some repos because Dependabot
+      # has no memory of a prior manual revert and just re-proposes the same major again.
+      # Deliberate hold, not a permanent blind -- remove once typescript-eslint + the
+      # tsup/DTS toolchain support TS7.
+      - dependency-name: "typescript"
+        update-types: ["version-update:semver-major"]
 
   - package-ecosystem: "github-actions"
     directory: "/"
