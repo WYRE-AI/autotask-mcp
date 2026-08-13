@@ -1120,10 +1120,10 @@ export class AutotaskToolHandler {
       }],
       ['autotask_create_ticket_note', async (a) => {
         if (a.noteType === undefined || a.noteType === null) {
-          throw new Error('noteType is required. Picklist values are tenant-specific — call autotask_get_field_info with entity "TicketNotes" and field "noteType" to discover the correct ID.');
+          throw new Error('noteType is required. Picklist values are tenant-specific — call autotask_get_field_info with entityType "TicketNotes" and fieldName "noteType" to discover the correct ID.');
         }
         if (a.publish === undefined || a.publish === null) {
-          throw new Error('publish is required and security-sensitive (controls client visibility). Picklist values are tenant-specific — call autotask_get_field_info with entity "TicketNotes" and field "publish" to discover the correct ID.');
+          throw new Error('publish is required and security-sensitive (controls client visibility). Picklist values are tenant-specific — call autotask_get_field_info with entityType "TicketNotes" and fieldName "publish" to discover the correct ID.');
         }
         const id = await s.createTicketNote(a.ticketId, {
           title: a.title || 'Note',
@@ -1355,6 +1355,14 @@ export class AutotaskToolHandler {
         return { result: priorities.map(p => ({ id: p.value, name: p.label, isActive: p.isActive })), message: `Found ${priorities.length} ticket priorities` };
       }],
       ['autotask_get_field_info', async (a) => {
+        // LLMs commonly pass `entity`/`field` instead of `entityType`/`fieldName`
+        // (our own picklist error hints phrase it as "entity X and field Y"),
+        // so accept those as aliases rather than crashing on undefined.
+        const rawEntityType: unknown = a.entityType ?? a.entity;
+        const rawFieldName: unknown = a.fieldName ?? a.field;
+        if (typeof rawEntityType !== 'string' || rawEntityType.length === 0) {
+          throw new Error('entityType is required — e.g. { "entityType": "Tickets" } or { "entityType": "TicketNotes", "fieldName": "noteType" }');
+        }
         // Normalize common entity type aliases to correct Autotask REST API names
         const entityAliases: Record<string, string> = {
           'tasks': 'ProjectTasks',
@@ -1364,14 +1372,14 @@ export class AutotaskToolHandler {
           'projectnotes': 'ProjectNotes',
           'companynotes': 'CompanyNotes',
         };
-        const entityType = entityAliases[a.entityType.toLowerCase()] || a.entityType;
+        const entityType = entityAliases[rawEntityType.toLowerCase()] || rawEntityType;
         const fields = await this.picklistCache.getFields(entityType);
-        if (a.fieldName) {
-          const field = fields.find(f => f.name.toLowerCase() === a.fieldName.toLowerCase());
-          return { result: field || null, message: field ? `Field info for ${a.entityType}.${a.fieldName}` : `Field '${a.fieldName}' not found on ${a.entityType}` };
+        if (typeof rawFieldName === 'string' && rawFieldName.length > 0) {
+          const field = fields.find(f => f.name?.toLowerCase() === rawFieldName.toLowerCase());
+          return { result: field || null, message: field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}` };
         }
         const summary = fields.map(f => ({ name: f.name, dataType: f.dataType, isRequired: f.isRequired, isPickList: f.isPickList, isQueryable: f.isQueryable, picklistValueCount: f.picklistValues?.length || 0 }));
-        return { result: summary, message: `Found ${fields.length} fields for ${a.entityType}` };
+        return { result: summary, message: `Found ${fields.length} fields for ${rawEntityType}` };
       }],
 
       // Billing Items (Approve and Post workflow)
