@@ -98,6 +98,33 @@ function parseRetryAfter(headerValue: string | null): number {
   return DEFAULT_RETRY_AFTER_SECONDS;
 }
 
+/**
+ * Per-tenant 429 cooldown gate, keyed by lowercased API username.
+ *
+ * Observed in production: LLM clients ignore the "Do NOT retry" text in the
+ * rate-limit error and re-fire the same call within seconds, sending every
+ * retry upstream into a tenant already over Autotask's hourly threshold —
+ * which can extend the cooldown. Once a tenant gets a 429, we remember the
+ * Retry-After deadline and fail every request for that tenant fast and
+ * LOCALLY (no upstream call) until it passes. Retry-spamming then costs the
+ * tenant nothing.
+ *
+ * Module-level and keyed by tenant credential (same isolation reasoning as
+ * the zone cache): in gateway mode client instances are per-request, so an
+ * instance-level gate would never trip across calls.
+ */
+const rateLimitCooldowns = new Map<string, number>();
+
+/** Cap a bad/hostile Retry-After header so it can't lock a tenant out for long. */
+const MAX_COOLDOWN_MS = 5 * 60 * 1000;
+
+/**
+ * Reset the cooldown gate. Intended for tests only.
+ */
+export function _resetRateLimitCooldowns(): void {
+  rateLimitCooldowns.clear();
+}
+
 function assertSafeRelativePath(path: string): void {
   if (typeof path !== 'string' || path.length === 0) {
     throw new Error('Autotask rawRequest: path must be a non-empty string');
@@ -157,6 +184,24 @@ export class AutotaskHttpClient {
    * pageDetails.nextPageUrl pagination).
    */
   private async request<T>(method: string, path: string, body?: any, isZoneRetry = false): Promise<T> {
+    // Cooldown gate: while this tenant is inside a known 429 window, fail
+    // fast locally instead of sending more requests upstream. See
+    // rateLimitCooldowns.
+    const cooldownKey = this.username.toLowerCase();
+    const cooldownUntil = rateLimitCooldowns.get(cooldownKey);
+    if (cooldownUntil !== undefined) {
+      const remainingSeconds = Math.ceil((cooldownUntil - Date.now()) / 1000);
+      if (remainingSeconds > 0) {
+        throw new AutotaskRateLimitError(
+          `Autotask API threshold exceeded (HTTP 429) — this tenant is in a ${remainingSeconds}s cooldown and this call was NOT sent upstream. ` +
+          `Do NOT retry until the cooldown passes; retries cannot succeed and querying again immediately only delays recovery. ` +
+          `Wait ${remainingSeconds}s, or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
+          remainingSeconds,
+        );
+      }
+      rateLimitCooldowns.delete(cooldownKey);
+    }
+
     const url = path.startsWith('http') ? path : `${await this.baseUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
 
     this.logger.debug(`Autotask HTTP ${method} ${url}`);
@@ -209,6 +254,13 @@ export class AutotaskHttpClient {
       }
       if (response.status === 429) {
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
+        // Arm the per-tenant cooldown gate so any further calls (including
+        // LLM retry-spam and mapping-cache lookups) fail fast locally until
+        // the window passes instead of piling onto the throttled tenant.
+        rateLimitCooldowns.set(
+          cooldownKey,
+          Date.now() + Math.min(retryAfter * 1000, MAX_COOLDOWN_MS),
+        );
         // Single-line message that LLMs will read verbatim — instruct against
         // retry, surface the wait, point at the underlying issue. The structured
         // `retryAfterSeconds` field lets handlers do programmatic things too.
