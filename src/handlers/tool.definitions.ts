@@ -461,13 +461,13 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Ticket tools
   {
     name: 'autotask_search_tickets',
-    description: 'Search tickets by company, queue, status, priority. Use autotask_get_ticket_details for full data. Max 500/page.',
+    description: 'Search tickets by company, queue, status, priority, or ticket number. Broad searches default to open tickets; an exact ticket number also finds completed tickets. Use autotask_get_ticket_details for full data. Max 500/page.',
     inputSchema: {
       type: 'object',
       properties: {
         searchTerm: {
           type: 'string',
-          description: 'Search by ticket number prefix'
+          description: 'Search by ticket number or prefix. An exact ticket number (for example T20260804.0026) includes completed tickets; prefixes remain open-ticket searches by default.'
         },
         companyID: {
           type: 'number',

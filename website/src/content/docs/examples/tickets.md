@@ -44,6 +44,13 @@ description: Example prompts for searching, creating, and managing support ticke
 
 **What happens:** The server calls `autotask_search_tickets` with `searchTerm: "VPN connectivity"`.
 
+### Find a ticket by its ticket number
+
+**Prompt:**
+> "Find ticket T20260804.0026"
+
+**What happens:** An exact ticket-number search uses the ticket number equality filter and searches all statuses, including Complete. Ticket-number prefixes and other broad searches continue to default to open tickets unless a `status` is supplied.
+
 ### Filter by priority
 
 **Prompt:**

@@ -2,6 +2,8 @@
 
 ### Changed
 
+- **Exact ticket-number searches now include completed tickets.** `autotask_search_tickets` continues to exclude Complete (status 5) for broad searches, but a fully formed ticket number such as `T20260804.0026` now uses an equality filter and does not add the open-ticket default. This lets callers resolve historical/completed tickets by their human-facing number without requiring a separate status lookup or numeric Autotask record ID.
+
 - **Migrated from `@modelcontextprotocol/sdk` v1 to the v2 SDK (`@modelcontextprotocol/server` + `@modelcontextprotocol/node` 2.0.0-beta.5) with dual-era serving.** All three entrypoints now consume one shared per-request server factory (`AutotaskMcpServer.requestFactory()`), so the tool/resource/prompt surface can never drift between protocol eras:
   - **stdio** is served via `serveStdio(factory)` — the opening handshake pins the connection to its era (classic 2025 `initialize` or modern 2026-07-28).
   - **Node HTTP** is served via `createMcpHandler(factory, { legacy: 'stateless' })` wrapped with `toNodeHandler`. Modern 2026-07-28 envelope traffic is served natively; 2025-era traffic is served by the SDK's default stateless legacy fallback — a fresh server per request, the same per-request stateless idiom this server has always used. CORS, `/health`, and the gateway 401 credential gate are unchanged.

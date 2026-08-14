@@ -30,7 +30,7 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `autotask_search_tickets` | Search for tickets | `searchTerm`, `companyID`, `status`, `priority`, `queueID`, `assignedResourceID` |
+| `autotask_search_tickets` | Search for tickets; exact ticket numbers include completed tickets, while broad searches default to open tickets | `searchTerm`, `companyID`, `status`, `priority`, `queueID`, `assignedResourceID` |
 | `autotask_get_ticket_details` | Get full ticket details | `ticketId` (required) |
 | `autotask_create_ticket` | Create a new ticket | `title`, `companyID` (required), `priority`, `status`, `queueID`, `description` |
 

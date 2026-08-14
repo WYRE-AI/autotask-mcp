@@ -1103,5 +1103,38 @@ describe('AutotaskService', () => {
       expect(capturedFilters).toContainEqual({ op: 'eq', field: 'status', value: 1 });
       expect(capturedFilters).not.toContainEqual({ op: 'noteq', field: 'status', value: 5 });
     });
+
+    test('searchTickets resolves an exact ticket number across all statuses', async () => {
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({
+          items: [{ id: 86583, ticketNumber: 'T20260804.0026', status: 5 }],
+          pageDetails: { nextPageUrl: null },
+        });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const result = await service.searchTickets({ searchTerm: 'T20260804.0026' } as any);
+
+      expect(result).toHaveLength(1);
+      expect(capturedFilters).toContainEqual({ op: 'eq', field: 'ticketNumber', value: 'T20260804.0026' });
+      expect(capturedFilters).not.toContainEqual({ op: 'beginsWith', field: 'ticketNumber', value: 'T20260804.0026' });
+      expect(capturedFilters).not.toContainEqual({ op: 'noteq', field: 'status', value: 5 });
+    });
+
+    test('searchTickets keeps prefix searches open-only', async () => {
+      let capturedFilters: any;
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        capturedFilters = JSON.parse(init!.body as string).filter;
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchTickets({ searchTerm: 'T20260804' } as any);
+
+      expect(capturedFilters).toContainEqual({ op: 'beginsWith', field: 'ticketNumber', value: 'T20260804' });
+      expect(capturedFilters).toContainEqual({ op: 'noteq', field: 'status', value: 5 });
+    });
   });
 });

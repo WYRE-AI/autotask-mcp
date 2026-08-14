@@ -55,6 +55,12 @@ import { FieldInfo, PicklistValue } from './picklist.cache';
  */
 export const MATCH_ALL: QueryFilter[] = [{ op: 'gte', field: 'id', value: 0 }];
 
+// Autotask ticket numbers are normally TYYYYMMDD.NNNN. Some older tenants
+// use the compact TYYYYMMDD form, so both documented forms are recognized.
+// Exact ticket-number lookups must not inherit the broad-search open-only
+// default: a completed ticket is still a valid target for direct lookup.
+const EXACT_TICKET_NUMBER_PATTERN = /^T\d{8}(?:\.\d{4})?$/i;
+
 /**
  * Push an `eq` filter only when `value` is not `undefined`. Replaces the
  * `if (options.X !== undefined) filters.push({ op: 'eq', field: 'X', value: options.X })`
@@ -385,13 +391,20 @@ export class AutotaskService {
 
       const filters: QueryFilter[] = [];
 
+      const isExactTicketNumber = typeof options.searchTerm === 'string' &&
+        EXACT_TICKET_NUMBER_PATTERN.test(options.searchTerm);
+
       if (options.searchTerm) {
-        filters.push({ op: 'beginsWith', field: 'ticketNumber', value: options.searchTerm });
+        filters.push({
+          op: isExactTicketNumber ? 'eq' : 'beginsWith',
+          field: 'ticketNumber',
+          value: options.searchTerm,
+        });
       }
 
       if (options.status !== undefined) {
         filters.push({ op: 'eq', field: 'status', value: options.status });
-      } else {
+      } else if (!isExactTicketNumber) {
         filters.push({ op: 'noteq', field: 'status', value: 5 }); // 5 = Complete (Autotask REST uses 'noteq', not 'ne')
       }
 
