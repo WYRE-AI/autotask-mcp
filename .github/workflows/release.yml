@@ -27,7 +27,7 @@ jobs:
     # existed in this repo's hand-rolled workflow and was dropped by the
     # centralization in #183, so every release from v2.30.0 on shipped with no
     # assets while the README still pointed users at the bundle (#244).
-    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@ebbdf5a23203c35249e32cca64891ab94269ebb6
+    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@3b76ae043ead0d64a3a0a9f57631bf502bdc4dd4
     with:
       server-name: autotask-mcp
       image-name: ghcr.io/wyre-technology/autotask-mcp
