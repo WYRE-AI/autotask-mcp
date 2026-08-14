@@ -588,7 +588,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         ticketCategory: {
           type: 'number',
-          description: 'Ticket category ID (picklist). Use autotask_get_field_info with entity "Tickets" and field "ticketCategory" to discover valid values.'
+          description: 'Ticket category ID (picklist). Use autotask_get_field_info with entityType "Tickets" and fieldName "ticketCategory" to discover valid values.'
         },
         ticketType: {
           type: 'number',
@@ -596,15 +596,15 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         issueType: {
           type: 'number',
-          description: 'First-level issue type ID (picklist). Required context for subIssueType. Use autotask_get_field_info (entity "Tickets", field "issueType") to discover valid values.'
+          description: 'First-level issue type ID (picklist). Required context for subIssueType. Use autotask_get_field_info (entityType "Tickets", fieldName "issueType") to discover valid values.'
         },
         subIssueType: {
           type: 'number',
-          description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entity "Tickets", field "subIssueType") to discover valid values.'
+          description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entityType "Tickets", fieldName "subIssueType") to discover valid values.'
         },
         source: {
           type: 'number',
-          description: 'Ticket source ID (picklist, e.g. Phone, Email, Portal). Use autotask_get_field_info (entity "Tickets", field "source") to discover valid values.'
+          description: 'Ticket source ID (picklist, e.g. Phone, Email, Portal). Use autotask_get_field_info (entityType "Tickets", fieldName "source") to discover valid values.'
         },
         billingCodeID: {
           type: 'number',
@@ -691,11 +691,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         issueType: {
           type: 'number',
-          description: 'First-level issue type ID (picklist). Required context for subIssueType. Use autotask_get_field_info (entity "Tickets", field "issueType") to discover valid values.'
+          description: 'First-level issue type ID (picklist). Required context for subIssueType. Use autotask_get_field_info (entityType "Tickets", fieldName "issueType") to discover valid values.'
         },
         subIssueType: {
           type: 'number',
-          description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entity "Tickets", field "subIssueType") to discover valid values.'
+          description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entityType "Tickets", fieldName "subIssueType") to discover valid values.'
         }
       },
       required: ['ticketId']
@@ -1208,11 +1208,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         noteType: {
           type: 'number',
-          description: 'Note type picklist ID. Tenant-specific — call autotask_get_field_info with entity "TicketNotes" and field "noteType" to discover the exact label-to-ID mapping before calling this tool. Do not assume values from other Autotask instances apply here.'
+          description: 'Note type picklist ID. Tenant-specific — call autotask_get_field_info with entityType "TicketNotes" and fieldName "noteType" to discover the exact label-to-ID mapping before calling this tool. Do not assume values from other Autotask instances apply here.'
         },
         publish: {
           type: 'number',
-          description: 'Publish/visibility picklist ID. Tenant-specific and security-sensitive (controls whether the note is visible to clients). Call autotask_get_field_info with entity "TicketNotes" and field "publish" to discover the exact label-to-ID mapping before calling this tool. Never guess — the wrong value can expose internal notes to clients.'
+          description: 'Publish/visibility picklist ID. Tenant-specific and security-sensitive (controls whether the note is visible to clients). Call autotask_get_field_info with entityType "TicketNotes" and fieldName "publish" to discover the exact label-to-ID mapping before calling this tool. Never guess — the wrong value can expose internal notes to clients.'
         }
       },
       required: ['ticketId', 'description', 'noteType', 'publish']
