@@ -1824,13 +1824,17 @@ export class AutotaskService {
       this.logger.debug('Searching quotes with options:', options);
       const filters: QueryFilter[] = [];
       if (options.companyId) {
-        filters.push({ field: 'accountId', op: 'eq', value: options.companyId });
+        // The Quotes entity has NO account* field — its company link is
+        // `companyID` (confirmed via entityInformation/fields). Filtering on
+        // `accountId` returns HTTP 500 "Unable to find accountId in the
+        // Quote Entity" on every tenant.
+        filters.push({ field: 'companyID', op: 'eq', value: options.companyId });
       }
       if (options.contactId) {
-        filters.push({ field: 'contactId', op: 'eq', value: options.contactId });
+        filters.push({ field: 'contactID', op: 'eq', value: options.contactId });
       }
       if (options.opportunityId) {
-        filters.push({ field: 'opportunityId', op: 'eq', value: options.opportunityId });
+        filters.push({ field: 'opportunityID', op: 'eq', value: options.opportunityId });
       }
       if (options.searchTerm) {
         filters.push({ field: 'description', op: 'contains', value: options.searchTerm });
