@@ -51,7 +51,7 @@ const CORS_HEADERS: Record<string, string> = {
   'Access-Control-Allow-Origin': '*',
   'Access-Control-Allow-Methods': 'GET, POST, DELETE, OPTIONS',
   'Access-Control-Allow-Headers':
-    'Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-API-Key, X-API-Secret, X-Integration-Code, X-API-Url',
+    'Content-Type, Accept, Authorization, Mcp-Session-Id, MCP-Protocol-Version, X-API-Key, X-API-Secret, X-Integration-Code, X-API-Url, X-Impersonation-Resource-Id',
   'Access-Control-Expose-Headers': 'Mcp-Session-Id',
 };
 
@@ -168,7 +168,7 @@ export default {
               message:
                 'Gateway mode requires X-API-Key, X-API-Secret, and X-Integration-Code headers',
               required: ['X-API-Key', 'X-API-Secret', 'X-Integration-Code'],
-              optional: ['X-API-Url'],
+              optional: ['X-API-Url', 'X-Impersonation-Resource-Id'],
             },
             401
           );

@@ -157,7 +157,8 @@ export class AutotaskHttpClient {
     private readonly secret: string,
     private readonly integrationCode: string,
     private readonly apiUrl: string | undefined,
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    private readonly impersonationResourceId?: number
   ) {}
 
   private async baseUrl(): Promise<string> {
@@ -169,13 +170,23 @@ export class AutotaskHttpClient {
   }
 
   private headers(): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       ApiIntegrationcode: this.integrationCode,
       UserName: this.username,
       Secret: this.secret,
     };
+    // Impersonation is driven by this request header, NOT by the entity's
+    // impersonatorCreatorResourceID field - that field is read-only and is
+    // where Autotask *records* the impersonation, so setting it in a request
+    // body is silently ignored. The impersonated resource must itself have
+    // permission for the action, so an impersonated call is the intersection
+    // of the API user's rights and the impersonated user's.
+    if (this.impersonationResourceId !== undefined) {
+      headers.ImpersonationResourceId = String(this.impersonationResourceId);
+    }
+    return headers;
   }
 
   /**

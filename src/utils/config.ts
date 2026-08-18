@@ -63,6 +63,32 @@ export interface GatewayCredentials {
   secret: string | undefined;
   integrationCode: string | undefined;
   apiUrl: string | undefined;
+  /**
+   * Optional Autotask resource ID to impersonate, from
+   * X-Impersonation-Resource-Id. Lets a gateway that has authenticated a real
+   * user attribute the action to that person instead of to the shared API
+   * account. Undefined when absent or not a positive integer.
+   */
+  impersonationResourceId: number | undefined;
+}
+
+/**
+ * Parse an impersonation resource ID, which must be a positive integer.
+ * Returns undefined for absent or malformed values so a bad header degrades to
+ * "no impersonation" rather than failing the request or forwarding nonsense to
+ * Autotask.
+ */
+export function parseImpersonationResourceId(
+  raw: string | undefined,
+  logger?: { warn: (msg: string) => void }
+): number | undefined {
+  if (raw === undefined || raw === null || raw === '') return undefined;
+  const parsed = Number(raw);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    logger?.warn(`Ignoring invalid impersonation resource ID: ${JSON.stringify(raw)}`);
+    return undefined;
+  }
+  return parsed;
 }
 
 /**
@@ -78,6 +104,9 @@ export function getCredentialsFromGateway(): GatewayCredentials {
     secret: process.env.X_API_SECRET || process.env.AUTOTASK_SECRET,
     integrationCode: process.env.X_INTEGRATION_CODE || process.env.AUTOTASK_INTEGRATION_CODE,
     apiUrl: process.env.X_API_URL || process.env.AUTOTASK_API_URL,
+    impersonationResourceId: parseImpersonationResourceId(
+      process.env.X_IMPERSONATION_RESOURCE_ID || process.env.AUTOTASK_IMPERSONATION_RESOURCE_ID
+    ),
   };
 }
 
@@ -96,6 +125,7 @@ export function parseCredentialsFromHeaders(headers: Record<string, string | str
     secret: getHeader('x-api-secret'),
     integrationCode: getHeader('x-integration-code'),
     apiUrl: getHeader('x-api-url'),
+    impersonationResourceId: parseImpersonationResourceId(getHeader('x-impersonation-resource-id')),
   };
 }
 
@@ -116,14 +146,22 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
         secret: process.env.AUTOTASK_SECRET,
         integrationCode: process.env.AUTOTASK_INTEGRATION_CODE,
         apiUrl: process.env.AUTOTASK_API_URL,
+        impersonationResourceId: parseImpersonationResourceId(process.env.AUTOTASK_IMPERSONATION_RESOURCE_ID),
       };
 
   // Filter out undefined values to satisfy exactOptionalPropertyTypes
-  const autotaskConfig: { username?: string; secret?: string; integrationCode?: string; apiUrl?: string } = {};
+  const autotaskConfig: {
+    username?: string;
+    secret?: string;
+    integrationCode?: string;
+    apiUrl?: string;
+    impersonationResourceId?: number;
+  } = {};
   if (creds.username) autotaskConfig.username = creds.username;
   if (creds.secret) autotaskConfig.secret = creds.secret;
   if (creds.integrationCode) autotaskConfig.integrationCode = creds.integrationCode;
   if (creds.apiUrl) autotaskConfig.apiUrl = creds.apiUrl;
+  if (creds.impersonationResourceId) autotaskConfig.impersonationResourceId = creds.impersonationResourceId;
 
   const transportType = (process.env.MCP_TRANSPORT as TransportType) || 'stdio';
   if (transportType !== 'stdio' && transportType !== 'http') {
