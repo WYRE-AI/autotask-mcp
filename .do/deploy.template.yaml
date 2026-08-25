@@ -3,7 +3,7 @@ spec:
   services:
   - name: autotask-mcp
     github:
-      repo: wyre-technology/autotask-mcp
+      repo: WYRE-AI/autotask-mcp
       branch: main
       deploy_on_push: true
     source_dir: /

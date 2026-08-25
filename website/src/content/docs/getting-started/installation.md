@@ -11,7 +11,7 @@ The simplest method — no terminal, no JSON editing, no Node.js install require
 
 **Steps:**
 
-1. Download `autotask-mcp.mcpb` from the [latest release](https://github.com/wyre-technology/autotask-mcp/releases/latest)
+1. Download `autotask-mcp.mcpb` from the [latest release](https://github.com/WYRE-AI/autotask-mcp/releases/latest)
 2. Open the file (double-click or drag into Claude Desktop)
 3. Enter your Autotask credentials when prompted:
    - **Username** — your API user email
@@ -28,7 +28,7 @@ claude mcp add autotask-mcp \
   -e AUTOTASK_USERNAME=your-user@company.com \
   -e AUTOTASK_SECRET=your-secret \
   -e AUTOTASK_INTEGRATION_CODE=your-code \
-  -- npx -y github:wyre-technology/autotask-mcp
+  -- npx -y github:WYRE-AI/autotask-mcp
 ```
 :::
 
@@ -39,7 +39,7 @@ claude mcp add autotask-mcp \
 Pull the pre-built image from GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/wyre-technology/autotask-mcp:latest
+docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Local (stdio — for Claude Desktop or Claude Code)
@@ -58,7 +58,7 @@ Add this to your MCP client config (e.g., `claude_desktop_config.json`):
         "-e", "AUTOTASK_SECRET=your-secret",
         "-e", "AUTOTASK_INTEGRATION_CODE=your-code",
         "--entrypoint", "node",
-        "ghcr.io/wyre-technology/autotask-mcp:latest",
+        "ghcr.io/wyre-ai/autotask-mcp:latest",
         "dist/entry.js"
       ]
     }
@@ -76,7 +76,7 @@ docker run -d \
   -e AUTOTASK_SECRET="your-secret" \
   -e AUTOTASK_INTEGRATION_CODE="your-code" \
   --restart unless-stopped \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Verify
 curl http://localhost:8080/health
@@ -89,7 +89,7 @@ Clients connect to `http://host:8080/mcp` using MCP Streamable HTTP transport.
 ## 3. From Source (Development)
 
 ```bash
-git clone https://github.com/wyre-technology/autotask-mcp.git
+git clone https://github.com/WYRE-AI/autotask-mcp.git
 cd autotask-mcp
 npm ci && npm run build
 ```
@@ -129,7 +129,7 @@ You should receive a confirmation that the connection is working.
 **Docker:** Pull the latest image:
 
 ```bash
-docker pull ghcr.io/wyre-technology/autotask-mcp:latest
+docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 **From Source:** Pull and rebuild:

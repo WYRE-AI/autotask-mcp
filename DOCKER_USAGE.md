@@ -7,7 +7,7 @@ This document provides comprehensive instructions for running the Autotask MCP S
 ### Pull from GitHub Container Registry
 
 ```bash
-docker pull ghcr.io/wyre-technology/autotask-mcp:latest
+docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Run with Environment Variables
@@ -19,7 +19,7 @@ docker run -d \
   -e AUTOTASK_SECRET="your-secret-key" \
   -e AUTOTASK_INTEGRATION_CODE="your-integration-code" \
   -e LOG_LEVEL="info" \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Run with Environment File
@@ -38,7 +38,7 @@ Run with env file:
 docker run -d \
   --name autotask-mcp \
   --env-file .env \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ## Docker Compose
@@ -50,7 +50,7 @@ version: '3.8'
 
 services:
   autotask-mcp:
-    image: ghcr.io/wyre-technology/autotask-mcp:latest
+    image: ghcr.io/wyre-ai/autotask-mcp:latest
     container_name: autotask-mcp
     restart: unless-stopped
     environment:
@@ -85,7 +85,7 @@ docker-compose up -d
 
 ```bash
 # Clone the repository
-git clone https://github.com/wyre-technology/autotask-mcp.git
+git clone https://github.com/WYRE-AI/autotask-mcp.git
 cd autotask-mcp
 
 # Build the Docker image
@@ -142,7 +142,7 @@ The Docker image defaults to HTTP transport. For Claude Desktop (which uses stdi
         "-e", "MCP_TRANSPORT=stdio",
         "--env-file", "/path/to/your/.env",
         "--entrypoint", "node",
-        "ghcr.io/wyre-technology/autotask-mcp:latest",
+        "ghcr.io/wyre-ai/autotask-mcp:latest",
         "dist/entry.js"
       ]
     }
@@ -164,7 +164,7 @@ Or with inline credentials:
         "-e", "AUTOTASK_SECRET=your-secret",
         "-e", "AUTOTASK_INTEGRATION_CODE=your-code",
         "--entrypoint", "node",
-        "ghcr.io/wyre-technology/autotask-mcp:latest",
+        "ghcr.io/wyre-ai/autotask-mcp:latest",
         "dist/entry.js"
       ]
     }
@@ -184,7 +184,7 @@ docker run -d \
   --name autotask-mcp-server \
   -p 8080:8080 \
   --env-file .env \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Verify health
 curl http://localhost:8080/health
@@ -256,7 +256,7 @@ docker run -d \
   --name autotask-mcp \
   --memory=512m \
   --env-file .env \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Debug Mode
@@ -267,7 +267,7 @@ Run container in debug mode:
 docker run -it --rm \
   --env-file .env \
   -e LOG_LEVEL=debug \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Interactive Debugging
@@ -277,7 +277,7 @@ docker run -it --rm \
 docker run -it --rm \
   --env-file .env \
   --entrypoint /bin/sh \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Inside container, run manually
 node dist/index.js
@@ -299,7 +299,7 @@ docker run -d \
   --name autotask-mcp \
   --network autotask-network \
   --env-file .env \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Read-Only Container
@@ -309,7 +309,7 @@ docker run -d \
   --read-only \
   --tmpfs /tmp \
   --env-file .env \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ## Production Deployment
@@ -333,7 +333,7 @@ spec:
     spec:
       containers:
       - name: autotask-mcp
-        image: ghcr.io/wyre-technology/autotask-mcp:latest
+        image: ghcr.io/wyre-ai/autotask-mcp:latest
         env:
         - name: AUTOTASK_USERNAME
           valueFrom:
@@ -366,7 +366,7 @@ version: '3.8'
 
 services:
   autotask-mcp:
-    image: ghcr.io/wyre-technology/autotask-mcp:latest
+    image: ghcr.io/wyre-ai/autotask-mcp:latest
     deploy:
       replicas: 1
       restart_policy:
@@ -396,7 +396,7 @@ secrets:
 
 ```bash
 # Pull latest version
-docker pull ghcr.io/wyre-technology/autotask-mcp:latest
+docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Stop and remove old container
 docker stop autotask-mcp
@@ -406,7 +406,7 @@ docker rm autotask-mcp
 docker run -d \
   --name autotask-mcp \
   --env-file .env \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Backup and Restore
@@ -421,4 +421,4 @@ docker run --rm -v autotask-logs:/data -v $(pwd):/backup \
   alpine tar xzf /backup/autotask-logs-backup.tar.gz -C /data
 ```
 
-For more information, see the main [README.md](README.md) or visit the [GitHub repository](https://github.com/wyre-technology/autotask-mcp). 
+For more information, see the main [README.md](README.md) or visit the [GitHub repository](https://github.com/WYRE-AI/autotask-mcp). 

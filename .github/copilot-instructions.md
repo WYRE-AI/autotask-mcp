@@ -44,7 +44,7 @@
 - `.releaserc.json`: commit message templates must use `\n` escape sequences, never literal newlines
 
 ### Vendor Client Library Usage
-- Use the corresponding `@wyre-technology/node-*` client library for API calls, not raw `fetch`
+- Use the corresponding `@wyre-ai/node-*` client library for API calls, not raw `fetch`
 - Client library methods should handle auth header construction — don't duplicate auth logic in the MCP server
 - Error responses from vendor APIs should be mapped to meaningful MCP error messages, not passed through raw
 

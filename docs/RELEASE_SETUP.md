@@ -4,7 +4,7 @@ This document explains how to set up automated releases for the Autotask MCP Ser
 
 ## Overview
 
-The release process is automated using GitHub Actions and follows these patterns inspired by the [autotask-node repository](https://github.com/wyre-technology/autotask-node):
+The release process is automated using GitHub Actions and follows these patterns inspired by the [autotask-node repository](https://github.com/WYRE-AI/autotask-node):
 
 1. **Semantic Versioning**: Uses conventional commits and semantic-release
 2. **Multi-Platform Testing**: Tests on Node.js 18, 20, and 22
@@ -22,7 +22,7 @@ Set these secrets in your GitHub repository settings (`Settings > Secrets and va
 |-------------|-------------|---------------|
 | `GITHUB_TOKEN` | Automatically provided by GitHub | *(automatic)* |
 | `NPM_TOKEN` | NPM authentication token | `npm_xxxxxxxxxxxxx` |
-| `DOCKERHUB_USERNAME` | Docker Hub username | `wyre-technology` |
+| `DOCKERHUB_USERNAME` | Docker Hub username | `WYRE-AI` |
 | `DOCKERHUB_TOKEN` | Docker Hub access token | `dckr_pat_xxxxxxx` |
 
 ### Getting NPM Token
@@ -155,10 +155,10 @@ gh release create v1.0.1 --auto --notes
 npm publish
 
 # Build and push Docker image
-docker build -t wyre-technology/autotask-mcp:v1.0.1 .
-docker push wyre-technology/autotask-mcp:v1.0.1
-docker tag wyre-technology/autotask-mcp:v1.0.1 wyre-technology/autotask-mcp:latest
-docker push wyre-technology/autotask-mcp:latest
+docker build -t WYRE-AI/autotask-mcp:v1.0.1 .
+docker push WYRE-AI/autotask-mcp:v1.0.1
+docker tag WYRE-AI/autotask-mcp:v1.0.1 WYRE-AI/autotask-mcp:latest
+docker push WYRE-AI/autotask-mcp:latest
 ```
 
 ## Monitoring and Maintenance
@@ -168,7 +168,7 @@ docker push wyre-technology/autotask-mcp:latest
 Monitor releases through:
 - **GitHub**: Check Actions tab for workflow status
 - **NPM**: Verify package publication at https://www.npmjs.com/package/autotask-mcp
-- **Docker Hub**: Check images at https://hub.docker.com/r/wyre-technology/autotask-mcp
+- **Docker Hub**: Check images at https://hub.docker.com/r/WYRE-AI/autotask-mcp
 
 ### Security Scanning
 
@@ -222,7 +222,7 @@ git push origin :refs/tags/v1.0.1
 npm deprecate autotask-mcp@1.0.1 "Version deprecated due to critical issue"
 
 # Docker image removal
-docker push --delete wyre-technology/autotask-mcp:v1.0.1
+docker push --delete WYRE-AI/autotask-mcp:v1.0.1
 ```
 
 ## Troubleshooting
@@ -290,7 +290,7 @@ Enable debug logging in GitHub Actions:
 
 - [Docker Usage Guide](DOCKER_USAGE.md)
 - [Main README](README.md)
-- [Autotask Node Library](https://github.com/wyre-technology/autotask-node)
+- [Autotask Node Library](https://github.com/WYRE-AI/autotask-node)
 - [Semantic Release Documentation](https://semantic-release.gitbook.io/)
 - [Conventional Commits](https://www.conventionalcommits.org/)
 

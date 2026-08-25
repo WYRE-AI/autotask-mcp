@@ -1,7 +1,7 @@
 # Autotask MCP Server
 
-[![Build Status](https://github.com/wyre-technology/autotask-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/wyre-technology/autotask-mcp/actions/workflows/release.yml)
-[![codecov](https://codecov.io/gh/wyre-technology/autotask-mcp/graph/badge.svg)](https://codecov.io/gh/wyre-technology/autotask-mcp)
+[![Build Status](https://github.com/WYRE-AI/autotask-mcp/actions/workflows/release.yml/badge.svg)](https://github.com/WYRE-AI/autotask-mcp/actions/workflows/release.yml)
+[![codecov](https://codecov.io/gh/WYRE-AI/autotask-mcp/graph/badge.svg)](https://codecov.io/gh/WYRE-AI/autotask-mcp)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](https://opensource.org/licenses/Apache-2.0)
 [![Node.js](https://img.shields.io/badge/node-%3E%3D18.0.0-brightgreen.svg)](https://nodejs.org/)
 
@@ -11,22 +11,22 @@ This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) serve
 
 If you run an MSP on Autotask and you're tired of the context-switching tax, this is for you.
 
-> **Part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Datto RMM](https://github.com/wyre-technology/datto-rmm-mcp), [IT Glue](https://github.com/wyre-technology/itglue-mcp), [HaloPSA](https://github.com/wyre-technology/halopsa-mcp), [ConnectWise Automate](https://github.com/wyre-technology/connectwise-automate-mcp), [NinjaOne](https://github.com/wyre-technology/ninjaone-mcp), [Huntress](https://github.com/wyre-technology/huntress-mcp), and more. Built by MSPs, for MSPs.
+> **Part of the [MSP Claude Plugins](https://github.com/WYRE-AI/msp-claude-plugins) ecosystem** — a growing suite of AI integrations for the MSP stack including [Datto RMM](https://github.com/WYRE-AI/datto-rmm-mcp), [IT Glue](https://github.com/WYRE-AI/itglue-mcp), [HaloPSA](https://github.com/WYRE-AI/halopsa-mcp), [ConnectWise Automate](https://github.com/WYRE-AI/connectwise-automate-mcp), [NinjaOne](https://github.com/WYRE-AI/ninjaone-mcp), [Huntress](https://github.com/WYRE-AI/huntress-mcp), and more. Built by MSPs, for MSPs.
 
-<a href="https://glama.ai/mcp/servers/@wyre-technology/autotask-mcp">
-  <img width="380" height="200" src="https://glama.ai/mcp/servers/@wyre-technology/autotask-mcp/badge" alt="Autotask MCP server" />
+<a href="https://glama.ai/mcp/servers/@wyre-ai/autotask-mcp">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@wyre-ai/autotask-mcp/badge" alt="Autotask MCP server" />
 </a>
 
 ## One-Click Deployment
 
-[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/wyre-technology/autotask-mcp/tree/main)
+[![Deploy to DO](https://www.deploytodo.com/do-btn-blue.svg)](https://cloud.digitalocean.com/apps/new?repo=https://github.com/WYRE-AI/autotask-mcp/tree/main)
 
-[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/wyre-technology/autotask-mcp)
+[![Deploy to Cloudflare Workers](https://deploy.workers.cloudflare.com/button)](https://deploy.workers.cloudflare.com/?url=https://github.com/WYRE-AI/autotask-mcp)
 
 > **Note — no GitHub Packages token required.** Unlike most WYRE MCP servers,
-> `autotask-mcp` does **not** depend on a private `@wyre-technology/*` package on
+> `autotask-mcp` does **not** depend on a private `@wyre-ai/*` package on
 > GitHub Packages. Its only WYRE dependency is the `autotask-node` SDK, declared
-> as a git dependency on the **public** `wyre-technology/autotask-node` repo, which
+> as a git dependency on the **public** `WYRE-AI/autotask-node` repo, which
 > `npm install` resolves anonymously. The DigitalOcean one-click deploy therefore
 > works without any `NODE_AUTH_TOKEN`/`GITHUB_TOKEN` build variable.
 
@@ -34,7 +34,7 @@ If you run an MSP on Autotask and you're tired of the context-switching tax, thi
 
 **Claude Desktop** — download, open, done:
 
-1. Download `autotask-mcp.mcpb` from the [latest release](https://github.com/wyre-technology/autotask-mcp/releases/latest)
+1. Download `autotask-mcp.mcpb` from the [latest release](https://github.com/WYRE-AI/autotask-mcp/releases/latest)
 2. Open the file (double-click or drag into Claude Desktop)
 3. Enter your Autotask credentials when prompted (Username, Secret, Integration Code)
 
@@ -47,7 +47,7 @@ claude mcp add autotask-mcp \
   -e AUTOTASK_USERNAME=your-user@company.com \
   -e AUTOTASK_SECRET=your-secret \
   -e AUTOTASK_INTEGRATION_CODE=your-code \
-  -- npx -y github:wyre-technology/autotask-mcp
+  -- npx -y github:WYRE-AI/autotask-mcp
 ```
 
 See [Installation](#installation) for Docker and from-source methods.
@@ -92,7 +92,7 @@ See [Installation](#installation) for Docker and from-source methods.
 
 The simplest method — no terminal, no JSON editing, no Node.js install required.
 
-1. Download `autotask-mcp.mcpb` from the [latest release](https://github.com/wyre-technology/autotask-mcp/releases/latest)
+1. Download `autotask-mcp.mcpb` from the [latest release](https://github.com/WYRE-AI/autotask-mcp/releases/latest)
 2. Open the file (double-click or drag into Claude Desktop)
 3. Enter your Autotask credentials when prompted (Username, Secret, Integration Code)
 
@@ -103,7 +103,7 @@ claude mcp add autotask-mcp \
   -e AUTOTASK_USERNAME=your-user@company.com \
   -e AUTOTASK_SECRET=your-secret \
   -e AUTOTASK_INTEGRATION_CODE=your-code \
-  -- npx -y github:wyre-technology/autotask-mcp
+  -- npx -y github:WYRE-AI/autotask-mcp
 ```
 
 ### Option 2: Docker
@@ -122,7 +122,7 @@ claude mcp add autotask-mcp \
         "-e", "AUTOTASK_SECRET=your-secret",
         "-e", "AUTOTASK_INTEGRATION_CODE=your-code",
         "--entrypoint", "node",
-        "ghcr.io/wyre-technology/autotask-mcp:latest",
+        "ghcr.io/wyre-ai/autotask-mcp:latest",
         "dist/entry.js"
       ]
     }
@@ -140,7 +140,7 @@ docker run -d \
   -e AUTOTASK_SECRET="your-secret" \
   -e AUTOTASK_INTEGRATION_CODE="your-code" \
   --restart unless-stopped \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Verify
 curl http://localhost:8080/health
@@ -158,7 +158,7 @@ docker run -d \
   -p 8080:8080 \
   -e AUTH_MODE=gateway \
   --restart unless-stopped \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 The gateway injects credentials via headers:
@@ -171,7 +171,7 @@ See [Gateway Mode](#gateway-mode) for details.
 ### Option 3: From Source (Development)
 
 ```bash
-git clone https://github.com/wyre-technology/autotask-mcp.git
+git clone https://github.com/WYRE-AI/autotask-mcp.git
 cd autotask-mcp
 npm ci && npm run build
 ```
@@ -474,7 +474,7 @@ The Docker image defaults to **HTTP transport** on port 8080 — suitable for re
 
 ```bash
 # Pull the latest image
-docker pull ghcr.io/wyre-technology/autotask-mcp:latest
+docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Run container with HTTP transport (default)
 docker run -d \
@@ -484,7 +484,7 @@ docker run -d \
   -e AUTOTASK_SECRET="your-secret-key" \
   -e AUTOTASK_INTEGRATION_CODE="your-integration-code" \
   --restart unless-stopped \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Verify it's running
 curl http://localhost:8080/health
@@ -496,7 +496,7 @@ For **stdio** usage with Claude Desktop, see [Installation Option 2](#option-2-d
 
 ```bash
 # Clone repository
-git clone https://github.com/wyre-technology/autotask-mcp.git
+git clone https://github.com/WYRE-AI/autotask-mcp.git
 cd autotask-mcp
 
 # Create environment file
@@ -533,7 +533,7 @@ docker compose --profile dev up autotask-mcp-dev
 ### Setup
 
 ```bash
-git clone https://github.com/wyre-technology/autotask-mcp.git
+git clone https://github.com/WYRE-AI/autotask-mcp.git
 cd autotask-mcp
 npm install
 ```
@@ -796,9 +796,9 @@ By submitting a pull request, you agree to the terms of our [Contributor License
 
 ## Support
 
-- 📚 [Documentation](https://github.com/wyre-technology/autotask-mcp/wiki)
-- 🐛 [Issue Tracker](https://github.com/wyre-technology/autotask-mcp/issues)
-- 💬 [Discussions](https://github.com/wyre-technology/autotask-mcp/discussions)
+- 📚 [Documentation](https://github.com/WYRE-AI/autotask-mcp/wiki)
+- 🐛 [Issue Tracker](https://github.com/WYRE-AI/autotask-mcp/issues)
+- 💬 [Discussions](https://github.com/WYRE-AI/autotask-mcp/discussions)
 
 ## Acknowledgments
 
@@ -808,4 +808,4 @@ By submitting a pull request, you agree to the terms of our [Contributor License
 
 ---
 
-Built by [WYRE Technology](https://github.com/wyre-technology) — part of the [MSP Claude Plugins](https://github.com/wyre-technology/msp-claude-plugins) ecosystem 
+Built by [WYRE Technology](https://github.com/WYRE-AI) — part of the [MSP Claude Plugins](https://github.com/WYRE-AI/msp-claude-plugins) ecosystem 

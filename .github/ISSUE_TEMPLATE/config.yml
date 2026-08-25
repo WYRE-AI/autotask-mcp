@@ -1,8 +1,8 @@
 blank_issues_enabled: true
 contact_links:
   - name: Project Board
-    url: https://github.com/orgs/wyre-technology/projects/1
+    url: https://github.com/orgs/WYRE-AI/projects/1
     about: View the project board to see what's planned and in progress
   - name: Discussions
-    url: https://github.com/wyre-technology/msp-claude-plugins/discussions
+    url: https://github.com/WYRE-AI/msp-claude-plugins/discussions
     about: Ask questions, share ideas, or connect with the community
