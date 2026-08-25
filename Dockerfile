@@ -15,8 +15,8 @@ WORKDIR /app
 COPY package*.json ./
 
 # Install dependencies (--ignore-scripts prevents 'prepare' from running before source is copied)
-# GitHub Packages auth for @wyre-technology scope (autotask-node is consumed via the registry)
-RUN echo "@wyre-technology:registry=https://npm.pkg.github.com" > .npmrc && \
+# GitHub Packages auth for @wyre-ai scope (autotask-node is consumed via the registry)
+RUN echo "@wyre-ai:registry=https://npm.pkg.github.com" > .npmrc && \
     echo "//npm.pkg.github.com/:_authToken=${GITHUB_TOKEN}" >> .npmrc && \
     npm ci --ignore-scripts && rm -f .npmrc
 
@@ -114,11 +114,11 @@ LABEL org.opencontainers.image.description="Model Context Protocol server for Ka
 LABEL org.opencontainers.image.version="${VERSION}"
 LABEL org.opencontainers.image.created="${BUILD_DATE}"
 LABEL org.opencontainers.image.revision="${COMMIT_SHA}"
-LABEL org.opencontainers.image.source="https://github.com/wyre-technology/autotask-mcp"
-LABEL org.opencontainers.image.documentation="https://github.com/wyre-technology/autotask-mcp/blob/main/README.md"
-LABEL org.opencontainers.image.url="https://github.com/wyre-technology/autotask-mcp/pkgs/container/autotask-mcp"
+LABEL org.opencontainers.image.source="https://github.com/WYRE-AI/autotask-mcp"
+LABEL org.opencontainers.image.documentation="https://github.com/WYRE-AI/autotask-mcp/blob/main/README.md"
+LABEL org.opencontainers.image.url="https://github.com/WYRE-AI/autotask-mcp/pkgs/container/autotask-mcp"
 LABEL org.opencontainers.image.vendor="Wyre Technology"
 LABEL org.opencontainers.image.licenses="Apache-2.0"
 
 # MCP Registry ownership annotation (must match `name` in server.json)
-LABEL io.modelcontextprotocol.server.name="io.github.wyre-technology/autotask-mcp"
+LABEL io.modelcontextprotocol.server.name="io.github.WYRE-AI/autotask-mcp"

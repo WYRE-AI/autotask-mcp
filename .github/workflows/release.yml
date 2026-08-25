@@ -8,7 +8,7 @@ on:
 
 # Thin caller for the canonical reusable release pipeline. The build →
 # semantic-release → Docker → MCP Registry → security chain (tag-based release
-# detection + correct gating) lives in wyre-technology/.github so every *-mcp
+# detection + correct gating) lives in WYRE-AI/.github so every *-mcp
 # repo stays in lockstep instead of drifting per-repo. PR-time lint/test gating
 # is each repo's ci.yml concern; this workflow only runs the release path.
 # Caller jobs grant the token scopes the reusable jobs request (a reusable can
@@ -22,27 +22,37 @@ jobs:
       packages: write
       id-token: write
       security-events: write
-    # Pin includes the `mcpb` job (wyre-technology/.github#43), which restores
+    # Pin includes the `mcpb` job (WYRE-AI/.github#43), which restores
     # packing + attaching autotask-mcp.mcpb to the GitHub release. That step
     # existed in this repo's hand-rolled workflow and was dropped by the
     # centralization in #183, so every release from v2.30.0 on shipped with no
     # assets while the README still pointed users at the bundle (#244).
-    uses: wyre-technology/.github/.github/workflows/mcp-server-release.yml@8bfc9b3a249fd1e6f69f1d05c45c8eaf3076fec3
+    uses: WYRE-AI/.github/.github/workflows/mcp-server-release.yml@07bc1921cbd01ad8a079fe8a3dd28180080870d5
     with:
       server-name: autotask-mcp
-      image-name: ghcr.io/wyre-technology/autotask-mcp
+      image-name: ghcr.io/wyre-ai/autotask-mcp
     secrets: inherit
 
-  deploy:
-    needs: release
-    if: needs.release.outputs.released == 'true'
-    permissions:
-      id-token: write
-      contents: read
-    uses: wyre-technology/.github/.github/workflows/mcp-server-deploy.yml@a61021de876d0fd44dac777fa90f963fea25b0c3
-    with:
-      vendor-slug: autotask
-      image-name: ghcr.io/wyre-technology/autotask-mcp
-      digest: ${{ needs.release.outputs.digest }}
-      version: ${{ needs.release.outputs.version }}
-    secrets: inherit
+  # DEPLOY TEMPORARILY DISABLED (2026-08-25 org migration fleet wave).
+  #
+  # The gwp-autotask Container App still runs in the LEGACY Azure tenant, while
+  # this org's AZURE_* secrets point at the new WYRE AI tenant where no
+  # `mcp-gateway-prod` resource group exists yet. Deploying would fail with
+  # ResourceGroupNotFound. Re-enable once either (a) the fleet infra moves to
+  # the WYRE AI subscription, or (b) the legacy tenant's deploy app gains a
+  # repo:WYRE-AI/* federated credential and the AZURE_* secrets are scoped
+  # back to the legacy tenant.
+  #
+  # deploy:
+  #   needs: release
+  #   if: needs.release.outputs.released == 'true'
+  #   permissions:
+  #     id-token: write
+  #     contents: read
+  #   uses: WYRE-AI/.github/.github/workflows/mcp-server-deploy.yml@07bc1921cbd01ad8a079fe8a3dd28180080870d5
+  #   with:
+  #     vendor-slug: autotask
+  #     image-name: ghcr.io/wyre-ai/autotask-mcp
+  #     digest: ${{ needs.release.outputs.digest }}
+  #     version: ${{ needs.release.outputs.version }}
+  #   secrets: inherit

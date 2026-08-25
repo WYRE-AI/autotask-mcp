@@ -78,7 +78,7 @@ For self-hosted or enterprise deployments, you can run the MCP server in gateway
 
 ```bash
 # Pull the image
-docker pull ghcr.io/wyre-technology/autotask-mcp:latest
+docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Run in gateway mode (credentials via headers)
 docker run -d \
@@ -86,7 +86,7 @@ docker run -d \
   -e AUTH_MODE=gateway \
   -e MCP_TRANSPORT=http \
   -e LOG_LEVEL=info \
-  ghcr.io/wyre-technology/autotask-mcp:latest
+  ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 ### Gateway Mode Headers
@@ -196,5 +196,5 @@ curl -X POST http://localhost:8080/mcp \
 
 ## Support
 
-- GitHub Issues: https://github.com/wyre-technology/autotask-mcp/issues
-- Documentation: https://github.com/wyre-technology/autotask-mcp
+- GitHub Issues: https://github.com/WYRE-AI/autotask-mcp/issues
+- Documentation: https://github.com/WYRE-AI/autotask-mcp

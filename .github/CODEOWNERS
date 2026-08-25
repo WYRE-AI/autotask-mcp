@@ -1,5 +1,5 @@
 # Default owner for all files — auto-assigned as reviewer on PRs
-* @asachs01 @wyre-technology/engineering
+* @asachs01 @wyre-ai/engineering
 
 # Workflows require explicit review — prevents supply-chain attacks via
 # PR-supplied CI config

@@ -87,7 +87,7 @@ try {
 
   // 7. Pack the bundle
   console.log('\n=== Packing MCPB bundle ===');
-  // Strip the npm scope (e.g. @wyre-technology/) so the bundle is written to a
+  // Strip the npm scope (e.g. @wyre-ai/) so the bundle is written to a
   // flat file (autotask-mcp.mcpb) instead of a scoped path that breaks upload.
   const bundleName = pkg.name.replace(/^@.*\//, '');
   const bundlePath = join(ROOT, `${bundleName}.mcpb`);

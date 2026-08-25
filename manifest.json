@@ -11,9 +11,9 @@
   },
   "repository": {
     "type": "git",
-    "url": "https://github.com/wyre-technology/autotask-mcp"
+    "url": "https://github.com/WYRE-AI/autotask-mcp"
   },
-  "homepage": "https://github.com/wyre-technology/autotask-mcp",
+  "homepage": "https://github.com/WYRE-AI/autotask-mcp",
   "license": "MIT",
   "keywords": ["autotask", "psa", "kaseya", "tickets", "msp", "it-management"],
   "server": {
