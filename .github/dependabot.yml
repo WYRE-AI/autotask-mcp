@@ -39,6 +39,24 @@ updates:
       - dependency-name: "typescript"
         update-types: ["version-update:semver-major"]
 
+  - package-ecosystem: "npm"
+    directory: "/website"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    open-pull-requests-limit: 10
+    commit-message:
+      prefix: "deps"
+      prefix-development: "deps-dev"
+      include: "scope"
+    groups:
+      dev-dependencies:
+        dependency-type: "development"
+        update-types: ["major", "minor", "patch"]
+      production-minor-patch:
+        dependency-type: "production"
+        update-types: ["minor", "patch"]
+
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
