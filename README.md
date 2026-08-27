@@ -165,6 +165,7 @@ The gateway injects credentials via headers:
 - `X-API-Key`: Autotask username
 - `X-API-Secret`: Autotask secret
 - `X-Integration-Code`: Autotask integration code
+- `X-Impersonation-Resource-Id`: (optional) Autotask resource ID to act on behalf of
 
 See [Gateway Mode](#gateway-mode) for details.
 
@@ -260,6 +261,7 @@ MCP_TRANSPORT=http
 | `X-API-Secret` | Autotask API secret key |
 | `X-Integration-Code` | Autotask integration code |
 | `X-API-URL` | (Optional) Custom Autotask API URL |
+| `X-Impersonation-Resource-Id` | (Optional) Autotask resource ID to act on behalf of. Forwarded to Autotask as its `ImpersonationResourceId` header, so actions are attributed to that resource instead of the API user, and recorded in the entity's read-only `impersonatorCreatorResourceID` field. Must be a positive integer; anything else is ignored with a warning. The impersonated resource must itself have permission for the action, and the API user's security level must permit impersonation. |
 
 **Health Check Response (Gateway Mode):**
 

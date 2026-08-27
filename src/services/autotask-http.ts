@@ -157,7 +157,8 @@ export class AutotaskHttpClient {
     private readonly secret: string,
     private readonly integrationCode: string,
     private readonly apiUrl: string | undefined,
-    private readonly logger: Logger
+    private readonly logger: Logger,
+    private readonly impersonationResourceId?: number
   ) {}
 
   private async baseUrl(): Promise<string> {
@@ -169,13 +170,23 @@ export class AutotaskHttpClient {
   }
 
   private headers(): Record<string, string> {
-    return {
+    const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json',
       ApiIntegrationcode: this.integrationCode,
       UserName: this.username,
       Secret: this.secret,
     };
+    // Impersonation is driven by this request header, NOT by the entity's
+    // impersonatorCreatorResourceID field - that field is read-only and is
+    // where Autotask *records* the impersonation, so setting it in a request
+    // body is silently ignored. The impersonated resource must itself have
+    // permission for the action, so an impersonated call is the intersection
+    // of the API user's rights and the impersonated user's.
+    if (this.impersonationResourceId !== undefined) {
+      headers.ImpersonationResourceId = String(this.impersonationResourceId);
+    }
+    return headers;
   }
 
   /**
@@ -272,7 +283,24 @@ export class AutotaskHttpClient {
           retryAfter,
         );
       }
-      const httpError = new Error(`Autotask ${method} ${path} failed: HTTP ${response.status}: ${detail}`);
+      // Impersonation is intent, not best-effort: if the header was sent and
+      // Autotask rejected the request, silently retrying without it would
+      // make the call succeed as the shared API user with nobody noticing
+      // attribution had quietly stopped happening - worse than an error,
+      // since it defeats the whole point of impersonation (an accurate PSA
+      // audit trail) while looking like success. So this never retries or
+      // swallows anything; it only appends an actionable hint pointing at
+      // the most common cause, alongside Autotask's own unmodified error -
+      // Autotask doesn't document a distinct status/body for "impersonation
+      // not permitted" specifically, so this can't reliably tell that case
+      // apart from any other failure on the same request.
+      const impersonationHint =
+        this.impersonationResourceId !== undefined
+          ? ` (impersonating resource ${this.impersonationResourceId} - if this is a permissions error, verify that resource's Autotask security level has "Allow impersonation of resources with this security level" enabled, and that its security level permits this specific action)`
+          : '';
+      const httpError = new Error(
+        `Autotask ${method} ${path} failed: HTTP ${response.status}: ${detail}${impersonationHint}`
+      );
       // Attach the numeric status so callers can branch on it reliably instead
       // of substring-matching the message (the message embeds the response body,
       // which can coincidentally contain a status-like number).

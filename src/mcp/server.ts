@@ -140,6 +140,9 @@ export class AutotaskMcpServer {
     if (credentials.secret) autotaskConfig.secret = credentials.secret;
     if (credentials.integrationCode) autotaskConfig.integrationCode = credentials.integrationCode;
     if (credentials.apiUrl) autotaskConfig.apiUrl = credentials.apiUrl;
+    if (credentials.impersonationResourceId) {
+      autotaskConfig.impersonationResourceId = credentials.impersonationResourceId;
+    }
 
     const requestConfig: McpServerConfig = {
       name: this.envConfig?.server?.name || 'autotask-mcp',
@@ -321,7 +324,7 @@ export class AutotaskMcpServer {
       res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, DELETE');
       res.setHeader(
         'Access-Control-Allow-Headers',
-        'Content-Type, Accept, Authorization, Mcp-Session-Id, X-API-Key, X-API-Secret, X-Integration-Code'
+        'Content-Type, Accept, Authorization, Mcp-Session-Id, X-API-Key, X-API-Secret, X-Integration-Code, X-Impersonation-Resource-Id'
       );
       res.setHeader('Access-Control-Max-Age', '86400');
 

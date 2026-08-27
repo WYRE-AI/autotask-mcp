@@ -115,14 +115,24 @@ export class AutotaskService {
    */
   async initialize(): Promise<void> {
     try {
-      const { username, secret, integrationCode, apiUrl } = this.config.autotask;
+      const { username, secret, integrationCode, apiUrl, impersonationResourceId } = this.config.autotask;
 
       if (!username || !secret || !integrationCode) {
         throw new Error('Missing required Autotask credentials: username, secret, and integrationCode are required');
       }
 
       this.logger.info('Initializing Autotask HTTP client...');
-      this.http = new AutotaskHttpClient(username, secret, integrationCode, apiUrl, this.logger);
+      if (impersonationResourceId !== undefined) {
+        this.logger.info(`Impersonating Autotask resource ${impersonationResourceId}`);
+      }
+      this.http = new AutotaskHttpClient(
+        username,
+        secret,
+        integrationCode,
+        apiUrl,
+        this.logger,
+        impersonationResourceId
+      );
       this.logger.info('Autotask HTTP client initialized successfully');
     } catch (error) {
       this.logger.error('Failed to initialize Autotask HTTP client:', error);
