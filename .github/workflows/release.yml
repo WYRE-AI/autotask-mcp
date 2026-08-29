@@ -27,7 +27,7 @@ jobs:
     # existed in this repo's hand-rolled workflow and was dropped by the
     # centralization in #183, so every release from v2.30.0 on shipped with no
     # assets while the README still pointed users at the bundle (#244).
-    uses: WYRE-AI/.github/.github/workflows/mcp-server-release.yml@07bc1921cbd01ad8a079fe8a3dd28180080870d5
+    uses: WYRE-AI/.github/.github/workflows/mcp-server-release.yml@8c2360058e882a8afacfc4cebf840135789ef406
     with:
       server-name: autotask-mcp
       image-name: ghcr.io/wyre-ai/autotask-mcp
@@ -49,7 +49,7 @@ jobs:
   #   permissions:
   #     id-token: write
   #     contents: read
-  #   uses: WYRE-AI/.github/.github/workflows/mcp-server-deploy.yml@07bc1921cbd01ad8a079fe8a3dd28180080870d5
+  #   uses: WYRE-AI/.github/.github/workflows/mcp-server-deploy.yml@8c2360058e882a8afacfc4cebf840135789ef406
   #   with:
   #     vendor-slug: autotask
   #     image-name: ghcr.io/wyre-ai/autotask-mcp
