@@ -76,8 +76,15 @@
   "overrides": {
     "@isaacs/brace-expansion": "^5.0.1",
     "brace-expansion": "^2.0.3",
+    "bull": {
+      "uuid": "^11.1.1"
+    },
     "diff": "^7.0.0",
+    "exceljs": {
+      "uuid": "^11.1.1"
+    },
     "lodash": "^4.18.1",
-    "tar": "^7.0.0"
+    "tar": "^7.0.0",
+    "tmp": "^0.2.6"
   }
 }
