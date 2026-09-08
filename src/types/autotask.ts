@@ -107,8 +107,8 @@ export interface AutotaskProject {
 export interface AutotaskTimeEntry {
   id?: number;
   resourceID?: number;
+  // No projectID: Autotask has no project-scoped time entry (issue #277).
   ticketID?: number;
-  projectID?: number;
   taskID?: number;
   dateWorked?: string;
   startDateTime?: string;

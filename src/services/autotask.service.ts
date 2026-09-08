@@ -651,8 +651,10 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating time entry:', timeEntry);
-      
-      // Payload with a ticketID or taskID will be logged against that Ticker or Task, or as "regular time" otherwise
+
+      // Do not reintroduce child routes here: POST /Tickets/{id}/TimeEntries and
+      // POST /Tasks/{id}/TimeEntries do not exist and 404 (issue #277). The
+      // parent travels in the payload as ticketID or taskID.
       const id = await http.create('TimeEntries', timeEntry);
       this.logger.info(`Time entry created with ID: ${id}`);
       return id;

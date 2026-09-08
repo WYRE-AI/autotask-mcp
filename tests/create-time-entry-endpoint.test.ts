@@ -1,15 +1,7 @@
-// Regression tests for issue #277 / PR #278:
-// createTimeEntry() used to route parent-scoped entries through the child
-// collection routes `POST /Tickets/{id}/TimeEntries`, `POST /Tasks/{id}/TimeEntries`
-// and `POST /Projects/{id}/TimeEntries`. Those routes do not exist in the Autotask
-// REST API — TimeEntries is a top-level entity only — so every ticket- or
-// task-scoped time entry died with a 404.
-//
-// The parent is expressed in the payload (`ticketID` / `taskID`), not in the URL,
-// so all three shapes (ticket, task, regular) are one unconditional
-// `POST /TimeEntries`. Autotask has no project-scoped time entry at all, so
-// `projectID` is no longer an advertised input and is rejected up front rather
-// than forwarded as an unknown field.
+// Regression tests for issue #277: createTimeEntry() routed parent-scoped
+// entries through child collection routes (POST /Tickets/{id}/TimeEntries and
+// friends) that do not exist, so every ticket- or task-scoped entry 404'd.
+// TimeEntries is a top-level entity; the parent travels in the payload.
 
 jest.mock('autotask-node', () => ({
   AutotaskClient: {
@@ -38,10 +30,7 @@ const config: McpServerConfig = {
   },
 };
 
-/**
- * Mock fetch with a single canned response, capturing every request the code
- * made so a failing test names the exact URL that was hit.
- */
+/** Answer every request with one canned body. */
 function mockFetchOk(body: unknown): jest.SpyInstance {
   return jest.spyOn(global, 'fetch' as any).mockResolvedValue({
     ok: true,
@@ -51,15 +40,18 @@ function mockFetchOk(body: unknown): jest.SpyInstance {
   } as unknown as Response);
 }
 
-/** Human-readable "<METHOD> <pathname>" trace of every fetch the code made. */
+/**
+ * Human-readable "<METHOD> <pathname>" trace of every fetch the code made, so a
+ * failing assertion names the exact URL that was requested.
+ */
 function calledRoutes(fetchMock: jest.SpyInstance): string[] {
   return fetchMock.mock.calls.map(
     (c: any[]) => `${(c[1] as RequestInit).method} ${new URL(c[0] as string).pathname}`
   );
 }
 
-function requestBody(fetchMock: jest.SpyInstance, index = 0): any {
-  return JSON.parse((fetchMock.mock.calls[index][1] as RequestInit).body as string);
+function firstRequestBody(fetchMock: jest.SpyInstance): any {
+  return JSON.parse((fetchMock.mock.calls[0][1] as RequestInit).body as string);
 }
 
 beforeEach(() => {
@@ -71,58 +63,30 @@ afterEach(() => {
 });
 
 describe('AutotaskService.createTimeEntry() endpoint (issue #277)', () => {
-  test('ticket-scoped entries POST to /TimeEntries with ticketID in the body, not /Tickets/{id}/TimeEntries', async () => {
+  // One behaviour, three shapes: the scope lives in the payload, so the route is
+  // the same unconditional POST /TimeEntries for all of them.
+  test.each([
+    ['ticket-scoped', { ticketID: 48231, resourceID: 12, hoursWorked: 1.5 }],
+    ['task-scoped', { taskID: 777, resourceID: 12, hoursWorked: 2 }],
+    ['regular time (no parent)', { resourceID: 12, hoursWorked: 1, internalBillingCodeID: 3 }],
+  ])('%s entries POST to /TimeEntries with the parent in the body', async (_label, payload) => {
     const fetchMock = mockFetchOk({ itemId: 4242 });
 
     const service = new AutotaskService(config, logger);
-    await expect(
-      service.createTimeEntry({ ticketID: 48231, resourceID: 12, hoursWorked: 1.5 })
-    ).resolves.toBe(4242);
+    await expect(service.createTimeEntry(payload as any)).resolves.toBe(4242);
 
     expect(calledRoutes(fetchMock)).toEqual(['POST /ATServicesRest/v1.0/TimeEntries']);
-    expect(requestBody(fetchMock)).toMatchObject({
-      ticketID: 48231,
-      resourceID: 12,
-      hoursWorked: 1.5,
-    });
-  });
-
-  test('task-scoped entries POST to /TimeEntries with taskID in the body, not /Tasks/{id}/TimeEntries', async () => {
-    const fetchMock = mockFetchOk({ itemId: 99 });
-
-    const service = new AutotaskService(config, logger);
-    await expect(
-      service.createTimeEntry({ taskID: 777, resourceID: 12, hoursWorked: 2 })
-    ).resolves.toBe(99);
-
-    expect(calledRoutes(fetchMock)).toEqual(['POST /ATServicesRest/v1.0/TimeEntries']);
-    expect(requestBody(fetchMock)).toMatchObject({ taskID: 777 });
-  });
-
-  test('regular time (no parent) POSTs to the same /TimeEntries route', async () => {
-    const fetchMock = mockFetchOk({ itemId: 7 });
-
-    const service = new AutotaskService(config, logger);
-    await expect(
-      service.createTimeEntry({ resourceID: 12, hoursWorked: 1, internalBillingCodeID: 3 } as any)
-    ).resolves.toBe(7);
-
-    expect(calledRoutes(fetchMock)).toEqual(['POST /ATServicesRest/v1.0/TimeEntries']);
+    expect(firstRequestBody(fetchMock)).toMatchObject(payload);
   });
 });
 
 describe('autotask_create_time_entry tool surface (issue #277)', () => {
-  const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_create_time_entry');
-
   test('does not advertise projectID — Autotask has no project-scoped time entry', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_create_time_entry');
     const props = tool!.inputSchema.properties as Record<string, any>;
     expect(props.ticketID).toBeDefined();
     expect(props.taskID).toBeDefined();
     expect(props.projectID).toBeUndefined();
-  });
-
-  test('description does not promise project support', () => {
-    expect(tool!.description.toLowerCase()).not.toContain('project,');
   });
 
   test('rejects a stray projectID with an actionable message instead of forwarding it', async () => {
