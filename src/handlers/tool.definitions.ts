@@ -917,10 +917,6 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Task ID for the time entry (for project work, omit for Regular Time)'
         },
-        projectID: {
-          type: 'number',
-          description: 'Project ID for the time entry (omit for Regular Time)'
-        },
         resourceID: {
           type: 'number',
           description: 'Resource ID (user) logging the time. Can be omitted if resourceName is provided.'
