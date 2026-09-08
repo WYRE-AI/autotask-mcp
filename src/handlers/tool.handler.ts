@@ -1012,7 +1012,7 @@ export class AutotaskToolHandler {
               }
               a.roleID = t.assignedResourceID;
             }
-          } else if (!a.ticketID) {
+          } else {
             const t = await s.getTask(a.taskID);
             if (t === null) {
               throw new Error(`No Task found matching "${a.taskID}"`);
@@ -1021,8 +1021,6 @@ export class AutotaskToolHandler {
               throw new Error(`No "assignedResourceID" found for Task "${a.taskID}" and no roleID provided`);
             }
             a.roleID = t.assignedResourceID;
-          } else {
-            throw new Error(`A taskID or ticketID must be provided for non-regular time entries`);
           }
         }
         const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
