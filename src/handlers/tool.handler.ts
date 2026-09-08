@@ -998,6 +998,32 @@ export class AutotaskToolHandler {
             a.internalBillingCodeID = billingCode.id;
             delete a.category;
           }
+        } else {
+          // for non-regular time entries a roleID must be set
+          // this defaults to ticketID.assignedResourceroleID or taskID.assignedResourceroleID but may be overridden
+          if (!a.roleID) {
+            if (!a.taskID) {
+              const t = await s.getTicket(a.ticketID);
+              if (t === null) {
+                throw new Error(`No Ticket found matching "${a.ticketID}"`);
+              }
+              if (t.assignedResourceID === undefined) {
+                throw new Error(`No "assignedResourceID" found for Ticket "${a.ticketID}" and no roleID provided`);
+              }
+              a.roleID = t.assignedResourceID;
+            }
+          } else if (!a.ticketID) {
+            const t = await s.getTask(a.taskID);
+            if (t === null) {
+              throw new Error(`No Task found matching "${a.taskID}"`);
+            }
+            if (t.assignedResourceID === undefined) {
+              throw new Error(`No "assignedResourceID" found for Task "${a.taskID}" and no roleID provided`);
+            }
+            a.roleID = t.assignedResourceID;
+          } else {
+            throw new Error(`A taskID or ticketID must be provided for non-regular time entries`);
+          }
         }
         const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
       }],

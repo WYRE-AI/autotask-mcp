@@ -925,6 +925,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Name of the resource/user (e.g., "Will Spence"). Will be resolved to a resourceID automatically. Use this instead of resourceID for convenience.'
         },
+        roleID: {
+          type: 'number',
+          description: 'Role ID associated with the time entry. Optional as this will default to ticketID.assignedResourceroleID or taskID.assignedResourceroleID for Ticket and Task time entries respectively and will be ignored for Regular Time entries. If the system setting "Allow users to modify Role when creating/editing time entries on tickets" is enabled this may be set to a different Role ID.'
+        },
         category: {
           type: 'string',
           description: 'Category name for Regular Time entries (e.g., "Internal Meeting", "Office Management", "Training", "Research", "HR/Recruiting", "Travel Time", "Holiday", "PTO"). Required for Regular Time entries (when neither ticketID nor taskID is specified).'
