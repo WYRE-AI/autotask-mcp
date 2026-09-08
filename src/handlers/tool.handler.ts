@@ -800,6 +800,24 @@ export class AutotaskToolHandler {
   }
 
   /**
+   * Resolve the roleID for a ticket- or task-scoped time entry from the
+   * parent's assignedResourceRoleID. Used by autotask_create_time_entry when
+   * the caller didn't supply an explicit roleID.
+   */
+  private async resolveParentRoleID(kind: 'Ticket' | 'Task', id: number): Promise<number> {
+    const parent = kind === 'Ticket'
+      ? await this.autotaskService.getTicket(id)
+      : await this.autotaskService.getTask(id);
+    if (parent === null) {
+      throw new Error(`No ${kind} found matching "${id}"`);
+    }
+    if (parent.assignedResourceRoleID === undefined) {
+      throw new Error(`No "assignedResourceRoleID" found for ${kind} "${id}" and no roleID provided`);
+    }
+    return parent.assignedResourceRoleID;
+  }
+
+  /**
    * Dispatch table: maps tool names to handler functions
    */
   private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string }>> {
@@ -1002,25 +1020,9 @@ export class AutotaskToolHandler {
           // for non-regular time entries a roleID must be set
           // this defaults to ticketID.assignedResourceroleID or taskID.assignedResourceroleID but may be overridden
           if (!a.roleID) {
-            if (!a.taskID) {
-              const t = await s.getTicket(a.ticketID);
-              if (t === null) {
-                throw new Error(`No Ticket found matching "${a.ticketID}"`);
-              }
-              if (t.assignedResourceRoleID === undefined) {
-                throw new Error(`No "assignedResourceRoleID" found for Ticket "${a.ticketID}" and no roleID provided`);
-              }
-              a.roleID = t.assignedResourceRoleID;
-            } else {
-              const t = await s.getTask(a.taskID);
-              if (t === null) {
-                throw new Error(`No Task found matching "${a.taskID}"`);
-              }
-              if (t.assignedResourceRoleID === undefined) {
-                throw new Error(`No "assignedResourceRoleID" found for Task "${a.taskID}" and no roleID provided`);
-              }
-              a.roleID = t.assignedResourceRoleID;
-            }
+            a.roleID = a.taskID
+              ? await this.resolveParentRoleID('Task', a.taskID)
+              : await this.resolveParentRoleID('Ticket', a.ticketID);
           }
         }
         const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
