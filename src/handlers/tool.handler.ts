@@ -1022,8 +1022,9 @@ export class AutotaskToolHandler {
               a.roleID = t.assignedResourceID;
             }
           }
-          const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
-        }],
+        }
+        const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
+      }],
 
       // Projects
       ['autotask_search_projects', async (a) => {
