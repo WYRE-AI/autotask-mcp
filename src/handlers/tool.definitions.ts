@@ -905,7 +905,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Time entry tools
   {
     name: 'autotask_create_time_entry',
-    description: 'Create a time entry in Autotask. Can be tied to a ticket, task, or project, OR created as "Regular Time" (no parent) for meetings, admin work, etc. For Regular Time, specify a category like "Internal Meeting", "Office Management", "Training", etc.',
+    description: 'Create a time entry in Autotask. Can be tied to a ticket or task, OR created as "Regular Time" (no parent) for meetings, admin work, etc. For Regular Time, specify a category like "Internal Meeting", "Office Management", "Training", etc.',
     inputSchema: {
       type: 'object',
       properties: {
