@@ -1011,20 +1011,19 @@ export class AutotaskToolHandler {
                 throw new Error(`No "assignedResourceID" found for Ticket "${a.ticketID}" and no roleID provided`);
               }
               a.roleID = t.assignedResourceID;
+            } else {
+              const t = await s.getTask(a.taskID);
+              if (t === null) {
+                throw new Error(`No Task found matching "${a.taskID}"`);
+              }
+              if (t.assignedResourceID === undefined) {
+                throw new Error(`No "assignedResourceID" found for Task "${a.taskID}" and no roleID provided`);
+              }
+              a.roleID = t.assignedResourceID;
             }
-          } else {
-            const t = await s.getTask(a.taskID);
-            if (t === null) {
-              throw new Error(`No Task found matching "${a.taskID}"`);
-            }
-            if (t.assignedResourceID === undefined) {
-              throw new Error(`No "assignedResourceID" found for Task "${a.taskID}" and no roleID provided`);
-            }
-            a.roleID = t.assignedResourceID;
           }
-        }
-        const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
-      }],
+          const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
+        }],
 
       // Projects
       ['autotask_search_projects', async (a) => {
