@@ -105,6 +105,37 @@ describe('autotask_create_time_entry tool surface (issue #277)', () => {
     expect(createSpy).not.toHaveBeenCalled();
   });
 
+  test('the search tool drops the projectId filter too — the field does not exist to filter on', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_search_time_entries');
+    const props = tool!.inputSchema.properties as Record<string, any>;
+    expect(props.ticketId).toBeDefined();
+    expect(props.taskId).toBeDefined();
+    expect(props.projectId).toBeUndefined();
+  });
+
+  test('searching by projectId errors rather than silently returning every time entry', async () => {
+    const service = new AutotaskService(config, logger);
+    const searchSpy = jest.spyOn(service, 'searchTimeEntries');
+    const handler = new AutotaskToolHandler(service, logger);
+
+    const result = await handler.callTool('autotask_search_time_entries', { projectId: 55 });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toMatch(/autotask_search_tasks/);
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  test('searchTimeEntries never emits a projectID clause', async () => {
+    const fetchMock = mockFetchOk({ items: [] });
+
+    const service = new AutotaskService(config, logger);
+    await service.searchTimeEntries({ ticketId: 7, projectId: 55 } as any);
+
+    const body = firstRequestBody(fetchMock);
+    expect(JSON.stringify(body)).not.toContain('projectID');
+    expect(JSON.stringify(body)).toContain('ticketID');
+  });
+
   test('still treats a parentless entry as Regular Time and asks for a category', async () => {
     const service = new AutotaskService(config, logger);
     jest.spyOn(service as any, 'getInternalBillingCodeNames')

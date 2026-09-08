@@ -1425,10 +1425,14 @@ export class AutotaskToolHandler {
 
       // Time Entries
       ['autotask_search_time_entries', async (a) => {
+        // projectId was advertised until #277. Silently ignoring it would return
+        // every time entry looking like a filtered result, so reject it instead.
+        if (a.projectId !== undefined) {
+          throw new Error(`Autotask time entries have no project field, so they cannot be filtered by project. Call autotask_search_tasks with projectID ${a.projectId}, then search time entries by the taskId values it returns.`);
+        }
         const r = await s.searchTimeEntries({
           resourceId: a.resourceId,
           ticketId: a.ticketId,
-          projectId: a.projectId,
           taskId: a.taskId,
           approvalStatus: a.approvalStatus,
           billable: a.billable,

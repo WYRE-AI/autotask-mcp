@@ -337,7 +337,7 @@ The server provides 101 tools for interacting with Autotask:
 
 #### Time Entry Operations
 - `autotask_create_time_entry` - Log time entry
-- `autotask_search_time_entries` - Search time entries with filters (resource, ticket, project, date range)
+- `autotask_search_time_entries` - Search time entries with filters (resource, ticket, task, date range)
 
 #### Billing Items (Approve and Post Workflow)
 - `autotask_search_billing_items` - Search approved and posted billing items

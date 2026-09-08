@@ -2280,9 +2280,8 @@ export class AutotaskService {
       if ((options as any).ticketId !== undefined) {
         filters.push({ op: 'eq', field: 'ticketID', value: (options as any).ticketId });
       }
-      if ((options as any).projectId !== undefined) {
-        filters.push({ op: 'eq', field: 'projectID', value: (options as any).projectId });
-      }
+      // No projectID filter: TimeEntries has no such field (issue #277), so the
+      // clause could only be dropped or rejected by Autotask — never honoured.
       if ((options as any).taskId !== undefined) {
         filters.push({ op: 'eq', field: 'taskID', value: (options as any).taskId });
       }
