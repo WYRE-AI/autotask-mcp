@@ -50,8 +50,44 @@ jobs:
       - name: Run tests
         run: npm test
 
-      - name: Test Docker build
-        run: docker build --platform linux/amd64 --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} -t autotask-mcp:test .
+  # Docker build check, one job per released architecture (issue #266).
+  #
+  # Split out of the Node matrix above, where it ran once per Node version and
+  # built the same image twice. Each architecture builds NATIVELY on its own
+  # runner rather than through QEMU: arm64 emulation is what turns a ~2 minute
+  # image build into a 30-60 minute one, and GitHub's arm64 runners are free
+  # for public repos. This gates the release build's `platforms:` at PR time,
+  # so a Dockerfile change that breaks one architecture fails here instead of
+  # after semantic-release has already cut a version.
+  docker:
+    name: Docker build (${{ matrix.platform }})
+    runs-on: ${{ matrix.runner }}
+    permissions:
+      contents: read
+      packages: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: linux/amd64
+            runner: ubuntu-latest
+          - platform: linux/arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+
+      - name: Build image for ${{ matrix.platform }}
+        run: docker build --platform ${{ matrix.platform }} --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} -t autotask-mcp:test .
+
+      # The build alone proves it compiles; this proves the result actually
+      # starts on this architecture, which is the thing #266 asked for.
+      - name: Verify the image runs on ${{ matrix.platform }}
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            --entrypoint node autotask-mcp:test \
+            -e "console.log('node ' + process.version + ' on ' + process.arch)"
 
   code-quality:
     name: Code Quality

@@ -27,10 +27,24 @@ jobs:
     # existed in this repo's hand-rolled workflow and was dropped by the
     # centralization in #183, so every release from v2.30.0 on shipped with no
     # assets while the README still pointed users at the bundle (#244).
-    uses: WYRE-AI/reusable-workflows/.github/workflows/mcp-server-release.yml@2b0b056bd7544937e5cbd56cf2e1ff8a180a411f
+    #
+    # Bumped to 697afaa for WYRE-AI/reusable-workflows#1, which adds the QEMU
+    # setup the `platforms:` input below needs. The input has always existed,
+    # but the docker job registered no binfmt handlers, so buildx could not
+    # emulate arm64 and a multi-arch request failed with "exec format error".
+    uses: WYRE-AI/reusable-workflows/.github/workflows/mcp-server-release.yml@697afaad1424f5db21c48f348f7baad9d0c9942e
     with:
       server-name: autotask-mcp
       image-name: ghcr.io/wyre-ai/autotask-mcp
+      # Publish a multi-arch manifest so the image runs on ARM hosts — Apple
+      # Silicon, Raspberry Pi, AWS Graviton, Azure Ampere (issue #266).
+      #
+      # arm64 is built under QEMU emulation, which is slow but workable here
+      # because nothing in the Dockerfile compiles: dependencies are pure JS
+      # and install with `--ignore-scripts`. Keep it that way. In particular
+      # never add `npm install -g` — npm's self-update under emulation is the
+      # difference between a ~2 minute and a 60+ minute build.
+      platforms: linux/amd64,linux/arm64
     secrets: inherit
 
   # DEPLOY TEMPORARILY DISABLED (2026-08-25 org migration fleet wave).
