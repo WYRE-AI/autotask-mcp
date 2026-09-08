@@ -651,29 +651,10 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating time entry:', timeEntry);
-
-      // Ticket-scoped
-      if (timeEntry.ticketID) {
-        const id = await http.childCreate('Tickets', timeEntry.ticketID, 'TimeEntries', timeEntry);
-        this.logger.info(`Time entry created with ID: ${id}`);
-        return id;
-      }
-      // Task-scoped
-      if (timeEntry.taskID) {
-        const id = await http.childCreate('Tasks', timeEntry.taskID, 'TimeEntries', timeEntry);
-        this.logger.info(`Time entry created with ID: ${id}`);
-        return id;
-      }
-      // Project-scoped
-      if (timeEntry.projectID) {
-        const id = await http.childCreate('Projects', timeEntry.projectID, 'TimeEntries', timeEntry);
-        this.logger.info(`Time entry created with ID: ${id}`);
-        return id;
-      }
-      // Regular (no parent — meetings, admin, etc.)
-      // Autotask accepts a POST /TimeEntries with no parent for regular entries.
+      
+      // Payload with a ticketID or taskID will be logged against that Ticker or Task, or as "regular time" otherwise
       const id = await http.create('TimeEntries', timeEntry);
-      this.logger.info(`Regular time entry created with ID: ${id}`);
+      this.logger.info(`Time entry created with ID: ${id}`);
       return id;
     } catch (error) {
       this.logger.error('Failed to create time entry:', error);
