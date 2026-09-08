@@ -181,6 +181,7 @@ export interface AutotaskTask {
   title?: string;
   description?: string;
   assignedResourceID?: number;
+  assignedResourceRoleID?: number;
   status?: number;
   priority?: number;
   startDate?: string;
