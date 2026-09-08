@@ -1007,19 +1007,19 @@ export class AutotaskToolHandler {
               if (t === null) {
                 throw new Error(`No Ticket found matching "${a.ticketID}"`);
               }
-              if (t.assignedResourceID === undefined) {
-                throw new Error(`No "assignedResourceID" found for Ticket "${a.ticketID}" and no roleID provided`);
+              if (t.assignedResourceRoleID === undefined) {
+                throw new Error(`No "assignedResourceRoleID" found for Ticket "${a.ticketID}" and no roleID provided`);
               }
-              a.roleID = t.assignedResourceID;
+              a.roleID = t.assignedResourceRoleID;
             } else {
               const t = await s.getTask(a.taskID);
               if (t === null) {
                 throw new Error(`No Task found matching "${a.taskID}"`);
               }
-              if (t.assignedResourceID === undefined) {
-                throw new Error(`No "assignedResourceID" found for Task "${a.taskID}" and no roleID provided`);
+              if (t.assignedResourceRoleID === undefined) {
+                throw new Error(`No "assignedResourceRoleID" found for Task "${a.taskID}" and no roleID provided`);
               }
-              a.roleID = t.assignedResourceID;
+              a.roleID = t.assignedResourceRoleID;
             }
           }
         }
