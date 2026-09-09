@@ -752,7 +752,7 @@ export class AutotaskService {
       const results = await http.query<{ id: number; name: string }>(
         'BillingCodes',
         [
-          { op: 'eq', field: 'useType', value: 1 },
+          { op: 'eq', field: 'useType', value: 3 },
           { op: 'eq', field: 'isActive', value: true },
           { op: 'eq', field: 'name', value: name }
         ],
