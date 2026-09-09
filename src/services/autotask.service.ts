@@ -770,7 +770,7 @@ export class AutotaskService {
 
   /**
    * Return the list of internal (non-customer-facing) billing code names.
-   * Queries BillingCodes with useType = 1 (Internal Allocation Code).
+   * Queries BillingCodes with useType = 3 (Regular (Internal) Time).
    */
   async getInternalBillingCodeNames(): Promise<string[]> {
     const http = await this.ensureClient();
@@ -778,7 +778,7 @@ export class AutotaskService {
       const codes = await http.query<{ name: string }>(
         'BillingCodes',
         [
-          { op: 'eq', field: 'useType', value: 1 },
+          { op: 'eq', field: 'useType', value: 3 },
           { op: 'eq', field: 'isActive', value: true }
         ],
         { maxRecords: 500 }
@@ -789,14 +789,18 @@ export class AutotaskService {
       throw error;
     }
   }
-
+  
+  /**
+   * Resolves an internal billing code by name.
+   * Queries BillingCodes with useType = 3 (Regular (Internal) Time)
+   */
   async resolveInternalBillingCodeByName(name: string): Promise<{ id: number; name: string } | null> {
     const http = await this.ensureClient();
     try {
       const results = await http.query<{ id: number; name: string }>(
         'BillingCodes',
         [
-          { op: 'eq', field: 'useType', value: 1 },
+          { op: 'eq', field: 'useType', value: 3 },
           { op: 'eq', field: 'isActive', value: true },
           { op: 'eq', field: 'name', value: name }
         ],
