@@ -8,5 +8,5 @@ on:
 
 jobs:
   call:
-    uses: wyre-technology/.github/.github/workflows/auto-add-to-project.yml@c3314c1065f78adf905a815ad214c71266913771  # pinned (warden C-4) — bump via PR not in-place edit
+    uses: wyre-technology/.github/.github/workflows/auto-add-to-project.yml@692c0d01979dfe2a2738d71dbf20a3b47a3bb014  # pinned (warden C-4) — bump via PR not in-place edit
     secrets: inherit
