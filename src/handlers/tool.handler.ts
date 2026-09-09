@@ -33,6 +33,7 @@ const TICKET_WRITABLE_FIELDS = [
   'assignedResourceID',
   'contactID',
   'queueID',
+  'dueDateTime',
   'ticketCategory',
   'ticketType',
   'issueType',

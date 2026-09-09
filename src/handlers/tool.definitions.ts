@@ -586,6 +586,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Queue ID to route the ticket to. Use autotask_list_queues to discover valid IDs.'
         },
+        dueDateTime: {
+          type: 'string',
+          description: 'Due date and time in ISO 8601 format (e.g. 2026-03-15T17:00:00Z). Autotask REQUIRES this on every new ticket unless the ticket category (or the API user\'s default category) supplies a default due date and time — without it the API answers "dueDateTime is required".'
+        },
         ticketCategory: {
           type: 'number',
           description: 'Ticket category ID (picklist). Use autotask_get_field_info with entityType "Tickets" and fieldName "ticketCategory" to discover valid values.'
