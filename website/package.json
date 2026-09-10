@@ -11,7 +11,12 @@
   },
   "dependencies": {
     "@astrojs/starlight": "^0.41.8",
-    "astro": "^7.2.6",
-    "sharp": "^0.35.3"
+    "astro": "^7.2.8",
+    "sharp": "^0.35.4"
+  },
+  "overrides": {
+    "js-yaml": "^4.3.2",
+    "smol-toml": "^1.7.1",
+    "svgo": "^4.1.0"
   }
 }
