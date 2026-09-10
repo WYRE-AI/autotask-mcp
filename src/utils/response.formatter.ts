@@ -22,7 +22,7 @@ export interface CompactResponse {
  * These are the minimum fields needed for identification and triage.
  */
 const SUMMARY_FIELDS: Record<EntityType, string[]> = {
-  tickets: ['id', 'ticketNumber', 'title', 'status', 'priority', 'companyID', 'assignedResourceID', 'createDate', 'dueDateTime'],
+  tickets: ['id', 'ticketNumber', 'title', 'status', 'priority', 'companyID', 'assignedResourceID', 'assignedResourceRoleID', 'createDate', 'dueDateTime'],
   companies: ['id', 'companyName', 'isActive', 'phone', 'city', 'state'],
   contacts: ['id', 'firstName', 'lastName', 'emailAddress', 'companyID'],
   projects: ['id', 'projectName', 'status', 'companyID', 'projectLeadResourceID', 'startDate', 'endDate'],
@@ -30,7 +30,7 @@ const SUMMARY_FIELDS: Record<EntityType, string[]> = {
   resources: ['id', 'firstName', 'lastName', 'email', 'isActive'],
   billingItems: ['id', 'itemName', 'companyID', 'ticketID', 'projectID', 'postedDate', 'totalAmount', 'invoiceID', 'billingItemType'],
   billingItemApprovalLevels: ['id', 'timeEntryID', 'approvalLevel', 'approvalResourceID', 'approvalDateTime'],
-  timeEntries: ['id', 'resourceID', 'ticketID', 'taskID', 'dateWorked', 'hoursWorked', 'summaryNotes'],
+  timeEntries: ['id', 'resourceID', 'roleID', 'ticketID', 'taskID', 'dateWorked', 'hoursWorked', 'summaryNotes'],
 };
 
 /**
