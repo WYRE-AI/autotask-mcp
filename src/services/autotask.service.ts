@@ -50,7 +50,10 @@ import {
   AutotaskServiceCall,
   AutotaskServiceCallTicket,
   AutotaskServiceCallTicketResource,
-  AutotaskPhase
+  AutotaskPhase,
+  AutotaskResourceRole,
+  AutotaskRole,
+  AutotaskResourceRoleSummary
 } from '../types/autotask';
 import { McpServerConfig } from '../types/mcp';
 import { Logger } from '../utils/logger';
@@ -902,6 +905,96 @@ export class AutotaskService {
       this.logger.error(`Failed to get resource ${id}:`, error);
       throw error;
     }
+  }
+
+  /**
+   * The billing roles a resource holds (Autotask ResourceRoles joined to
+   * Roles for the names). Active assignments only unless asked otherwise.
+   *
+   * Two queries, both filtered: never an enumeration of every role in the
+   * tenant.
+   */
+  async searchResourceRoles(resourceId: number, includeInactive = false): Promise<AutotaskResourceRoleSummary[]> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Searching roles for resource ${resourceId}`);
+      const filters: QueryFilter[] = [{ op: 'eq', field: 'resourceID', value: resourceId }];
+      if (!includeInactive) {
+        filters.push({ op: 'eq', field: 'isActive', value: true });
+      }
+      const assignments = await http.query<AutotaskResourceRole>('ResourceRoles', filters, { maxRecords: 100 });
+      if (assignments.length === 0) {
+        return [];
+      }
+      const roleIds = [...new Set(assignments.map(a => a.roleID))];
+      const roles = await http.query<AutotaskRole>(
+        'Roles',
+        [{ op: 'in', field: 'id', value: roleIds }],
+        { maxRecords: Math.max(roleIds.length, 1) }
+      );
+      const byId = new Map(roles.map(r => [r.id, r]));
+      // One row per ROLE, not per assignment: Autotask holds a ResourceRoles
+      // row per (resource, role, department/queue), so a person with one role
+      // across five queues comes back five times — and would otherwise look
+      // like five roles to choose between. The first assignment's department
+      // and rate are kept as representative.
+      const summaries: AutotaskResourceRoleSummary[] = [];
+      const seen = new Set<number>();
+      for (const a of assignments) {
+        if (seen.has(a.roleID)) {
+          continue;
+        }
+        seen.add(a.roleID);
+        summaries.push({
+          roleID: a.roleID,
+          roleName: byId.get(a.roleID)?.name ?? `Role ${a.roleID}`,
+          resourceID: a.resourceID,
+          isActive: a.isActive !== false,
+          departmentID: a.departmentID,
+          hourlyRate: a.hourlyRate,
+        });
+      }
+      this.logger.info(`Retrieved ${summaries.length} roles for resource ${resourceId}`);
+      return summaries;
+    } catch (error) {
+      this.logger.error(`Failed to search roles for resource ${resourceId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * The one roleID to use for a resource: their only active role, or the
+   * active role whose name matches `roleName`. Anything ambiguous is refused
+   * with the resource's roles spelled out (name and id), so the caller can
+   * choose by name next time instead of guessing an id — Autotask answers a
+   * wrong id with "Role does not exist or is invalid", which says nothing
+   * about what would have been right.
+   */
+  async resolveRoleForResource(resourceId: number, roleName?: string): Promise<number> {
+    const roles = await this.searchResourceRoles(resourceId);
+    const list = roles.map(r => `${r.roleName} (roleID ${r.roleID})`).join(', ');
+
+    if (roles.length === 0) {
+      throw new Error(`Resource ${resourceId} has no active roles in Autotask, so no roleID can be chosen for them. An Autotask administrator must assign the resource a role first.`);
+    }
+
+    const wanted = roleName?.trim().toLowerCase();
+    if (wanted) {
+      const exact = roles.filter(r => r.roleName.toLowerCase() === wanted);
+      const matches = exact.length > 0 ? exact : roles.filter(r => r.roleName.toLowerCase().includes(wanted));
+      if (matches.length === 1) {
+        return matches[0].roleID;
+      }
+      throw new Error(matches.length === 0
+        ? `Resource ${resourceId} has no active role matching "${roleName}". Their roles: ${list}.`
+        : `"${roleName}" matches more than one of resource ${resourceId}'s roles: ${matches.map(r => `${r.roleName} (roleID ${r.roleID})`).join(', ')}. Give the full role name.`);
+    }
+
+    if (roles.length === 1) {
+      return roles[0].roleID;
+    }
+
+    throw new Error(`Resource ${resourceId} holds ${roles.length} active roles and Autotask needs exactly one: ${list}. Pass roleName (or roleID) to choose.`);
   }
 
   async searchResources(options: AutotaskQueryOptions = {}): Promise<AutotaskResource[]> {

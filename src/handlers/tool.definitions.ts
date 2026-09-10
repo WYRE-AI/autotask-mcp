@@ -572,11 +572,15 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         assignedResourceID: {
           type: 'number',
-          description: 'Assigned resource ID. If set, assignedResourceRoleID is also required by Autotask.'
+          description: 'Assigned resource ID. Autotask also requires that resource\'s role: pass assignedResourceRoleID or assignedResourceRoleName, or omit both and the resource\'s only active role is used (several roles = an error naming them).'
         },
         assignedResourceRoleID: {
           type: 'number',
-          description: 'Role ID for the assigned resource. Required by Autotask when assignedResourceID is set.'
+          description: 'Role ID for the assigned resource — one of that resource\'s roles (see autotask_search_resource_roles). Resolved automatically when omitted.'
+        },
+        assignedResourceRoleName: {
+          type: 'string',
+          description: 'Name of the assigned resource\'s role, e.g. "Help Desk", used instead of assignedResourceRoleID when the resource holds several roles.'
         },
         contactID: {
           type: 'number',
@@ -679,11 +683,15 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         assignedResourceID: {
           type: 'number',
-          description: 'Assigned resource ID. If set, assignedResourceRoleID is also required by Autotask.'
+          description: 'Assigned resource ID. Autotask also requires that resource\'s role: pass assignedResourceRoleID or assignedResourceRoleName, or omit both and the resource\'s only active role is used (several roles = an error naming them).'
         },
         assignedResourceRoleID: {
           type: 'number',
-          description: 'Role ID for the assigned resource. Required by Autotask when assignedResourceID is set.'
+          description: 'Role ID for the assigned resource — one of that resource\'s roles (see autotask_search_resource_roles). Resolved automatically when omitted.'
+        },
+        assignedResourceRoleName: {
+          type: 'string',
+          description: 'Name of the assigned resource\'s role, e.g. "Help Desk", used instead of assignedResourceRoleID when the resource holds several roles.'
         },
         dueDateTime: {
           type: 'string',
@@ -906,6 +914,29 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     }
   },
 
+  {
+    name: 'autotask_search_resource_roles',
+    description: 'List the billing roles a resource (user) holds in Autotask, with names and role IDs. A ticket assigned to a resource and every ticket/task time entry need one of these role IDs; this is where to find them instead of guessing. Give resourceId or resourceName. Active roles only unless includeInactive is true.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        resourceId: {
+          type: 'number',
+          description: 'Resource (user) ID'
+        },
+        resourceName: {
+          type: 'string',
+          description: 'Resource name, e.g. "Ryan Rampersaud", resolved to a resourceId when resourceId is not given'
+        },
+        includeInactive: {
+          type: 'boolean',
+          description: 'Also list inactive role assignments (default false)'
+        }
+      }
+    },
+    annotations: { readOnlyHint: true }
+  },
+
   // Time entry tools
   {
     name: 'autotask_create_time_entry',
@@ -931,7 +962,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         roleID: {
           type: 'number',
-          description: 'Role ID associated with the time entry. Optional as this will default to ticketID.assignedResourceroleID or taskID.assignedResourceroleID for Ticket and Task time entries respectively and will be ignored for Regular Time entries. If the system setting "Allow users to modify Role when creating/editing time entries on tickets" is enabled this may be set to a different Role ID.'
+          description: 'Role ID for a ticket/task time entry — must be one of the logging resource\'s active roles (see autotask_search_resource_roles). Optional: when omitted, the parent ticket/task\'s assigned role is used if the parent is assigned to this same resource, else the resource\'s only active role; a resource with several roles must be told which one (roleName or roleID). Ignored for Regular Time.'
+        },
+        roleName: {
+          type: 'string',
+          description: 'Name of the logging resource\'s role, e.g. "Help Desk", used instead of roleID. Case-insensitive; must match exactly one of the resource\'s active roles.'
         },
         category: {
           type: 'string',
@@ -3253,7 +3288,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   resources: {
     description: 'Search for Autotask resources (technicians/staff)',
-    tools: ['autotask_search_resources']
+    tools: ['autotask_search_resources', 'autotask_search_resource_roles']
   },
   configuration_items: {
     description: 'Search configuration items (assets/devices)',
