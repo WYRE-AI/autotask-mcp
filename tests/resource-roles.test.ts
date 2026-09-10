@@ -120,6 +120,25 @@ describe('autotask_search_resource_roles', () => {
     expect(namesQuery.filter).toEqual([{ op: 'in', field: 'id', value: [501, 502] }]);
   });
 
+  test('one role held across several departments or queues is one role', async () => {
+    // Real data (Synergy, 2026-09-10): Help Desk came back five times for one
+    // resource, once per queue. Counted as assignments it would have looked
+    // like an ambiguous choice; it is a single role.
+    mockAutotask({
+      '/ResourceRoles/query': () => ({ items: [
+        { id: 1, resourceID: RYAN, roleID: 501, isActive: true, departmentID: 7 },
+        { id: 2, resourceID: RYAN, roleID: 501, isActive: true },
+        { id: 3, resourceID: RYAN, roleID: 501, isActive: true, queueID: 4 },
+      ], pageDetails: { count: 3 } }),
+      '/Roles/query': () => ({ items: [{ id: 501, name: 'Help Desk', isActive: true }], pageDetails: { count: 1 } }),
+      '/Tickets': () => ({ itemId: 19905 }),
+    });
+
+    const service = new AutotaskService(config, logger);
+    expect(await service.searchResourceRoles(RYAN)).toHaveLength(1);
+    expect(await service.resolveRoleForResource(RYAN)).toBe(501);
+  });
+
   test('resolves resourceName when no id is given', async () => {
     mockAutotask({
       '/Resources/query': () => ({ items: [{ id: RYAN, firstName: 'Ryan', lastName: 'Rampersaud', isActive: true }], pageDetails: { count: 1 } }),

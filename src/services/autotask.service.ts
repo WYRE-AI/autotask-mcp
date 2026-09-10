@@ -933,14 +933,27 @@ export class AutotaskService {
         { maxRecords: Math.max(roleIds.length, 1) }
       );
       const byId = new Map(roles.map(r => [r.id, r]));
-      const summaries = assignments.map(a => ({
-        roleID: a.roleID,
-        roleName: byId.get(a.roleID)?.name ?? `Role ${a.roleID}`,
-        resourceID: a.resourceID,
-        isActive: a.isActive !== false,
-        departmentID: a.departmentID,
-        hourlyRate: a.hourlyRate,
-      }));
+      // One row per ROLE, not per assignment: Autotask holds a ResourceRoles
+      // row per (resource, role, department/queue), so a person with one role
+      // across five queues comes back five times — and would otherwise look
+      // like five roles to choose between. The first assignment's department
+      // and rate are kept as representative.
+      const summaries: AutotaskResourceRoleSummary[] = [];
+      const seen = new Set<number>();
+      for (const a of assignments) {
+        if (seen.has(a.roleID)) {
+          continue;
+        }
+        seen.add(a.roleID);
+        summaries.push({
+          roleID: a.roleID,
+          roleName: byId.get(a.roleID)?.name ?? `Role ${a.roleID}`,
+          resourceID: a.resourceID,
+          isActive: a.isActive !== false,
+          departmentID: a.departmentID,
+          hourlyRate: a.hourlyRate,
+        });
+      }
       this.logger.info(`Retrieved ${summaries.length} roles for resource ${resourceId}`);
       return summaries;
     } catch (error) {
