@@ -2736,6 +2736,92 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     }
   },
 
+  // === Bulk ticket sweeps (one call instead of a per-ticket loop) ===
+  {
+    name: 'autotask_find_duplicate_tickets',
+    description:
+      'Find likely duplicate tickets on the open board in one call — the same issue logged twice, ' +
+      'usually because an email reply missed the ticket-number tag and spawned a new ticket. ' +
+      'Compares same-company open tickets by normalized title (RE:/FW:/[tags]/ticket numbers stripped), ' +
+      'boosted by same contact and creation-time proximity, and hard-links tickets whose text quotes ' +
+      'another open ticket\'s number. Returns clusters sorted most-urgent first (clusters with two ' +
+      'engineers assigned to the same issue come first), each with match reasons, a confidence score, ' +
+      'a recommended primary ticket to keep, and the suspected duplicates. Read-only: it changes nothing.',
+    annotations: {
+      title: 'Find duplicate tickets',
+      readOnlyHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        queueID: {
+          type: 'number',
+          description: 'Restrict the scan to one queue. Use autotask_list_queues to discover valid IDs.'
+        },
+        companyID: {
+          type: 'number',
+          description: 'Restrict the scan to one company'
+        },
+        similarityThreshold: {
+          type: 'number',
+          description: 'Pair score needed to link two tickets. Default 0.7. Lower to ~0.6 for a wider, noisier net; raise to ~0.85 for near-certain duplicates only.',
+          minimum: 0.5,
+          maximum: 1
+        },
+        maxSpreadDays: {
+          type: 'number',
+          description: 'Only pair tickets created within this many days of each other (explicit ticket-number cross-references are exempt). Keeps recurring alerts with identical titles from being flagged. Default 14; 0 disables the limit.',
+          minimum: 0,
+          maximum: 365
+        }
+      },
+      required: []
+    }
+  },
+  {
+    name: 'autotask_tickets_awaiting_response',
+    description:
+      'Answer "which open tickets are waiting on us?" for a queue or company in one call, instead of ' +
+      'reading notes ticket by ticket. Reads each candidate ticket\'s notes and decides direction by ' +
+      'author — a note written by a client contact is inbound, one written by a resource is outbound — ' +
+      'ignoring system/workflow notes, internal-only notes, and auto-replies. A ticket is awaiting us ' +
+      'only when the most recent substantive note is inbound. Narrow the scan with statusIds ' +
+      '(from autotask_list_ticket_statuses) on a large board.',
+    annotations: {
+      title: 'Tickets awaiting our response',
+      readOnlyHint: true,
+    },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        queueID: {
+          type: 'number',
+          description: 'Restrict to one queue. Use autotask_list_queues to discover valid IDs.'
+        },
+        companyID: {
+          type: 'number',
+          description: 'Restrict to one company'
+        },
+        statusIds: {
+          type: 'array',
+          items: { type: 'number' },
+          description: 'Only scan open tickets in these statuses (e.g. the tenant\'s "Customer Responded" status). Use autotask_list_ticket_statuses to discover IDs. Omit to scan every open ticket, up to maxTickets.'
+        },
+        includeReplied: {
+          type: 'boolean',
+          description: 'Also return the scanned tickets that are NOT awaiting us (we replied last). Default false.'
+        },
+        maxTickets: {
+          type: 'number',
+          description: 'Cap on how many tickets to read notes for. Default 100, max 300. The response flags truncation when more candidates exist.',
+          minimum: 1,
+          maximum: 300
+        }
+      },
+      required: []
+    }
+  },
+
   // === Meta-tools for progressive discovery (lazy loading mode) ===
   {
     name: 'autotask_list_categories',
@@ -3233,7 +3319,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   tickets: {
     description: 'Search, create, update tickets and manage ticket notes, attachments, charges, and audit history',
-    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
+    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_find_duplicate_tickets', 'autotask_tickets_awaiting_response', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
   },
   projects: {
     description: 'Search and create projects, tasks, phases, and project notes',
