@@ -2,6 +2,18 @@
 
 ### Added
 
+- **Read-only mode and a write allowlist** (`AUTOTASK_READ_ONLY`, `AUTOTASK_WRITE_ALLOWLIST`). An env-configured safe mode for operators who will not point an agent at a live PSA until they trust it. When `AUTOTASK_READ_ONLY=true` (or `1`), all 41 `autotask_{create,update,delete}_*` tools are both **hidden from `tools/list`** and **refused at dispatch** — hiding alone is not a gate, since a client can call any tool name it already knows. The indirect routes are closed too:
+  - `autotask_execute_tool` re-checks the policy against the tool it is asked to run, so a write cannot be smuggled through the meta-tool.
+  - `autotask_raw_request` (the untyped REST escape hatch) is restricted to `GET`; a `POST`/`PATCH`/`PUT`/`DELETE` — or a missing/unknown method — is refused rather than assumed to be a read.
+  - `autotask_list_categories` / `autotask_list_category_tools` omit blocked tools, and empty categories drop out, so progressive discovery never advertises an operation dispatch would deny.
+  - `autotask_router` still names the tool matching an intent but marks it `available: false` with the reason.
+
+  `AUTOTASK_WRITE_ALLOWLIST` is a comma-separated list of tool names that stay enabled, opening exactly what it names and nothing more. Allowlist entries that grant nothing (a typo, or a read tool) are logged as a startup warning. Policy lives in `src/utils/write-policy.ts`, pure and I/O-free so it can be exhaustively unit-tested; a test asserts every shipped tool is either verb-prefixed or a reviewed exception, so a future unconventionally-named mutating tool fails the suite instead of silently bypassing the gate. Also drops the exposed tool count from 108 to 67, under the 70-tool cap some clients impose. *Adapted from work by @Loffler-NOC in Loffler-NOC/autotask-mcp.*
+
+- **`autotask_find_duplicate_tickets`** — one-call duplicate sweep over an open board, instead of a per-ticket read loop from the model side. Clusters same-company open tickets by normalized title (`RE:`/`FW:`/`[tags]`/ticket numbers stripped), boosted by shared contact and creation-time proximity, and hard-links tickets whose text quotes another open ticket's number. Returns clusters sorted most-urgent first — those with two engineers already assigned to the same issue lead — each with match reasons, a confidence score, a recommended primary to keep, and the suspected duplicates. Tunable via `similarityThreshold` and `maxSpreadDays` (which keeps recurring alerts with identical titles from being flagged). Read-only. *Adapted from work by @Loffler-NOC in Loffler-NOC/autotask-mcp.*
+
+- **`autotask_tickets_awaiting_response`** — answers "which open tickets are waiting on us?" for a queue or company in one call. Reads each candidate's notes and decides direction by author (a note by a client contact is inbound, one by a resource is outbound), ignoring system/workflow notes, internal-only notes, and auto-replies; a ticket is awaiting us only when the most recent substantive note is inbound. Results sort oldest-wait-first. Scope with `statusIds`, cap with `maxTickets` (default 100, max 300), and the response flags truncation when more candidates exist. Read-only. *Adapted from work by @Loffler-NOC in Loffler-NOC/autotask-mcp.*
+
 - **Contract service lines and billed units (read-only)**. Five tools close the gap between a contract header and what is actually invoiced:
   - `autotask_search_contract_services` / `autotask_search_contract_service_bundles` — the service and bundle line items on a contract, with contract-specific unit price.
   - `autotask_search_contract_service_units` / `autotask_search_contract_service_bundle_units` — the billed quantity and price per line over a date range, defaulting to rows active today.

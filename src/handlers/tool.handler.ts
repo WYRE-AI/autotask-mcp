@@ -9,6 +9,8 @@ import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
+import { findDuplicateClusters } from '../utils/duplicates.js';
+import { WritePolicy } from '../utils/write-policy.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
 import { buildTicketCard } from './card.builder.js';
 
@@ -95,12 +97,17 @@ export class AutotaskToolHandler {
   private mappingService: MappingService | null = null;
   private lazyLoading: boolean;
   private enhanceConcurrency: number;
+  private writePolicy: WritePolicy;
 
   constructor(autotaskService: AutotaskService, logger: Logger, lazyLoading = false) {
     this.autotaskService = autotaskService;
     this.logger = logger;
     this.lazyLoading = lazyLoading;
     this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
+    // Read-only mode is process-wide config, so it is read here rather than
+    // threaded through the constructor (this handler is rebuilt per request in
+    // gateway mode). AutotaskMcpServer logs the resolved policy once at startup.
+    this.writePolicy = WritePolicy.fromEnv();
     this.picklistCache = new PicklistCache(
       logger,
       (entityType) => this.autotaskService.getFieldInfo(entityType)
@@ -796,8 +803,11 @@ export class AutotaskToolHandler {
       this.logger.debug(`Lazy loading mode: exposing ${metaTools.length} meta-tools (${TOOL_DEFINITIONS.length} total available)`);
       return metaTools;
     }
-    this.logger.debug(`Listed ${TOOL_DEFINITIONS.length} available tools`);
-    return TOOL_DEFINITIONS;
+    // In read-only mode, write tools are hidden as well as refused, so the
+    // model never sees a mutating operation it would only be denied.
+    const tools = TOOL_DEFINITIONS.filter(t => !this.writePolicy.blocks(t.name));
+    this.logger.debug(`Listed ${tools.length} available tools${this.writePolicy.readOnly ? ' (read-only)' : ''}`);
+    return tools;
   }
 
   /**
@@ -1491,14 +1501,214 @@ export class AutotaskToolHandler {
         return { result: r, message: `Found ${r.length} time entries` };
       }],
 
-      // Meta-tools for progressive discovery
+      // Bulk ticket sweeps. Both answer a board-wide question in one call;
+      // done from the model side they need a request per ticket, which burns
+      // the client's orchestration budget and returns a partial answer.
+      ['autotask_find_duplicate_tickets', async (a) => {
+        const openTickets = await s.searchTickets({
+          queueID: a.queueID,
+          companyID: a.companyID,
+          pageSize: 500,
+        });
+
+        const maxSpreadDays = typeof a.maxSpreadDays === 'number' ? a.maxSpreadDays : 14;
+        const { clusters, pairsCompared } = findDuplicateClusters(openTickets, {
+          threshold: a.similarityThreshold,
+          maxSpreadHours: maxSpreadDays * 24,
+        });
+
+        // Status labels so rows read "In Progress", not "8". Cosmetic — a
+        // picklist failure must not sink the scan.
+        const statusLabels = new Map<number, string>();
+        try {
+          for (const status of await this.picklistCache.getTicketStatuses()) {
+            statusLabels.set(Number(status.value), String(status.label));
+          }
+        } catch { /* proceed without labels */ }
+
+        // Resolve company/resource names once across every clustered ticket,
+        // then regroup by cluster.
+        const flat = clusters.flatMap((cluster, index) => cluster.tickets.map(t => ({
+          _cluster: index,
+          ticketId: t.id,
+          ticketNumber: t.ticketNumber,
+          title: t.title,
+          status: t.status,
+          statusLabel: statusLabels.get(Number(t.status)),
+          companyID: t.companyID,
+          contactID: t.contactID,
+          assignedResourceID: t.assignedResourceID ?? null,
+          createDate: t.createDate,
+          lastActivityDate: t.lastActivityDate,
+        })));
+        const rowsByCluster = new Map<number, any[]>();
+        for (const row of await this.enhanceItems(flat)) {
+          const { _cluster, ...rest } = row;
+          rowsByCluster.set(_cluster, [...(rowsByCluster.get(_cluster) ?? []), rest]);
+        }
+
+        const duplicateClusters = clusters.map((cluster, index) => {
+          const rows = rowsByCluster.get(index) ?? [];
+          const primary = rows.find(r => r.ticketId === cluster.recommendedPrimaryId) ?? rows[0];
+          const duplicates = rows.filter(r => r !== primary);
+          return {
+            confidence: Math.round(cluster.confidence * 100) / 100,
+            multipleEngineers: cluster.multipleEngineers,
+            engineersInvolved: [...new Set(rows.map(r => r.assignedTo).filter(Boolean))],
+            reasons: cluster.reasons,
+            recommendedPrimary: primary,
+            suspectedDuplicates: duplicates,
+            howToConsolidate:
+              `After confirming these are the same issue: copy any unique detail onto ` +
+              `${primary?.ticketNumber ?? 'the primary'}, then close ` +
+              `${duplicates.map(d => d.ticketNumber).join(', ')} with autotask_update_ticket ` +
+              `(status Complete, resolution referencing ${primary?.ticketNumber ?? 'the primary'})` +
+              (cluster.multipleEngineers ? ', and agree which engineer keeps it — more than one is assigned right now' : '') + '.',
+          };
+        });
+
+        const multiEngineer = duplicateClusters.filter(c => c.multipleEngineers).length;
+        const scope = a.queueID != null ? `queue ${a.queueID}` : a.companyID != null ? `company ${a.companyID}` : 'all open tickets';
+        const capped = openTickets.length >= 500;
+        const result = {
+          duplicateClusters,
+          counts: {
+            clusters: duplicateClusters.length,
+            ticketsInClusters: duplicateClusters.reduce((n, c) => n + 1 + c.suspectedDuplicates.length, 0),
+            multiEngineerClusters: multiEngineer,
+            openTicketsScanned: openTickets.length,
+            pairsCompared,
+          },
+          ...(capped
+            ? { possiblyIncomplete: 'Open-ticket fetch hit the 500-ticket page cap — scope by queueID or companyID for a complete scan.' }
+            : {}),
+        };
+        return {
+          result,
+          message:
+            `${duplicateClusters.length} likely duplicate group(s) among ${openTickets.length} open tickets in ${scope}` +
+            (multiEngineer ? ` — ${multiEngineer} group(s) have multiple engineers assigned to the same issue` : '') +
+            (capped ? ' (scan may be incomplete: 500-ticket cap hit)' : '') + '.',
+        };
+      }],
+
+      ['autotask_tickets_awaiting_response', async (a) => {
+        const maxTickets = Math.min(a.maxTickets || 100, 300);
+        const statusIds: number[] | null = Array.isArray(a.statusIds) && a.statusIds.length > 0
+          ? a.statusIds.map(Number)
+          : null;
+
+        const openTickets = await s.searchTickets({
+          queueID: a.queueID,
+          companyID: a.companyID,
+          pageSize: 500,
+        });
+        const candidates = statusIds
+          ? openTickets.filter(t => statusIds.includes(Number(t.status)))
+          : openTickets;
+        const truncated = candidates.length > maxTickets;
+
+        // A note written by a client contact is inbound; one written by a
+        // resource is outbound. Automated notes and internal-only work notes
+        // are neither — counting them would hide a client still waiting.
+        const isAutomated = (note: any): boolean => {
+          // 2 = Service Desk Notification, 13 = Workflow Rule.
+          if (note.noteType === 2 || note.noteType === 13) return true;
+          if (/^\s*(automatic reply|auto-?reply|undeliverable|out of office|read:)/i.test(String(note.title ?? ''))) return true;
+          return /out of office|automatic reply|this is an automated/i.test(String(note.description ?? ''));
+        };
+        const directionOf = (note: any): 'inbound' | 'outbound' | null => {
+          if (isAutomated(note)) return null;
+          if (note.createdByContactID != null) return 'inbound';
+          // publish 2 = Internal Users Only.
+          if (note.publish === 2) return null;
+          if (note.creatorResourceID != null || note.createdByResourceID != null) return 'outbound';
+          return null;
+        };
+        const noteDate = (note: any): string => String(note.createDateTime || note.createDate || '');
+
+        const settled = await mapWithConcurrency(
+          candidates.slice(0, maxTickets),
+          this.enhanceConcurrency,
+          async (ticket: any) => {
+            const notes = await s.searchTicketNotes(ticket.id, { pageSize: 100 }).catch(() => [] as any[]);
+            let lastInbound: any = null;
+            let lastOutbound: any = null;
+            let substantiveNoteCount = 0;
+            for (const note of notes) {
+              const direction = directionOf(note);
+              if (!direction) continue;
+              substantiveNoteCount++;
+              if (direction === 'inbound') {
+                if (!lastInbound || noteDate(note) > noteDate(lastInbound)) lastInbound = note;
+              } else if (!lastOutbound || noteDate(note) > noteDate(lastOutbound)) {
+                lastOutbound = note;
+              }
+            }
+            return {
+              ticketId: ticket.id,
+              ticketNumber: ticket.ticketNumber,
+              title: ticket.title,
+              status: ticket.status,
+              companyID: ticket.companyID,
+              assignedResourceID: ticket.assignedResourceID ?? null,
+              awaitingResponse: !!lastInbound && (!lastOutbound || noteDate(lastInbound) > noteDate(lastOutbound)),
+              lastInbound: lastInbound
+                ? {
+                    date: noteDate(lastInbound),
+                    contactID: lastInbound.createdByContactID ?? null,
+                    snippet: String(lastInbound.description ?? '').replace(/\s+/g, ' ').slice(0, 200),
+                  }
+                : null,
+              lastOutboundDate: lastOutbound ? noteDate(lastOutbound) : null,
+              substantiveNoteCount,
+            };
+          }
+        );
+        const scanned = settled
+          .filter((r): r is PromiseFulfilledResult<any> => r.status === 'fulfilled')
+          .map(r => r.value);
+
+        // Oldest wait first — the most overdue at the top.
+        const awaitingResponse = await this.enhanceItems(scanned.filter(r => r.awaitingResponse));
+        awaitingResponse.sort((x: any, y: any) =>
+          String(x.lastInbound?.date ?? '~').localeCompare(String(y.lastInbound?.date ?? '~')));
+
+        const result: Record<string, any> = {
+          awaitingResponse,
+          counts: {
+            awaitingResponse: awaitingResponse.length,
+            ticketsScanned: scanned.length,
+            candidates: candidates.length,
+            openTicketsConsidered: openTickets.length,
+          },
+          statusIds: statusIds ?? 'all-open',
+          truncated,
+        };
+        if (a.includeReplied === true) {
+          result.repliedLast = await this.enhanceItems(scanned.filter(r => !r.awaitingResponse));
+        }
+
+        const scope = a.queueID != null ? `queue ${a.queueID}` : a.companyID != null ? `company ${a.companyID}` : 'all open tickets';
+        const cap = truncated ? ` (capped at ${maxTickets} of ${candidates.length} candidates — raise maxTickets to scan more)` : '';
+        return {
+          result,
+          message: `${awaitingResponse.length} ticket(s) awaiting our response in ${scope}; scanned ${scanned.length}${cap}.`,
+        };
+      }],
+
+      // Meta-tools for progressive discovery. These hide blocked write tools
+      // too, so discovery never surfaces an operation dispatch would refuse.
       ['autotask_list_categories', async () => {
-        const categories = Object.entries(TOOL_CATEGORIES).map(([name, cat]) => ({
-          name,
-          description: cat.description,
-          toolCount: cat.tools.length,
-        }));
-        return { result: categories, message: `Found ${categories.length} tool categories with ${Object.values(TOOL_CATEGORIES).reduce((sum, c) => sum + c.tools.length, 0)} total tools` };
+        const categories = Object.entries(TOOL_CATEGORIES)
+          .map(([name, cat]) => ({
+            name,
+            description: cat.description,
+            toolCount: cat.tools.filter(t => !this.writePolicy.blocks(t)).length,
+          }))
+          .filter(cat => cat.toolCount > 0);
+        const total = categories.reduce((sum, c) => sum + c.toolCount, 0);
+        return { result: categories, message: `Found ${categories.length} tool categories with ${total} total tools` };
       }],
       ['autotask_list_category_tools', async (a) => {
         const category = TOOL_CATEGORIES[a.category];
@@ -1506,12 +1716,16 @@ export class AutotaskToolHandler {
           const available = Object.keys(TOOL_CATEGORIES).join(', ');
           throw new Error(`Unknown category "${a.category}". Available: ${available}`);
         }
-        const tools = TOOL_DEFINITIONS.filter(t => category.tools.includes(t.name));
+        const tools = TOOL_DEFINITIONS.filter(
+          t => category.tools.includes(t.name) && !this.writePolicy.blocks(t.name)
+        );
         return { result: tools, message: `Found ${tools.length} tools in "${a.category}" category` };
       }],
       ['autotask_execute_tool', async (a) => {
         const toolName = a.toolName;
         const toolArgs = a.arguments || {};
+        const denied = this.writePolicy.denyReason(toolName, toolArgs);
+        if (denied) throw new Error(denied);
         const handler = this.getDispatchTable().get(toolName);
         if (!handler) throw new Error(`Unknown tool: ${toolName}`);
         // Prevent recursive meta-tool calls
@@ -1523,6 +1737,12 @@ export class AutotaskToolHandler {
       ['autotask_router', async (a) => {
         const rawIntent = a.intent || '';
         const suggestion = this.routeIntent(rawIntent);
+        if (this.writePolicy.blocks(suggestion.suggestedTool)) {
+          return {
+            result: { ...suggestion, available: false, unavailableReason: this.writePolicy.denyReason(suggestion.suggestedTool) },
+            message: `Suggested tool ${suggestion.suggestedTool} is disabled in read-only mode`,
+          };
+        }
         return { result: suggestion, message: `Suggested tool: ${suggestion.suggestedTool}` };
       }],
     ]);
@@ -1572,6 +1792,11 @@ export class AutotaskToolHandler {
     this.logger.debug(`Calling tool: ${name}`, args);
 
     try {
+      // Read-only gate. Enforced here (not only in listTools) because a client
+      // can call any tool name it knows, listed or not.
+      const denied = this.writePolicy.denyReason(name, args);
+      if (denied) throw new Error(denied);
+
       const handler = this.getDispatchTable().get(name);
       if (!handler) throw new Error(`Unknown tool: ${name}`);
 
