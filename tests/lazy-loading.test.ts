@@ -166,6 +166,37 @@ describe('Decision Tree Router', () => {
   });
 });
 
+describe('Tool annotations - readOnlyHint', () => {
+  test('a representative read-only tool is annotated readOnlyHint: true', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_search_companies');
+    expect(tool).toBeDefined();
+    expect(tool!.annotations?.readOnlyHint).toBe(true);
+  });
+
+  test('a known mutating tool is NOT annotated readOnlyHint: true', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_create_ticket');
+    expect(tool).toBeDefined();
+    expect(tool!.annotations?.readOnlyHint).not.toBe(true);
+  });
+
+  test('no create/update/delete tool is ever annotated readOnlyHint: true', () => {
+    // Guards against a future sweep carelessly marking a mutating tool read-only.
+    const mutating = TOOL_DEFINITIONS.filter(t => /^autotask_(create|update|delete)_/.test(t.name));
+    expect(mutating.length).toBeGreaterThan(0);
+    for (const tool of mutating) {
+      expect(tool.annotations?.readOnlyHint).not.toBe(true);
+    }
+  });
+
+  test('generic passthrough/dispatcher tools stay unannotated (they can perform writes)', () => {
+    for (const name of ['autotask_execute_tool', 'autotask_raw_request']) {
+      const tool = TOOL_DEFINITIONS.find(t => t.name === name);
+      expect(tool).toBeDefined();
+      expect(tool!.annotations?.readOnlyHint).not.toBe(true);
+    }
+  });
+});
+
 describe('autotask_update_ticket schema', () => {
   const updateTicketTool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_update_ticket');
 

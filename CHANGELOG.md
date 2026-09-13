@@ -2,6 +2,8 @@
 
 ### Added
 
+- **`readOnlyHint` tool annotations extended to full read-only coverage.** All 63 pure-read tools (search/get/list tools, picklist and field-info lookups, `autotask_test_connection`, and the local `autotask_list_categories` / `autotask_list_category_tools` / `autotask_router` meta-tools) now carry `annotations: { readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint }` in `tools/list`. Per the MCP spec, clients that gate tool calls behind a confirmation prompt (e.g. Microsoft 365 Copilot / Copilot Studio) may skip that per-call confirmation for tools marked `readOnlyHint: true`. Every tool that creates, updates, or deletes anything — plus the generic `autotask_execute_tool` and `autotask_raw_request` passthroughs, which can dispatch to a mutating tool/endpoint — was deliberately left unannotated (or keeps its existing `readOnlyHint: false` where already present on the six destructive delete tools). `tests/lazy-loading.test.ts` pins a representative read tool as annotated, `autotask_create_ticket` as not, and asserts no `create_`/`update_`/`delete_` tool is ever marked read-only.
+
 - **Contract service lines and billed units (read-only)**. Five tools close the gap between a contract header and what is actually invoiced:
   - `autotask_search_contract_services` / `autotask_search_contract_service_bundles` — the service and bundle line items on a contract, with contract-specific unit price.
   - `autotask_search_contract_service_units` / `autotask_search_contract_service_bundle_units` — the billed quantity and price per line over a date range, defaulting to rows active today.
