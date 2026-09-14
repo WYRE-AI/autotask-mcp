@@ -74,13 +74,17 @@ const TICKET_NUMBER = /T\d{8}\.\d{4}/gi;
 // placement) with identical titles — never duplicates of each other.
 const CHILD_TICKET = /^(T\d{8}\.\d{4})\.\d+$/i;
 
-/** Parent ticket number if this is a child ticket, else null. */
+/**
+ * Return the parent ticket number when the supplied number identifies a child.
+ */
 export function parentTicketNumber(ticketNumber: string | undefined): string | null {
   const match = CHILD_TICKET.exec(String(ticketNumber ?? '').trim());
   return match ? match[1].toUpperCase() : null;
 }
 
-/** True if the raw title arrived as a reply/forward/auto-reply. */
+/**
+ * Determine whether a raw title starts with a reply, forward, or auto-reply prefix.
+ */
 export function hasReplyPrefix(title: string | undefined): boolean {
   // Look past leading noise tags: "[EXTERNAL] RE: foo" is still a reply.
   return REPLY_PREFIX.test(String(title ?? '').replace(NOISE_TAG, ' ').trimStart());
@@ -104,6 +108,9 @@ export function normalizeTitle(title: string | undefined): string {
     .trim();
 }
 
+/**
+ * Convert a normalized title into its set of non-empty comparison tokens.
+ */
 function tokenSet(normalized: string): Set<string> {
   return new Set(normalized.split(' ').filter(word => word.length > 0));
 }
@@ -127,6 +134,9 @@ export function titleSimilarity(a: string, b: string): number {
   return Math.max(dice, containment * 0.9);
 }
 
+/**
+ * Parse an optional date string into epoch milliseconds, returning null when invalid.
+ */
 function parseDate(value: string | undefined): number | null {
   const ms = value ? Date.parse(value) : NaN;
   return Number.isNaN(ms) ? null : ms;
@@ -139,12 +149,18 @@ interface PairEdge {
   reasons: string[];
 }
 
+/**
+ * Calculate the absolute creation-time gap between two tickets in hours.
+ */
 function hoursBetween(x: DuplicateCandidate, y: DuplicateCandidate): number | null {
   const dx = parseDate(x.createDate);
   const dy = parseDate(y.createDate);
   return dx !== null && dy !== null ? Math.abs(dx - dy) / 3_600_000 : null;
 }
 
+/**
+ * Score a ticket pair and describe its matching evidence when it meets the threshold.
+ */
 function scorePair(
   x: DuplicateCandidate,
   y: DuplicateCandidate,
@@ -195,7 +211,9 @@ function scorePair(
   return score >= opts.threshold ? { score, reasons } : null;
 }
 
-/** Undirected pair keys ("i:j", i < j) where one ticket quotes the other's number. */
+/**
+ * Find undirected ticket-index pairs where one ticket quotes the other's number.
+ */
 function findCrossReferences(tickets: DuplicateCandidate[]): Set<string> {
   const byNumber = new Map<string, number>();
   tickets.forEach((ticket, index) => {
@@ -212,6 +230,9 @@ function findCrossReferences(tickets: DuplicateCandidate[]): Set<string> {
   return links;
 }
 
+/**
+ * Build a stable key for an undirected pair of ticket indexes.
+ */
 function pairKey(i: number, j: number): string {
   return i < j ? `${i}:${j}` : `${j}:${i}`;
 }
@@ -224,6 +245,9 @@ class UnionFind {
     this.parent = Array.from({ length: size }, (_, i) => i);
   }
 
+  /**
+   * Find a node's representative while compressing the traversed path.
+   */
   find(x: number): number {
     let node = x;
     while (this.parent[node] !== node) {
@@ -233,6 +257,9 @@ class UnionFind {
     return node;
   }
 
+  /**
+   * Merge the sets containing the two supplied nodes.
+   */
   union(a: number, b: number): void {
     this.parent[this.find(a)] = this.find(b);
   }
