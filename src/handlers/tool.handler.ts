@@ -31,6 +31,7 @@ const TICKET_WRITABLE_FIELDS = [
   'status',
   'priority',
   'assignedResourceID',
+  'assignedResourceRoleID',
   'contactID',
   'queueID',
   'dueDateTime',
@@ -800,22 +801,43 @@ export class AutotaskToolHandler {
     return TOOL_DEFINITIONS;
   }
 
-  /**
-   * Resolve the roleID for a ticket- or task-scoped time entry from the
-   * parent's assignedResourceRoleID. Used by autotask_create_time_entry when
-   * the caller didn't supply an explicit roleID.
-   */
-  private async resolveParentRoleID(kind: 'Ticket' | 'Task', id: number): Promise<number> {
+  private async loadParent(kind: 'Ticket' | 'Task', id: number): Promise<{ assignedResourceID?: number | null; assignedResourceRoleID?: number | null }> {
     const parent = kind === 'Ticket'
       ? await this.autotaskService.getTicket(id)
       : await this.autotaskService.getTask(id);
     if (parent === null) {
       throw new Error(`No ${kind} found matching "${id}"`);
     }
-    if (parent.assignedResourceRoleID === undefined) {
-      throw new Error(`No "assignedResourceRoleID" found for ${kind} "${id}" and no roleID provided`);
+    return parent as { assignedResourceID?: number | null; assignedResourceRoleID?: number | null };
+  }
+
+  /**
+   * The roleID for a ticket/task time entry when the caller named none.
+   *
+   * The parent's assigned role is only right when the parent is assigned to
+   * the SAME resource logging the time: a roleID must be one of the entry's
+   * resource's own roles, so a ticket assigned to a colleague contributes
+   * nothing. Everything else resolves from the resource's active roles.
+   */
+  private async resolveTimeEntryRoleID(a: Record<string, any>): Promise<number> {
+    const kind: 'Ticket' | 'Task' = a.taskID ? 'Task' : 'Ticket';
+    const parent = await this.loadParent(kind, a.taskID ?? a.ticketID);
+    if (parent.assignedResourceRoleID != null && parent.assignedResourceID === a.resourceID) {
+      return parent.assignedResourceRoleID;
     }
-    return parent.assignedResourceRoleID;
+    return this.autotaskService.resolveRoleForResource(a.resourceID);
+  }
+
+  /**
+   * Autotask refuses a ticket that names an assigned resource without that
+   * resource's role. Fill the role from the resource's own assignments (or
+   * the caller's role name) so a caller need not know role ids.
+   */
+  private async fillAssignedResourceRole(payload: Record<string, any>, roleName?: string): Promise<void> {
+    if (payload.assignedResourceID == null || payload.assignedResourceRoleID != null) {
+      return;
+    }
+    payload.assignedResourceRoleID = await this.autotaskService.resolveRoleForResource(payload.assignedResourceID, roleName);
   }
 
   /**
@@ -884,12 +906,14 @@ export class AutotaskToolHandler {
       }],
       ['autotask_create_ticket', async (a) => {
         const payload = buildTicketPayload(a);
+        await this.fillAssignedResourceRole(payload, a.assignedResourceRoleName);
         const id = await s.createTicket(payload);
         return { result: id, message: `Successfully created ticket with ID: ${id}` };
       }],
       ['autotask_update_ticket', async (a) => {
         const { ticketId, ...rest } = a;
         const payload = buildTicketPayload(rest);
+        await this.fillAssignedResourceRole(payload, rest.assignedResourceRoleName);
         await s.updateTicket(ticketId, payload);
         return { result: ticketId, message: `Successfully updated ticket ${ticketId}` };
       }],
@@ -1018,14 +1042,18 @@ export class AutotaskToolHandler {
             delete a.category;
           }
         } else {
-          // for non-regular time entries a roleID must be set
-          // this defaults to ticketID.assignedResourceroleID or taskID.assignedResourceroleID but may be overridden
+          // A ticket/task time entry must carry a roleID, and it must be one
+          // of THIS resource's roles. Order: a role named by the caller; the
+          // parent's assigned role when the parent is assigned to this same
+          // resource; else the resource's own roles (their only one, or an
+          // error that lists them by name).
           if (!a.roleID) {
-            a.roleID = a.taskID
-              ? await this.resolveParentRoleID('Task', a.taskID)
-              : await this.resolveParentRoleID('Ticket', a.ticketID);
+            a.roleID = a.roleName
+              ? await s.resolveRoleForResource(a.resourceID, a.roleName)
+              : await this.resolveTimeEntryRoleID(a);
           }
         }
+        delete a.roleName;
         const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
       }],
 
@@ -1071,6 +1099,26 @@ export class AutotaskToolHandler {
       // Resources
       ['autotask_search_resources', async (a) => {
         const r = await s.searchResources(a); return { result: r, message: `Found ${r.length} resources` };
+      }],
+      ['autotask_search_resource_roles', async (a) => {
+        let resourceId: number | undefined = a.resourceId;
+        if (resourceId === undefined && a.resourceName) {
+          const resource = await s.resolveResourceByName(a.resourceName);
+          if (!resource) {
+            throw new Error(`No resource found matching "${a.resourceName}"`);
+          }
+          resourceId = resource.id;
+        }
+        if (resourceId === undefined) {
+          throw new Error('Provide resourceId or resourceName.');
+        }
+        const r = await s.searchResourceRoles(resourceId, a.includeInactive === true);
+        return {
+          result: r,
+          message: r.length === 0
+            ? `Resource ${resourceId} has no ${a.includeInactive ? '' : 'active '}roles.`
+            : `Resource ${resourceId} holds ${r.length} role(s): ${r.map(x => `${x.roleName} (roleID ${x.roleID})`).join(', ')}`
+        };
       }],
 
       // Configuration Items

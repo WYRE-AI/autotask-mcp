@@ -1,8 +1,9 @@
 // Tests for autotask_create_time_entry auto-populating roleID on non-Regular
 // (ticket- or task-scoped) time entries: it defaults to the parent's
-// assignedResourceRoleID, may be overridden by an explicit roleID, and throws
-// an actionable error when neither the override nor the parent's role is
-// available.
+// assignedResourceRoleID when the parent is assigned to the SAME resource
+// logging the time, may be overridden by an explicit roleID, falls back to the
+// resource's own active roles otherwise (see tests/resource-roles.test.ts), and
+// throws an actionable error when none of those yields a role.
 
 jest.mock('autotask-node', () => ({
   AutotaskClient: {
@@ -33,8 +34,11 @@ function makeHandler() {
   const getTicketSpy = jest.spyOn(service, 'getTicket');
   const getTaskSpy = jest.spyOn(service, 'getTask');
   const createSpy = jest.spyOn(service, 'createTimeEntry').mockResolvedValue(4242);
+  // Resource 12 holds no roles unless a test says otherwise, so the fallback
+  // to the resource's own roles is observable as its "no active roles" error.
+  const rolesSpy = jest.spyOn(service, 'searchResourceRoles').mockResolvedValue([]);
   const handler = new AutotaskToolHandler(service, logger);
-  return { service, handler, getTicketSpy, getTaskSpy, createSpy };
+  return { service, handler, getTicketSpy, getTaskSpy, createSpy, rolesSpy };
 }
 
 afterEach(() => {
@@ -44,7 +48,7 @@ afterEach(() => {
 describe('autotask_create_time_entry roleID defaulting', () => {
   test('happy path (ticket-scoped): roleID defaults from ticket.assignedResourceRoleID', async () => {
     const { handler, getTicketSpy, getTaskSpy, createSpy } = makeHandler();
-    getTicketSpy.mockResolvedValue({ id: 48231, assignedResourceRoleID: 7 } as any);
+    getTicketSpy.mockResolvedValue({ id: 48231, assignedResourceID: 12, assignedResourceRoleID: 7 } as any);
 
     const result = await handler.callTool('autotask_create_time_entry', {
       ticketID: 48231,
@@ -60,7 +64,7 @@ describe('autotask_create_time_entry roleID defaulting', () => {
 
   test('happy path (task-scoped): roleID defaults from task.assignedResourceRoleID', async () => {
     const { handler, getTicketSpy, getTaskSpy, createSpy } = makeHandler();
-    getTaskSpy.mockResolvedValue({ id: 777, assignedResourceRoleID: 9 } as any);
+    getTaskSpy.mockResolvedValue({ id: 777, assignedResourceID: 12, assignedResourceRoleID: 9 } as any);
 
     const result = await handler.callTool('autotask_create_time_entry', {
       taskID: 777,
@@ -90,8 +94,24 @@ describe('autotask_create_time_entry roleID defaulting', () => {
     expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ ticketID: 48231, roleID: 3 }));
   });
 
-  test('throws when the ticket has no assignedResourceRoleID and no roleID was provided', async () => {
-    const { handler, getTicketSpy, createSpy } = makeHandler();
+  test('a ticket assigned to someone else lends no role: the resource\'s own roles decide', async () => {
+    const { handler, getTicketSpy, createSpy, rolesSpy } = makeHandler();
+    getTicketSpy.mockResolvedValue({ id: 48231, assignedResourceID: 99, assignedResourceRoleID: 7 } as any);
+    rolesSpy.mockResolvedValue([{ roleID: 5, roleName: 'Help Desk', resourceID: 12, isActive: true }]);
+
+    const result = await handler.callTool('autotask_create_time_entry', {
+      ticketID: 48231,
+      resourceID: 12,
+      hoursWorked: 1.5,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(rolesSpy).toHaveBeenCalledWith(12);
+    expect(createSpy).toHaveBeenCalledWith(expect.objectContaining({ ticketID: 48231, roleID: 5 }));
+  });
+
+  test('throws when the ticket has no assignedResourceRoleID, no roleID was provided, and the resource has no roles', async () => {
+    const { handler, getTicketSpy, createSpy, rolesSpy } = makeHandler();
     getTicketSpy.mockResolvedValue({ id: 48231 } as any);
 
     const result = await handler.callTool('autotask_create_time_entry', {
@@ -101,14 +121,14 @@ describe('autotask_create_time_entry roleID defaulting', () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/assignedResourceRoleID/);
-    expect(result.content[0].text).toContain('Ticket');
-    expect(result.content[0].text).toContain('48231');
+    expect(rolesSpy).toHaveBeenCalledWith(12);
+    expect(result.content[0].text).toContain('no active roles');
+    expect(result.content[0].text).toContain('12');
     expect(createSpy).not.toHaveBeenCalled();
   });
 
-  test('throws when the task has no assignedResourceRoleID and no roleID was provided', async () => {
-    const { handler, getTaskSpy, createSpy } = makeHandler();
+  test('throws when the task has no assignedResourceRoleID, no roleID was provided, and the resource has no roles', async () => {
+    const { handler, getTaskSpy, createSpy, rolesSpy } = makeHandler();
     getTaskSpy.mockResolvedValue({ id: 777 } as any);
 
     const result = await handler.callTool('autotask_create_time_entry', {
@@ -118,9 +138,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
     });
 
     expect(result.isError).toBe(true);
-    expect(result.content[0].text).toMatch(/assignedResourceRoleID/);
-    expect(result.content[0].text).toContain('Task');
-    expect(result.content[0].text).toContain('777');
+    expect(rolesSpy).toHaveBeenCalledWith(12);
+    expect(result.content[0].text).toContain('no active roles');
     expect(createSpy).not.toHaveBeenCalled();
   });
 
