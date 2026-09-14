@@ -238,9 +238,54 @@ LOG_FORMAT=simple       # simple, json
 # concurrent-thread limit (raising it risks HTTP 429 "thread threshold").
 AUTOTASK_ENHANCE_CONCURRENCY=3
 
+# Read-only mode (see below). Off by default.
+# AUTOTASK_READ_ONLY=true
+# AUTOTASK_WRITE_ALLOWLIST=autotask_update_ticket,autotask_create_ticket_note
+
 # Environment
 NODE_ENV=production
 ```
+
+### Read-Only Mode
+
+`AUTOTASK_READ_ONLY=true` (or `1`) runs the server as a safe, look-but-don't-touch
+Autotask client. It is the recommended way to start: point an agent at your live
+PSA, watch what it does for a week, then open up writes deliberately.
+
+When it is on, every mutating tool — all 41 `autotask_{create,update,delete}_*`
+tools — is **hidden from `tools/list`** and **refused at dispatch**. Both halves
+matter: hiding alone would still let a client call a tool name it already knew,
+so the refusal is enforced in the dispatcher, not just the listing.
+
+The gate closes the indirect routes too:
+
+- `autotask_execute_tool` re-checks the policy against the tool it is asked to run.
+- `autotask_raw_request` — the untyped REST escape hatch — is restricted to `GET`.
+  A `POST`/`PATCH`/`PUT`/`DELETE`, or a missing method, is refused.
+- The discovery meta-tools (`autotask_list_categories`, `autotask_list_category_tools`)
+  omit blocked tools, so progressive discovery never advertises an operation
+  dispatch would deny.
+- `autotask_router` still names the tool that matches your intent, but marks it
+  `available: false` with the reason.
+
+**Re-enabling specific writes.** `AUTOTASK_WRITE_ALLOWLIST` is a comma-separated
+list of tool names that stay enabled. It opens exactly what it names and nothing
+else — allowlisting `autotask_update_ticket` does not also open
+`autotask_update_company`:
+
+```bash
+AUTOTASK_READ_ONLY=true
+# Let the agent update tickets and add notes; everything else stays read-only.
+AUTOTASK_WRITE_ALLOWLIST=autotask_update_ticket,autotask_create_ticket_note
+```
+
+Entries that name no write tool (a typo, or a read tool) grant nothing, and are
+logged as a warning at startup so the mistake surfaces immediately rather than
+the first time someone needs the write.
+
+A side benefit: read-only mode drops the exposed tool count from 108 to ~67,
+which fits under the 70-tool cap some clients impose (Copilot Studio, for one)
+and which had been silently truncating away useful read tools.
 
 ### Gateway Mode
 

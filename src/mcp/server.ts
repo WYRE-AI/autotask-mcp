@@ -25,6 +25,7 @@ import { McpServerConfig } from '../types/mcp.js';
 import { EnvironmentConfig, parseCredentialsFromHeaders, GatewayCredentials, getServerVersion } from '../utils/config.js';
 import { AutotaskResourceHandler } from '../handlers/resource.handler.js';
 import { AutotaskToolHandler } from '../handlers/tool.handler.js';
+import { WritePolicy } from '../utils/write-policy.js';
 import { registerPromptHandlers } from './prompts.js';
 import { verifyS2sHeader, S2S_HEADER } from './s2s-verify.js';
 
@@ -52,6 +53,17 @@ export class AutotaskMcpServer {
     // Initialize handlers
     this.resourceHandler = new AutotaskResourceHandler(this.autotaskService, logger);
     this.toolHandler = new AutotaskToolHandler(this.autotaskService, logger, this.lazyLoading);
+
+    // Announce the write policy once. Tool handlers are rebuilt per request in
+    // gateway mode, so this is the only place it can be logged without noise.
+    const writePolicy = WritePolicy.fromEnv();
+    logger.info(writePolicy.describe());
+    if (writePolicy.ineffective.length > 0) {
+      logger.warn(
+        `AUTOTASK_WRITE_ALLOWLIST names no write tool for: ${writePolicy.ineffective.join(', ')}. ` +
+        'Check for typos — those entries grant nothing.'
+      );
+    }
   }
 
   /**
