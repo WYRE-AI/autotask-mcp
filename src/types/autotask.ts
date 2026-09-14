@@ -383,6 +383,31 @@ export interface AutotaskTicketAttachmentCreateRequest {
   publish?: number; // 1 = All Autotask Users, 2 = Internal Users Only
 }
 
+/**
+ * Attachment on a ticket note (child of TicketNotes; the top-level
+ * TicketNoteAttachments/TicketNoteAttachment entity is the one that
+ * populates `data`). Field names verified against the live Autotask REST
+ * API's /TicketNoteAttachments/entityInformation/fields — this entity does
+ * NOT share field names with AutotaskTicketAttachment above (title/fullPath/
+ * attachDate here, not fileName/createDate).
+ */
+export interface AutotaskTicketNoteAttachment {
+  id?: number;
+  ticketID?: number;
+  ticketNoteID?: number;
+  title?: string;
+  fullPath?: string;
+  fileSize?: number;
+  contentType?: string;
+  data?: string; // Base64 encoded file data
+  attachDate?: string;
+  attachedByResourceID?: number;
+  attachedByContactID?: number;
+  attachmentType?: string;
+  publish?: number;
+  [key: string]: any;
+}
+
 export interface AutotaskExpenseReport {
   id?: number;
   name?: string;

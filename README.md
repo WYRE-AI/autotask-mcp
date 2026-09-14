@@ -359,6 +359,8 @@ The server provides 101 tools for interacting with Autotask:
 #### Attachment Operations
 - `autotask_get_ticket_attachment` - Get ticket attachment
 - `autotask_search_ticket_attachments` - Search ticket attachments
+- `autotask_get_ticket_note_attachment` - Get an attachment on a ticket note (e.g. a pasted screenshot)
+- `autotask_search_ticket_note_attachments` - Search attachments on a ticket note
 
 #### Financial Operations
 - `autotask_get_expense_report` / `autotask_search_expense_reports` / `autotask_create_expense_report`
@@ -643,7 +645,7 @@ Autotask enforces per-integration-code API thresholds on a rolling 1-hour window
 LLM-driven workflows fan out easily — "status report on all open projects with notes" can issue hundreds of requests across a few minutes. The server tries to make this safer:
 
 - **429 responses are surfaced as structured errors.** Tool results carry `error_type: "rate_limited"` and a `retry_after_seconds` field parsed from Autotask's `Retry-After` header. The error message explicitly tells the LLM **not to retry** and to ask the user to scope the query — this prevents repeated retries from extending the cooldown.
-- **Fan-out tool descriptions include rate-limit tips.** Tools that are commonly looped over (`autotask_search_ticket_notes`, `autotask_search_project_notes`, `autotask_search_company_notes`, `autotask_search_time_entries`, `autotask_search_ticket_attachments`) include a hint reminding the LLM to scope the parent record list before iterating.
+- **Fan-out tool descriptions include rate-limit tips.** Tools that are commonly looped over (`autotask_search_ticket_notes`, `autotask_search_project_notes`, `autotask_search_company_notes`, `autotask_search_time_entries`, `autotask_search_ticket_attachments`, `autotask_search_ticket_note_attachments`) include a hint reminding the LLM to scope the parent record list before iterating.
 
 ### Raising the limit
 

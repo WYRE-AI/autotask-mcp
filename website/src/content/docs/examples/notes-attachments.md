@@ -161,3 +161,43 @@ description: Example prompts for adding and searching notes and attachments.
 > "Get attachment 60001 from ticket 48231"
 
 **What happens:** The server calls `autotask_get_ticket_attachment` with `ticketId: 48231` and `attachmentId: 60001`.
+
+## Ticket Note Attachments
+
+A ticket note's `description` can be empty even when the note carries real content — a screenshot,
+scanned document, or chart pasted directly into the note in the Autotask UI shows up as an
+attachment on the **note**, not on the ticket itself. Use these tools when a note from
+`autotask_search_ticket_notes` looks unhelpfully empty.
+
+### Search attachments on a ticket note
+
+**Prompt:**
+> "Does note 55001 have any attachments?"
+
+**What happens:** The server calls `autotask_search_ticket_note_attachments` with `ticketNoteId: 55001`.
+
+**Expected output:**
+```json
+{
+  "summary": "Found 1 ticket note attachments (showing 1-1)",
+  "items": [
+    {
+      "id": 61001,
+      "attachmentType": "FILE_ATTACHMENT",
+      "fullPath": "survey_results.png",
+      "title": "Survey Results",
+      "contentType": "image/png",
+      "attachDate": "2024-01-15T09:35:00Z",
+      "ticketNoteID": 55001
+    }
+  ],
+  "total": 1
+}
+```
+
+### Get a specific note attachment
+
+**Prompt:**
+> "Get attachment 61001 from note 55001, and read the image"
+
+**What happens:** The server calls `autotask_get_ticket_note_attachment` with `ticketNoteId: 55001`, `attachmentId: 61001`, and `includeData: true` — returning the base64-encoded file bytes so the model can actually read the pasted screenshot.

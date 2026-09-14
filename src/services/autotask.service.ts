@@ -30,6 +30,7 @@ import {
   AutotaskProjectNote,
   AutotaskCompanyNote,
   AutotaskTicketAttachment,
+  AutotaskTicketNoteAttachment,
   AutotaskTicketChecklistItem,
   AutotaskTicketAttachmentCreateRequest,
   AutotaskExpenseReport,
@@ -2009,6 +2010,143 @@ export class AutotaskService {
       return attachments;
     } catch (error) {
       this.logger.error(`Failed to search ticket attachments for ticket ${ticketId}:`, error);
+      throw error;
+    }
+  }
+
+  // =====================================================
+  // Ticket Note Attachments (child of TicketNotes)
+  //
+  // Attachments/pasted images on a NOTE, not the ticket itself — closes the
+  // gap where a note's `description` is empty but the note actually carries
+  // one or more files/screenshots in the Autotask UI (autotask-mcp#297).
+  // Same top-level-populates-data / child-omits-data split as
+  // getTicketAttachment above: verified live against
+  // /TicketNoteAttachments/entityInformation/fields (field names differ from
+  // AutotaskTicketAttachment — title/fullPath/attachDate here, not
+  // fileName/createDate), but no live note with an actual attachment was
+  // available to empirically confirm the child endpoint omits `data` the
+  // same way it does for ticket attachments — the split is applied on the
+  // strength of Autotask's consistent attachment-entity design, not a
+  // second empirical reproduction.
+  // =====================================================
+
+  /**
+   * Get an attachment on a ticket note. With `includeData` false (default),
+   * hits the cheap `TicketNotes/{id}/Attachments/{id}` child endpoint and
+   * returns metadata only — it never populates `data` regardless of query
+   * parameters. With `includeData` true, hits the top-level
+   * `TicketNoteAttachments/{id}` entity (the only endpoint that populates
+   * `data`) and enforces that the attachment actually belongs to
+   * `ticketNoteId` — `ticketNoteID` is an optional field on this entity
+   * (Autotask's own field metadata marks it `isRequired: false`, since a
+   * TicketNoteAttachment-shaped row can in principle belong to a different
+   * parent), so scope is verified with strict equality against the
+   * requested id, never merely "present and different" — an omitted or
+   * non-numeric `ticketNoteID` is rejected, not passed through. Base64
+   * payloads longer than `maxInlineBase64Bytes` (default 750,000, ~560 KB
+   * raw) are stripped from the response and replaced with a
+   * `dataOmittedReason` explaining why, since an oversized inline payload
+   * can exceed a typical MCP client's tool-result size limit. Returns
+   * `null` when the attachment does not exist or does not belong to the
+   * given note.
+   */
+  async getTicketNoteAttachment(
+    ticketNoteId: number,
+    attachmentId: number,
+    options: { includeData?: boolean; maxInlineBase64Bytes?: number } = {}
+  ): Promise<(AutotaskTicketNoteAttachment & { dataOmittedReason?: string }) | null> {
+    const includeData = options.includeData ?? false;
+    const maxInlineBase64Bytes =
+      options.maxInlineBase64Bytes ?? AutotaskService.DEFAULT_MAX_INLINE_ATTACHMENT_BASE64;
+
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(
+        `Getting ticket note attachment - TicketNoteID: ${ticketNoteId}, AttachmentID: ${attachmentId}, includeData: ${includeData}`
+      );
+
+      if (!includeData) {
+        // The child endpoint never populates the `data` field — using it for
+        // the metadata-only path sidesteps the binary download entirely.
+        return await http.childGet<AutotaskTicketNoteAttachment>(
+          'TicketNotes',
+          ticketNoteId,
+          'Attachments',
+          attachmentId
+        );
+      }
+
+      // Only the top-level entity endpoint populates `data`; the child endpoint
+      // omits it regardless of any query parameters.
+      const attachment = await http.get<AutotaskTicketNoteAttachment>('TicketNoteAttachments', attachmentId);
+      if (!attachment) return null;
+
+      // The top-level endpoint accepts any attachment ID, so we have to enforce
+      // parent scope ourselves to honor the (ticketNoteId, attachmentId) contract.
+      // Fail CLOSED: ticketNoteID is documented as optional on this entity
+      // (Autotask field metadata: isRequired: false), so a row that omits it
+      // must be rejected too, not passed through because it isn't a
+      // *mismatched* number. Strict equality catches missing, non-numeric,
+      // AND mismatched values in one check — the earlier `typeof === 'number'
+      // && !==` form let an attachment with no ticketNoteID through
+      // unverified (CodeRabbit PR #300 review).
+      if (attachment.ticketNoteID !== ticketNoteId) {
+        this.logger.warn(
+          `Ticket note attachment ${attachmentId} does not belong to note ${ticketNoteId} (ticketNoteID: ${attachment.ticketNoteID ?? 'missing'}). Returning null.`
+        );
+        return null;
+      }
+
+      // Oversized binaries arrive truncated/garbled at the MCP client. Strip
+      // and surface a reason so the caller knows to fetch out-of-band rather
+      // than wondering why the response is broken.
+      if (typeof attachment.data === 'string' && attachment.data.length > maxInlineBase64Bytes) {
+        const decodedBytes = Buffer.byteLength(attachment.data, 'base64');
+        const reason =
+          `Attachment data omitted: base64 length ${attachment.data.length} bytes ` +
+          `(${decodedBytes} bytes decoded) exceeds inline limit of ${maxInlineBase64Bytes} bytes. ` +
+          `Fetch directly from Autotask, or call again with a larger maxInlineBase64Bytes (caveat: ` +
+          `the MCP client may reject the oversized response).`;
+        this.logger.warn(
+          `getTicketNoteAttachment: stripping oversized data for attachment ${attachmentId} (${attachment.data.length} base64 bytes)`
+        );
+        const { data: _omitted, ...rest } = attachment;
+        return { ...rest, dataOmittedReason: reason };
+      }
+
+      return attachment;
+    } catch (error) {
+      this.logger.error(`Failed to get ticket note attachment ${attachmentId} for note ${ticketNoteId}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * List attachment metadata for a ticket note (child of TicketNotes). Never
+   * returns `data` — use getTicketNoteAttachment with includeData:true for
+   * that. `options.pageSize` caps the result count (default 10, max
+   * enforced by AUTOTASK_MAX_PAGE_SIZE via childQuery). Each call scopes to
+   * one note; the caller must iterate per note, not per ticket.
+   */
+  async searchTicketNoteAttachments(
+    ticketNoteId: number,
+    options: AutotaskQueryOptionsExtended = {}
+  ): Promise<AutotaskTicketNoteAttachment[]> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Searching ticket note attachments for note ${ticketNoteId}:`, options);
+      const attachments = await http.childQuery<AutotaskTicketNoteAttachment>(
+        'TicketNotes',
+        ticketNoteId,
+        'Attachments',
+        MATCH_ALL,
+        { maxRecords: options.pageSize || 10 }
+      );
+      this.logger.info(`Retrieved ${attachments.length} ticket note attachments`);
+      return attachments;
+    } catch (error) {
+      this.logger.error(`Failed to search ticket note attachments for note ${ticketNoteId}:`, error);
       throw error;
     }
   }

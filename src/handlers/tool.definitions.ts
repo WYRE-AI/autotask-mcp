@@ -1547,6 +1547,56 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       required: ['ticketId']
     }
   },
+
+  // Ticket Note Attachments tools
+  {
+    name: 'autotask_get_ticket_note_attachment',
+    description: 'Get an attachment on a ticket NOTE (e.g. a pasted screenshot or file inside an internal note — distinct from attachments on the ticket itself). With includeData=false (default) returns metadata only — fast, suitable for browsing. With includeData=true returns the base64 binary content via the top-level /TicketNoteAttachments/{id} endpoint (the child endpoint never populates data). The attachment is verified to belong to the given ticketNoteId. Oversized binaries are stripped from the response with a dataOmittedReason field — Autotask attachments can be up to 3 MB, which is ~4 MB as base64 and may exceed the MCP client tool-result limit (~1 MB).',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketNoteId: {
+          type: 'number',
+          description: 'The ticket note ID the attachment belongs to (from autotask_search_ticket_notes)'
+        },
+        attachmentId: {
+          type: 'number',
+          description: 'The attachment ID to retrieve'
+        },
+        includeData: {
+          type: 'boolean',
+          description: 'Set true to fetch the base64-encoded file bytes. Default false returns metadata only.',
+          default: false
+        },
+        maxInlineBase64Bytes: {
+          type: 'number',
+          description: 'Cap on base64 string length before data is stripped (default 750_000, ~560 KB raw). Only relevant when includeData=true. Raise carefully — your MCP client may reject oversized tool results.',
+          minimum: 1024
+        }
+      },
+      required: ['ticketNoteId', 'attachmentId']
+    }
+  },
+  {
+    name: 'autotask_search_ticket_note_attachments',
+    description: 'Search for attachments on a specific ticket note — use this when autotask_search_ticket_notes returns a note with an empty or unhelpful `description`, since the real content is often a pasted image or file living on the note rather than in its text. Each note triggers a separate query — scope the parent note list before iterating.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ticketNoteId: {
+          type: 'number',
+          description: 'The ticket note ID to search attachments for (from autotask_search_ticket_notes)'
+        },
+        pageSize: {
+          type: 'number',
+          description: 'Number of results to return (default: 10, max: 50)',
+          minimum: 1,
+          maximum: 50
+        }
+      },
+      required: ['ticketNoteId']
+    }
+  },
   {
     name: 'autotask_create_ticket_attachment',
     description:
@@ -3268,7 +3318,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   tickets: {
     description: 'Search, create, update tickets and manage ticket notes, attachments, charges, and audit history',
-    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
+    tools: ['autotask_search_tickets', 'autotask_get_ticket_details', 'autotask_create_ticket', 'autotask_update_ticket', 'autotask_get_ticket_note', 'autotask_search_ticket_notes', 'autotask_create_ticket_note', 'autotask_get_ticket_attachment', 'autotask_search_ticket_attachments', 'autotask_create_ticket_attachment', 'autotask_get_ticket_note_attachment', 'autotask_search_ticket_note_attachments', 'autotask_get_ticket_charge', 'autotask_search_ticket_charges', 'autotask_create_ticket_charge', 'autotask_update_ticket_charge', 'autotask_delete_ticket_charge', 'autotask_get_ticket_history', 'autotask_search_ticket_history']
   },
   projects: {
     description: 'Search and create projects, tasks, phases, and project notes',
