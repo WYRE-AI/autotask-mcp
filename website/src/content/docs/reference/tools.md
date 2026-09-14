@@ -83,6 +83,8 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 |------|-------------|----------------|
 | `autotask_get_ticket_attachment` | Get a ticket attachment | `ticketId`, `attachmentId` (both required) |
 | `autotask_search_ticket_attachments` | Search attachments on a ticket | `ticketId` (required) |
+| `autotask_get_ticket_note_attachment` | Get an attachment on a ticket note (e.g. a pasted screenshot) | `ticketNoteId`, `attachmentId` (both required) |
+| `autotask_search_ticket_note_attachments` | Search attachments on a ticket note | `ticketNoteId` (required) |
 
 ## Financial
 

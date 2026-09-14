@@ -1246,6 +1246,20 @@ export class AutotaskToolHandler {
       ['autotask_search_ticket_attachments', async (a) => {
         const r = await s.searchTicketAttachments(a.ticketId, { pageSize: a.pageSize }); return { result: r, message: `Found ${r.length} ticket attachments` };
       }],
+      ['autotask_get_ticket_note_attachment', async (a) => {
+        const r = await s.getTicketNoteAttachment(a.ticketNoteId, a.attachmentId, {
+          includeData: a.includeData,
+          maxInlineBase64Bytes: a.maxInlineBase64Bytes,
+        });
+        if (!r) return { result: null, message: `No ticket note attachment found with ID ${a.attachmentId} on note ${a.ticketNoteId}` };
+        const message = r.dataOmittedReason
+          ? `Ticket note attachment retrieved (data omitted: oversized for inline transport)`
+          : 'Ticket note attachment retrieved successfully';
+        return { result: r, message };
+      }],
+      ['autotask_search_ticket_note_attachments', async (a) => {
+        const r = await s.searchTicketNoteAttachments(a.ticketNoteId, { pageSize: a.pageSize }); return { result: r, message: `Found ${r.length} ticket note attachments` };
+      }],
       ['autotask_create_ticket_attachment', async (a) => {
         // Never log `data` (base64 file bytes) — can be large / contain PII.
         const decodedBytes = typeof a.data === 'string'

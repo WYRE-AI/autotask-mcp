@@ -182,6 +182,13 @@ describe('AutotaskService', () => {
       await expect(service.searchTicketAttachments(123)).rejects.toThrow();
     });
 
+    test('should handle ticket note attachment methods with proper error messages', async () => {
+      const service = new AutotaskService(mockConfig, mockLogger);
+
+      await expect(service.getTicketNoteAttachment(123, 456)).rejects.toThrow();
+      await expect(service.searchTicketNoteAttachments(123)).rejects.toThrow();
+    });
+
     describe('getTicketAttachment endpoint routing', () => {
       // Real-looking apiUrl bypasses the HTTP client's zone auto-detect.
       const configWithUrl: McpServerConfig = {
@@ -272,6 +279,134 @@ describe('AutotaskService', () => {
         });
         expect(r?.data).toBe(data);
         expect(r?.dataOmittedReason).toBeUndefined();
+      });
+    });
+
+    describe('getTicketNoteAttachment endpoint routing', () => {
+      // Real-looking apiUrl bypasses the HTTP client's zone auto-detect.
+      const configWithUrl: McpServerConfig = {
+        name: 'test-server',
+        version: '1.0.0',
+        autotask: {
+          username: 'test-username',
+          secret: 'test-secret',
+          integrationCode: 'test-integration-code',
+          apiUrl: 'https://example.autotask.net/atservicesrest/',
+        },
+      };
+      let service: AutotaskService;
+
+      beforeEach(() => {
+        service = new AutotaskService(configWithUrl, mockLogger);
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test('includeData=false hits the child endpoint and returns metadata only', async () => {
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'a.pdf', fileSize: 100 } }));
+
+        const r = await service.getTicketNoteAttachment(123, 456);
+
+        expect(r).toEqual({ id: 456, ticketNoteID: 123, title: 'a.pdf', fileSize: 100 });
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+        const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+        // Child endpoint — never returns the binary `data` field
+        expect(url).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNotes/123/Attachments/456');
+      });
+
+      test('includeData=true hits the top-level entity endpoint and returns data', async () => {
+        const smallBase64 = Buffer.from('hello').toString('base64');
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'a.pdf', data: smallBase64 } }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r?.data).toBe(smallBase64);
+        expect(r?.dataOmittedReason).toBeUndefined();
+        const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+        // Top-level entity endpoint — the only one that populates `data`
+        expect(url).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNoteAttachments/456');
+      });
+
+      test('includeData=true strips oversized data and surfaces dataOmittedReason', async () => {
+        // Build a base64 string above the 750_000-byte default cap
+        const big = 'A'.repeat(1_000_000);
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'big.bin', data: big } }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r).not.toBeNull();
+        expect(r?.data).toBeUndefined();
+        expect(r?.dataOmittedReason).toMatch(/exceeds inline limit/);
+        expect(r?.title).toBe('big.bin');
+      });
+
+      test('includeData=true returns null when attachment belongs to a different note', async () => {
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 999, title: 'a.pdf' } }));
+
+        // Caller asked for note 123, but attachment 456 belongs to note 999.
+        // Must not leak it across notes.
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+        expect(r).toBeNull();
+      });
+
+      test('includeData=true respects a higher maxInlineBase64Bytes', async () => {
+        const data = 'A'.repeat(1_000_000);
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'big.bin', data } }));
+
+        // Raise the cap so this exact payload fits.
+        const r = await service.getTicketNoteAttachment(123, 456, {
+          includeData: true,
+          maxInlineBase64Bytes: 2_000_000,
+        });
+        expect(r?.data).toBe(data);
+        expect(r?.dataOmittedReason).toBeUndefined();
+      });
+    });
+
+    describe('searchTicketNoteAttachments endpoint routing', () => {
+      const configWithUrl: McpServerConfig = {
+        name: 'test-server',
+        version: '1.0.0',
+        autotask: {
+          username: 'test-username',
+          secret: 'test-secret',
+          integrationCode: 'test-integration-code',
+          apiUrl: 'https://example.autotask.net/atservicesrest/',
+        },
+      };
+      let service: AutotaskService;
+
+      beforeEach(() => {
+        service = new AutotaskService(configWithUrl, mockLogger);
+      });
+
+      afterEach(() => {
+        jest.restoreAllMocks();
+      });
+
+      test('queries the TicketNotes/{id}/Attachments child collection', async () => {
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ items: [{ id: 61001, ticketNoteID: 55001, title: 'survey.png' }] }));
+
+        const r = await service.searchTicketNoteAttachments(55001);
+
+        expect(r).toHaveLength(1);
+        expect(r[0].title).toBe('survey.png');
+        const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
+        expect(url).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNotes/55001/Attachments/query');
       });
     });
 
