@@ -1938,6 +1938,26 @@ export class AutotaskService {
   // second empirical reproduction.
   // =====================================================
 
+  /**
+   * Get an attachment on a ticket note. With `includeData` false (default),
+   * hits the cheap `TicketNotes/{id}/Attachments/{id}` child endpoint and
+   * returns metadata only — it never populates `data` regardless of query
+   * parameters. With `includeData` true, hits the top-level
+   * `TicketNoteAttachments/{id}` entity (the only endpoint that populates
+   * `data`) and enforces that the attachment actually belongs to
+   * `ticketNoteId` — `ticketNoteID` is an optional field on this entity
+   * (Autotask's own field metadata marks it `isRequired: false`, since a
+   * TicketNoteAttachment-shaped row can in principle belong to a different
+   * parent), so scope is verified with strict equality against the
+   * requested id, never merely "present and different" — an omitted or
+   * non-numeric `ticketNoteID` is rejected, not passed through. Base64
+   * payloads longer than `maxInlineBase64Bytes` (default 750,000, ~560 KB
+   * raw) are stripped from the response and replaced with a
+   * `dataOmittedReason` explaining why, since an oversized inline payload
+   * can exceed a typical MCP client's tool-result size limit. Returns
+   * `null` when the attachment does not exist or does not belong to the
+   * given note.
+   */
   async getTicketNoteAttachment(
     ticketNoteId: number,
     attachmentId: number,
@@ -1971,9 +1991,16 @@ export class AutotaskService {
 
       // The top-level endpoint accepts any attachment ID, so we have to enforce
       // parent scope ourselves to honor the (ticketNoteId, attachmentId) contract.
-      if (typeof attachment.ticketNoteID === 'number' && attachment.ticketNoteID !== ticketNoteId) {
+      // Fail CLOSED: ticketNoteID is documented as optional on this entity
+      // (Autotask field metadata: isRequired: false), so a row that omits it
+      // must be rejected too, not passed through because it isn't a
+      // *mismatched* number. Strict equality catches missing, non-numeric,
+      // AND mismatched values in one check — the earlier `typeof === 'number'
+      // && !==` form let an attachment with no ticketNoteID through
+      // unverified (CodeRabbit PR #300 review).
+      if (attachment.ticketNoteID !== ticketNoteId) {
         this.logger.warn(
-          `Ticket note attachment ${attachmentId} belongs to note ${attachment.ticketNoteID}, not ${ticketNoteId}. Returning null.`
+          `Ticket note attachment ${attachmentId} does not belong to note ${ticketNoteId} (ticketNoteID: ${attachment.ticketNoteID ?? 'missing'}). Returning null.`
         );
         return null;
       }
@@ -2002,6 +2029,13 @@ export class AutotaskService {
     }
   }
 
+  /**
+   * List attachment metadata for a ticket note (child of TicketNotes). Never
+   * returns `data` — use getTicketNoteAttachment with includeData:true for
+   * that. `options.pageSize` caps the result count (default 10, max
+   * enforced by AUTOTASK_MAX_PAGE_SIZE via childQuery). Each call scopes to
+   * one note; the caller must iterate per note, not per ticket.
+   */
   async searchTicketNoteAttachments(
     ticketNoteId: number,
     options: AutotaskQueryOptionsExtended = {}

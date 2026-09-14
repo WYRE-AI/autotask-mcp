@@ -359,6 +359,18 @@ describe('AutotaskService', () => {
         expect(r).toBeNull();
       });
 
+      test('includeData=true returns null when ticketNoteID is omitted from the response', async () => {
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({ item: { id: 456, title: 'a.pdf' } }));
+
+        // Autotask's own field metadata marks ticketNoteID as not required, so a
+        // legitimate response can omit it entirely. Must fail closed, not pass
+        // through unscoped — see CodeRabbit PR #300 review.
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+        expect(r).toBeNull();
+      });
+
       test('includeData=true respects a higher maxInlineBase64Bytes', async () => {
         const data = 'A'.repeat(1_000_000);
         jest
