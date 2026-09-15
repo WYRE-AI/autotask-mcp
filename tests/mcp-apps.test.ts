@@ -7,6 +7,8 @@
 
 import { TOOL_DEFINITIONS } from '../src/handlers/tool.definitions';
 import { AutotaskResourceHandler } from '../src/handlers/resource.handler';
+import { AutotaskToolHandler } from '../src/handlers/tool.handler';
+import { AutotaskService } from '../src/services/autotask.service';
 import {
   buildTicketCard,
   applyBrandInjection,
@@ -16,6 +18,7 @@ import {
 } from '../src/handlers/card.builder';
 import { TICKET_CARD_HTML } from '../src/generated/ticket-card-html';
 import { Logger } from '../src/utils/logger';
+import type { McpServerConfig } from '../src/types/mcp';
 
 const logger = new Logger('error');
 
@@ -211,6 +214,47 @@ describe('MCP Apps ticket card', () => {
       expect(card).toMatchObject({ id: 48217, notes: [] });
       expect(card?.status).toBeUndefined();
       expect(card?.noteDefaults).toBeUndefined();
+    });
+  });
+
+  describe('autotask_get_ticket_details result (content/structuredContent split)', () => {
+    const mockConfig: McpServerConfig = {
+      name: 'test-server',
+      version: '1.0.0',
+      autotask: {
+        username: 'test-username',
+        secret: 'test-secret',
+        integrationCode: 'test-integration-code',
+      },
+    };
+
+    it('returns a plain-text summary in content and the card in structuredContent', async () => {
+      const service = new AutotaskService(mockConfig, logger);
+      jest.spyOn(service, 'getTicket').mockResolvedValue({
+        id: 48217,
+        ticketNumber: 'T20260717.0042',
+        title: 'VPN outage — main office',
+        status: 1,
+        priority: 2,
+        queueID: 8,
+        company: 'Acme Corp',
+        assignedTo: 'Dana Ruiz',
+      } as any);
+      jest.spyOn(service, 'searchTicketNotes').mockResolvedValue([] as any);
+
+      const handler = new AutotaskToolHandler(service, logger);
+      const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217 });
+
+      expect(result.isError).toBeFalsy();
+      expect(result.content).toHaveLength(1);
+      expect(result.content[0].type).toBe('text');
+      // Human-readable summary, not a JSON dump.
+      expect(() => JSON.parse(result.content[0].text)).toThrow();
+      expect(result.content[0].text).toContain('T20260717.0042');
+
+      const structured = result.structuredContent as { data?: { _card?: Record<string, unknown> } };
+      expect(structured?.data?._card).toBeDefined();
+      expect(structured?.data?._card).toMatchObject({ id: 48217, ticketNumber: 'T20260717.0042' });
     });
   });
 });

@@ -105,6 +105,9 @@ export class AutotaskMcpServer {
           },
           prompts: {
             listChanged: false
+          },
+          extensions: {
+            'io.modelcontextprotocol/ui': {}
           }
         },
         instructions: this.getServerInstructions()
