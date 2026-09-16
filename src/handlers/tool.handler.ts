@@ -85,6 +85,11 @@ export interface McpToolResult {
     type: 'text';
     text: string;
   }>;
+  /**
+   * SEP-1865: the full result payload (e.g. `{ message, data }` for
+   * ticket-detail results), distinct from the short human-readable summary
+   * in `content`. Callers needing the full data must read this field.
+   */
   structuredContent?: Record<string, unknown>;
   isError?: boolean;
 }

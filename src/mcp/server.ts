@@ -250,7 +250,8 @@ export class AutotaskMcpServer {
         );
         return {
           content: result.content,
-          isError: result.isError
+          isError: result.isError,
+          structuredContent: result.structuredContent
         };
       } catch (error) {
         this.logger.error(`Failed to call tool ${request.params.name}:`, error);
