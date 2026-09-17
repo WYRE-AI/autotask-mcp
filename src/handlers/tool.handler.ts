@@ -11,6 +11,7 @@ import { MappingService } from '../utils/mapping.service.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
 import { buildTicketCard } from './card.builder.js';
+import { markUntrustedContent } from '../utils/untrusted-content.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
 // only a handful of concurrent API threads per integration, so enrichment is
@@ -1617,7 +1618,12 @@ export class AutotaskToolHandler {
       }
 
       this.logger.debug(`Successfully executed tool: ${name}`);
-      return { content: [{ type: 'text', text: responseText }] };
+      // Marks results carrying text written outside this organisation - client
+      // email lands in ticket descriptions and notes verbatim. No-op for tools
+      // that return only IDs, enums and timestamps. See untrusted-content.ts.
+      return {
+        content: [{ type: 'text', text: markUntrustedContent(name, responseText) }],
+      };
 
     } catch (error) {
       this.logger.error(`Tool execution failed for ${name}:`, error);
