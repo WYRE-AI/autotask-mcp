@@ -13,6 +13,10 @@ Workflow defaults (commits, changelog, memory) come from the global `~/.claude/C
 - The intent router's entity regexes (`tool.handler.ts` `routeIntent`) matched only singular nouns (`\bcontract\b` missed "contracts") until #238 added `s?`; check the other entity branches if router misses are reported.
 - `exactOptionalPropertyTypes` is on: optional result-object fields need explicit `| undefined` in their type when assigned from possibly-undefined sources.
 
+## Learnings - 2026-09-19
+
+- `autotask_search_tickets.searchTerm` is a **ticket-number prefix** (`beginsWith` on `ticketNumber`), not a company name or free-text title filter. `autotask_router` / `routeIntent()` must never put a company name there: resolve via `searchCompanies` onto `companyID`, and map WYRE / WYRE Technology to Autotask root company id `0` with no API call. Date words like "today" belong on `createdAfter` (UTC `YYYY-MM-DD`). That's WYREAI-368.
+
 ## Learnings - 2026-09-07
 
 - **Auditing `childCreate()` call sites:** every Autotask entity doc page carries a **Parent Entity** field, and the Tasks page states the rule — *"If this entity has a Parent relationship, you must perform all Create, Update, and Delete actions on the parent entity."* That field is the discriminator for whether `POST /{Parent}/{id}/{Child}` exists. TimeEntries says **Parent: None**, so its child routes never existed and every ticket-scoped time entry 404'd (#277). Audited all other `childCreate` callers at that time — all have documented parents.
