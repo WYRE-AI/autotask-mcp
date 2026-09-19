@@ -122,12 +122,82 @@ describe('Lazy Loading - Tool Handler', () => {
 });
 
 describe('Decision Tree Router', () => {
+  const FIXED_NOW = new Date('2026-09-19T15:32:00Z');
+
+  beforeEach(() => {
+    jest.useFakeTimers();
+    jest.setSystemTime(FIXED_NOW);
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    jest.restoreAllMocks();
+  });
+
   test('should route ticket search intent', async () => {
     const service = new AutotaskService(mockConfig, mockLogger);
+    jest.spyOn(service, 'searchCompanies').mockResolvedValue([{ id: 99, companyName: 'Acme Corp' }]);
     const handler = new AutotaskToolHandler(service, mockLogger);
     const result = await handler.callTool('autotask_router', { intent: 'find tickets for Acme Corp' });
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams.companyID).toBe(99);
+    expect(parsed.data.suggestedParams.searchTerm).toBeUndefined();
+  });
+
+  test('tickets today suggests createdAfter as the UTC date', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    const searchSpy = jest.spyOn(service, 'searchCompanies');
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    const result = await handler.callTool('autotask_router', { intent: 'tickets today' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams).toEqual({ createdAfter: '2026-09-19' });
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  test('tickets at WYRE today suggests companyID 0 and createdAfter without searching companies', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    const searchSpy = jest.spyOn(service, 'searchCompanies');
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    const result = await handler.callTool('autotask_router', { intent: 'tickets at WYRE today' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams).toEqual({ companyID: 0, createdAfter: '2026-09-19' });
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  test('tickets for Amaero resolves companyID via searchCompanies and never sets searchTerm', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    jest.spyOn(service, 'searchCompanies').mockResolvedValue([{ id: 296, companyName: 'Amaero' }]);
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    const result = await handler.callTool('autotask_router', { intent: 'tickets for Amaero' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams).toEqual({ companyID: 296 });
+    expect(parsed.data.requiredParams).toEqual([]);
+  });
+
+  test('search tickets for T20260917 sets searchTerm to the ticket-number prefix', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    const searchSpy = jest.spyOn(service, 'searchCompanies');
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    const result = await handler.callTool('autotask_router', { intent: 'search tickets for T20260917' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams).toEqual({ searchTerm: 'T20260917' });
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
+  test('unresolved company name omits searchTerm and requires companyID', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    jest.spyOn(service, 'searchCompanies').mockResolvedValue([]);
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    const result = await handler.callTool('autotask_router', { intent: 'tickets for Amaero' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams).toEqual({});
+    expect(parsed.data.requiredParams).toEqual(['companyID']);
   });
 
   test('should route time entry intent with extracted params', async () => {
