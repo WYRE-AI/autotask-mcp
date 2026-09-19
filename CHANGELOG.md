@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Fixed
+
+- **`autotask_router` returned empty params for ticket search intents** ([WYREAI-368](https://linear.app/wyre-ai/issue/WYREAI-368/autotask-router-returns-empty-params-for-ticket-intents)). `routeIntent()` suggested `autotask_search_tickets` but left `suggestedParams` blank — "tickets today" / "tickets at WYRE today" produced `{}`, and "tickets for Amaero" stuffed the company name into `searchTerm` (which is a ticket-number prefix only: `beginsWith` on `ticketNumber`). The router now fills `createdAfter` for "today" (UTC `YYYY-MM-DD`), maps WYRE / WYRE Technology to root `companyID` 0 without an API call, resolves other company names via `searchCompanies`, and only sets `searchTerm` for prefixes like `T20260917`. If a company name cannot be resolved, `searchTerm` is omitted and `companyID` is listed in `requiredParams`.
+
 ### Added
 
 - **Ticket note attachments (read-only)**. Attachments and pasted images on a ticket **note** — files and screenshots pasted directly into an internal note in the Autotask UI — were previously invisible: only ticket-level attachments were reachable, and a note carrying one or more images looked like an empty note (`description: ""`). `autotask_get_ticket_note_attachment` / `autotask_search_ticket_note_attachments` mirror the existing ticket-attachment tool pair exactly, including the `includeData`/`maxInlineBase64Bytes`/`dataOmittedReason` contract, against the `TicketNoteAttachments` entity (verified live against Autotask's own `/TicketNoteAttachments/entityInformation/fields` — the top-level endpoint populates `data`, the child endpoint does not, same split as ticket attachments). Fixes #297.
