@@ -68,12 +68,15 @@ describe('intent-router ticket search helpers', () => {
       { id: 1, companyName: 'Amaero Additive' },
       { id: 2, companyName: 'Amaero Machining' },
     ];
+    await expect(resolveCompanyId('Amaero', none)).resolves.toBeUndefined();
+    await expect(resolveCompanyId('Amaero', many)).resolves.toBeUndefined();
+  });
+
+  test('resolveCompanyId lets searchCompanies failures propagate', async () => {
     const boom: CompanySearcher = async () => {
       throw new Error('API down');
     };
-    await expect(resolveCompanyId('Amaero', none)).resolves.toBeUndefined();
-    await expect(resolveCompanyId('Amaero', many)).resolves.toBeUndefined();
-    await expect(resolveCompanyId('Amaero', boom)).resolves.toBeUndefined();
+    await expect(resolveCompanyId('Amaero', boom)).rejects.toThrow('API down');
   });
 
   test('tickets today → createdAfter UTC date, no searchTerm', async () => {
@@ -85,6 +88,12 @@ describe('intent-router ticket search helpers', () => {
   test('tickets at WYRE today → companyID 0 and createdAfter, no API', async () => {
     const route = await buildTicketSearchParams('tickets at WYRE today', failIfCalled, FIXED_NOW);
     expect(route.suggestedParams).toEqual({ companyID: 0, createdAfter: TODAY });
+    expect(route.requiredParams).toEqual([]);
+  });
+
+  test('tickets at WYRE (no date) → companyID 0 only', async () => {
+    const route = await buildTicketSearchParams('tickets at WYRE', failIfCalled, FIXED_NOW);
+    expect(route.suggestedParams).toEqual({ companyID: 0 });
     expect(route.requiredParams).toEqual([]);
   });
 

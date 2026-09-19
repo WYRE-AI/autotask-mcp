@@ -5,6 +5,7 @@
 // company-name filter. Company names belong on companyID; "today" belongs on
 // createdAfter. See WYREAI-368.
 
+/** Autotask root company id for WYRE Technology. */
 export const WYRE_ROOT_COMPANY_ID = 0;
 
 /** Local aliases for WYRE Technology, Autotask's root company (id 0). No API lookup. */
@@ -30,22 +31,27 @@ const COMPANY_STOPWORDS = new Set([
   'tomorrow',
 ]);
 
+/** Minimal company row used when resolving a spoken name to an id. */
 export interface CompanySearchHit {
   id?: number | undefined;
   companyName?: string | undefined;
 }
 
+/** Looks up companies by name; typically AutotaskService.searchCompanies. */
 export type CompanySearcher = (searchTerm: string) => Promise<CompanySearchHit[]>;
 
+/** Ticket-search params the router should pre-fill, plus any still-required fields. */
 export interface TicketSearchRoute {
   suggestedParams: Record<string, string | number>;
   requiredParams: string[];
 }
 
+/** UTC calendar date `YYYY-MM-DD` for `now`. */
 export function utcDateString(now: Date = new Date()): string {
   return now.toISOString().split('T')[0];
 }
 
+/** `createdAfter` when the intent mentions "today"; otherwise undefined. */
 export function extractCreatedAfter(rawIntent: string, now: Date = new Date()): string | undefined {
   if (/\btoday\b/i.test(rawIntent)) {
     return utcDateString(now);
@@ -53,10 +59,12 @@ export function extractCreatedAfter(rawIntent: string, now: Date = new Date()): 
   return undefined;
 }
 
+/** True when `value` is an Autotask ticket-number prefix (e.g. T20260917). */
 export function isTicketNumberPrefix(value: string): boolean {
   return TICKET_NUMBER_ONLY.test(value.trim());
 }
 
+/** First Autotask ticket-number prefix in the intent, if any. */
 export function extractTicketNumberPrefix(rawIntent: string): string | undefined {
   const match = rawIntent.match(TICKET_NUMBER_PREFIX);
   return match?.[1];
@@ -97,6 +105,7 @@ export function extractCompanyName(rawIntent: string): string | undefined {
   return name;
 }
 
+/** Map WYRE / WYRE Technology to root company id 0; otherwise undefined. */
 export function resolveWyreAlias(name: string): number | undefined {
   if (WYRE_ALIASES.has(normalizeCompanyAlias(name))) {
     return WYRE_ROOT_COMPANY_ID;
@@ -127,6 +136,7 @@ function pickUniqueCompanyId(hits: CompanySearchHit[], name: string): number | u
  * Map a spoken company name to an Autotask companyID.
  * WYRE aliases short-circuit to 0 (no API). Pure digits are used as-is.
  * Anything else goes through searchCompanies; 0/ambiguous results return undefined.
+ * Vendor errors (401/429/outage) propagate so callTool can surface them.
  */
 export async function resolveCompanyId(
   name: string,
@@ -138,14 +148,11 @@ export async function resolveCompanyId(
   const trimmed = name.trim();
   if (/^\d+$/.test(trimmed)) return Number(trimmed);
 
-  try {
-    const hits = await searchCompanies(trimmed);
-    return pickUniqueCompanyId(hits, trimmed);
-  } catch {
-    return undefined;
-  }
+  const hits = await searchCompanies(trimmed);
+  return pickUniqueCompanyId(hits, trimmed);
 }
 
+/** Build search-ticket suggestedParams / requiredParams from a natural-language intent. */
 export async function buildTicketSearchParams(
   rawIntent: string,
   searchCompanies: CompanySearcher,

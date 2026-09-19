@@ -167,6 +167,17 @@ describe('Decision Tree Router', () => {
     expect(searchSpy).not.toHaveBeenCalled();
   });
 
+  test('tickets at WYRE without a date suggests companyID 0', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    const searchSpy = jest.spyOn(service, 'searchCompanies');
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    const result = await handler.callTool('autotask_router', { intent: 'tickets at WYRE' });
+    const parsed = JSON.parse(result.content[0].text);
+    expect(parsed.data.suggestedTool).toBe('autotask_search_tickets');
+    expect(parsed.data.suggestedParams).toEqual({ companyID: 0 });
+    expect(searchSpy).not.toHaveBeenCalled();
+  });
+
   test('tickets for Amaero resolves companyID via searchCompanies and never sets searchTerm', async () => {
     const service = new AutotaskService(mockConfig, mockLogger);
     jest.spyOn(service, 'searchCompanies').mockResolvedValue([{ id: 296, companyName: 'Amaero' }]);
@@ -233,6 +244,24 @@ describe('Decision Tree Router', () => {
     const parsed = JSON.parse(result.content[0].text);
     expect(parsed.data.suggestedTool).toBe('autotask_search_companies');
     expect(parsed.data.suggestedParams.searchTerm).toBe('Wyre Technology');
+  });
+});
+
+describe('autotask_search_tickets companyID 0', () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test('treats companyID 0 as an active filter and does not elicit a date range', async () => {
+    const service = new AutotaskService(mockConfig, mockLogger);
+    const searchSpy = jest.spyOn(service, 'searchTickets').mockResolvedValue([{ id: 1 }] as any);
+    const handler = new AutotaskToolHandler(service, mockLogger);
+    (handler as any).mcpServer = { elicitInput: jest.fn() };
+    const elicitSpy = jest.spyOn(handler as any, 'elicitDateRange');
+    const result = await handler.callTool('autotask_search_tickets', { companyID: 0 });
+    expect(elicitSpy).not.toHaveBeenCalled();
+    expect(searchSpy).toHaveBeenCalledWith(expect.objectContaining({ companyId: 0 }));
+    expect(result.isError).toBeFalsy();
   });
 });
 
