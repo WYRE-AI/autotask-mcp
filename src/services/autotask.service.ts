@@ -2333,7 +2333,9 @@ export class AutotaskService {
     try {
       this.logger.debug('Searching quotes with options:', options);
       const filters: QueryFilter[] = [];
-      if (options.companyId) {
+      // WYREAI-373: !== undefined, not truthy — WYRE Technology's own
+      // company id is 0, and a bare truthy check silently drops the filter.
+      if (options.companyId !== undefined) {
         // The Quotes entity has NO account* field — its company link is
         // `companyID` (confirmed via entityInformation/fields). Filtering on
         // `accountId` returns HTTP 500 "Unable to find accountId in the
@@ -2418,7 +2420,8 @@ export class AutotaskService {
     try {
       this.logger.debug('Searching opportunities with options:', options);
       const filters: QueryFilter[] = [];
-      if (options.companyId) {
+      // WYREAI-373: !== undefined, not truthy — see searchQuotes above.
+      if (options.companyId !== undefined) {
         filters.push({ field: 'companyID', op: 'eq', value: options.companyId });
       }
       if (options.searchTerm) {

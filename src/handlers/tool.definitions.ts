@@ -279,12 +279,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'The company ID whose site configuration records should be returned'
         }
       },
-      required: ['companyId']
+      required: ['companyID']
     }
   },
   {
@@ -1439,7 +1439,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'The company ID'
         },
@@ -1448,7 +1448,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           description: 'The note ID to retrieve'
         }
       },
-      required: ['companyId', 'noteId']
+      required: ['companyID', 'noteId']
     }
   },
   {
@@ -1457,7 +1457,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'The company ID to search notes for'
         },
@@ -1468,7 +1468,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           maximum: 100
         }
       },
-      required: ['companyId']
+      required: ['companyID']
     }
   },
   {
@@ -1477,7 +1477,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'The company ID to add the note to'
         },
@@ -1494,7 +1494,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           description: 'Action type for the note'
         }
       },
-      required: ['companyId', 'description']
+      required: ['companyID', 'description']
     }
   },
 
@@ -1713,7 +1713,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         expenseDate: { type: 'string', description: 'Date of expense (YYYY-MM-DD format)' },
         expenseCategory: { type: 'number', description: 'Expense category picklist ID' },
         amount: { type: 'number', description: 'Expense amount' },
-        companyId: { type: 'number', description: 'Associated company ID (0 for internal)' },
+        companyID: { type: 'number', description: 'Associated company ID (0 for internal)' },
         haveReceipt: { type: 'boolean', description: 'Whether a receipt is attached' },
         isBillableToCompany: { type: 'boolean', description: 'Whether billable to company' },
         isReimbursable: { type: 'boolean', description: 'Whether this expense is reimbursable' },
@@ -1744,7 +1744,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'Filter by company ID'
         },
@@ -1784,7 +1784,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Quote description'
         },
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'Company ID for the quote'
         },
@@ -1805,7 +1805,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           description: 'Expiration date (YYYY-MM-DD format)'
         }
       },
-      required: ['companyId']
+      required: ['companyID']
     }
   },
 
@@ -1830,7 +1830,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'Filter by company ID'
         },
@@ -1863,7 +1863,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Opportunity name/title'
         },
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'Company ID for the opportunity'
         },
@@ -1920,7 +1920,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           description: 'Opportunity category picklist value ID'
         }
       },
-      required: ['title', 'companyId', 'ownerResourceId', 'status', 'stage', 'projectedCloseDate', 'startDate']
+      required: ['title', 'companyID', 'ownerResourceId', 'status', 'stage', 'projectedCloseDate', 'startDate']
     }
   },
 
@@ -2656,7 +2656,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'Filter by company ID'
         },
@@ -2899,7 +2899,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        companyId: {
+        companyID: {
           type: 'number',
           description: 'Filter by company ID'
         },
