@@ -22,6 +22,21 @@ function resolveEnhanceConcurrency(raw: string | undefined): number {
   return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_ENHANCE_CONCURRENCY;
 }
 
+// WYREAI-372: tool schemas mixed companyID/companyId/CompanyID across the
+// fleet; schemas now advertise the single canonical `companyID` only, but
+// existing callers on the old casings must keep working. Accept any of the
+// three on input and normalize to `companyID` (mirrored back onto the other
+// two keys so any handler code still reading the old names also sees the
+// value) before the args object reaches a handler. Explicitly preserves
+// `0` — WYRE Technology's own Autotask company id is 0, and a value check
+// here (rather than a `||`/truthy merge) is exactly the class of bug
+// WYREAI-373 is about.
+function normalizeCompanyIdAlias(args: Record<string, any>): Record<string, any> {
+  const provided = [args.companyID, args.companyId, args.CompanyID].find(v => v !== undefined);
+  if (provided === undefined) return args;
+  return { ...args, companyID: provided, companyId: provided, CompanyID: provided };
+}
+
 // Fields accepted by autotask_create_ticket / autotask_update_ticket.
 // Keep this list in sync with the tool definitions in tool.definitions.ts.
 const TICKET_WRITABLE_FIELDS = [
@@ -320,7 +335,10 @@ export class AutotaskToolHandler {
         return null;
       }
 
-      if (companies.length === 1 && companies[0].id) {
+      // WYREAI-373: a truthy check here would treat WYRE Technology's own
+      // company id (0) as "no unique match found" and fall through to the
+      // multi-result picker even though there's exactly one match.
+      if (companies.length === 1 && companies[0].id != null) {
         return companies[0].id;
       }
 
@@ -444,13 +462,15 @@ export class AutotaskToolHandler {
     if (/\b(?:tickets?|issues?|requests?)\b/.test(intent)) {
       if (/\b(?:create|open|new|submit)\b/.test(intent)) {
         const params: Record<string, any> = {};
-        if (numbers[0]) params.companyId = numbers[0];
+        if (numbers[0] !== undefined) params.companyID = numbers[0];
         if (quotedStrings[0]) params.title = quotedStrings[0];
         return {
           suggestedTool: 'autotask_create_ticket',
           suggestedParams: params,
           description: 'Create a new service ticket',
-          requiredParams: [...(!params.companyId ? ['companyId'] : []), ...(!params.title ? ['title'] : [])],
+          // WYREAI-373: params.companyID === undefined, not a truthy check
+          // — WYRE Technology's own company id (0) is a valid provided value.
+          requiredParams: [...(params.companyID === undefined ? ['companyID'] : []), ...(!params.title ? ['title'] : [])],
         };
       }
       if (/\b(?:update|change|modify|edit|assign|reassign|close)\b/.test(intent)) {
@@ -498,7 +518,7 @@ export class AutotaskToolHandler {
         const match = intent.match(/for\s+(\w[\w\s]*?)(?:\.|$|,)/i);
         if (match) params.searchTerm = match[1].trim();
       }
-      if (numbers[0]) params.companyID = numbers[0];
+      if (numbers[0] !== undefined) params.companyID = numbers[0]; // WYREAI-373
       return {
         suggestedTool: 'autotask_search_tickets',
         suggestedParams: params,
@@ -526,7 +546,7 @@ export class AutotaskToolHandler {
           suggestedTool: 'autotask_create_quote',
           suggestedParams: params,
           description: 'Create a new quote',
-          requiredParams: [...(!params.name ? ['name'] : []), 'companyId'],
+          requiredParams: [...(!params.name ? ['name'] : []), 'companyID'],
         };
       }
       const params: Record<string, any> = {};
@@ -888,8 +908,12 @@ export class AutotaskToolHandler {
 
       // Tickets
       ['autotask_search_tickets', async (a) => {
-        // Elicitation for zero-filter ticket searches
-        const hasFilters = a.searchTerm || a.companyID || a.contactID || a.status !== undefined ||
+        // Elicitation for zero-filter ticket searches. WYREAI-373:
+        // a.companyID !== undefined, not truthy — WYRE Technology's own
+        // company id is 0, and a bare `|| a.companyID` treats that as "no
+        // filter provided," triggering an unwanted date-range elicitation
+        // and effectively dropping the company scope on the search.
+        const hasFilters = a.searchTerm || a.companyID !== undefined || a.contactID || a.status !== undefined ||
           a.priority !== undefined || a.queueID !== undefined ||
           a.assignedResourceID || a.unassigned || a.createdAfter || a.createdBefore || a.lastActivityAfter;
         if (!hasFilters && this.mcpServer) {
@@ -1354,16 +1378,19 @@ export class AutotaskToolHandler {
         return { result: r, message: `Found ${r.length} quotes` };
       }],
       ['autotask_create_quote', async (a) => {
-        // Elicit company if not provided
-        if (!a.companyId && this.mcpServer) {
+        // Elicit company if not provided. WYREAI-373: `a.companyId === undefined`
+        // and `companyId !== null` (elicitCompanyId's own "not resolved" sentinel),
+        // not truthy checks — WYRE Technology's company id (0) is a real value
+        // both here and in whatever the user picks from the elicitation dialog.
+        if (a.companyId === undefined && this.mcpServer) {
           try {
             const companyId = await this.elicitCompanyId();
-            if (companyId) a = { ...a, companyId: companyId };
+            if (companyId !== null) a = { ...a, companyId: companyId };
           } catch { /* proceed without company */ }
         }
 
         // Elicit opportunity if not provided but company is known
-        if (!a.opportunityId && a.companyId && this.mcpServer) {
+        if (!a.opportunityId && a.companyId !== undefined && this.mcpServer) {
           try {
             const opps = await s.searchOpportunities({ companyId: a.companyId });
             if (opps.length > 0) {
@@ -1630,7 +1657,13 @@ export class AutotaskToolHandler {
   /**
    * Call a tool with the given arguments
    */
-  async callTool(name: string, args: Record<string, any>): Promise<McpToolResult> {
+  async callTool(name: string, rawArgs: Record<string, any>): Promise<McpToolResult> {
+    // WYREAI-372: schemas now advertise the single canonical `companyID`
+    // spelling, but callers on the old `companyId`/`CompanyID` casing must
+    // keep working during the transition. Normalize once, here, rather than
+    // at each of the ~20 individual read sites across this file — every
+    // handler below can keep reading whichever key it already used.
+    const args = normalizeCompanyIdAlias(rawArgs);
     this.logger.debug(`Calling tool: ${name}`, args);
 
     try {
