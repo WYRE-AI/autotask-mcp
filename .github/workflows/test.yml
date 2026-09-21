@@ -33,7 +33,7 @@ jobs:
       - name: Configure npm for GitHub Packages
         run: |
           echo "@wyre-ai:registry=https://npm.pkg.github.com" >> .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.WYRE_PACKAGES_TOKEN }}" >> .npmrc
 
       - name: Install dependencies
         run: npm ci
@@ -79,7 +79,7 @@ jobs:
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
 
       - name: Build image for ${{ matrix.platform }}
-        run: docker build --platform ${{ matrix.platform }} --build-arg GITHUB_TOKEN=${{ secrets.GITHUB_TOKEN }} -t autotask-mcp:test .
+        run: docker build --platform ${{ matrix.platform }} --build-arg GITHUB_TOKEN=${{ secrets.WYRE_PACKAGES_TOKEN }} -t autotask-mcp:test .
 
       # The build alone proves it compiles; this proves the result actually
       # starts on this architecture, which is the thing #266 asked for.
@@ -109,7 +109,7 @@ jobs:
       - name: Configure npm for GitHub Packages
         run: |
           echo "@wyre-ai:registry=https://npm.pkg.github.com" >> .npmrc
-          echo "//npm.pkg.github.com/:_authToken=${{ secrets.GITHUB_TOKEN }}" >> .npmrc
+          echo "//npm.pkg.github.com/:_authToken=${{ secrets.WYRE_PACKAGES_TOKEN }}" >> .npmrc
 
       - name: Install dependencies
         run: npm ci
