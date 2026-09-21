@@ -49,7 +49,11 @@ dev-debug.log
 # tasks/ 
 *.mcpb
 .mcpb-staging/
-.claude/
+# Machine-local permission grants only - the rest of .claude/ (agents, commands,
+# TM_COMMANDS_GUIDE.md) is shared team content and is tracked. A blanket
+# .claude/ rule here made new agent and command files invisible to git while
+# the 49 already committed stayed, so additions were silently dropped.
+.claude/settings.local.json
 
 # Cloudflare Workers
 .wrangler/
