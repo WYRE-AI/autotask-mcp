@@ -677,6 +677,10 @@ export interface AutotaskQueryOptions {
   searchTerm?: string;
   companyID?: number;
   isActive?: boolean | number;
+  // Contacts: Autotask's "Is Primary" flag for the company
+  primaryContact?: boolean;
+  // Contacts: Autotask's "Is Billing Contact" flag for the company
+  billingContact?: boolean;
 }
 
 // Extended query options for more advanced queries

@@ -347,6 +347,12 @@ export class AutotaskService {
       if (options.isActive !== undefined) {
         filters.push({ op: 'eq', field: 'isActive', value: options.isActive });
       }
+      if (options.primaryContact !== undefined) {
+        filters.push({ op: 'eq', field: 'primaryContact', value: options.primaryContact });
+      }
+      if (options.billingContact !== undefined) {
+        filters.push({ op: 'eq', field: 'billingContact', value: options.billingContact });
+      }
 
       const pageSize = Math.min(options.pageSize || 25, 200);
       const contacts = await http.query<AutotaskContact>(

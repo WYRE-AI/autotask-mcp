@@ -326,9 +326,17 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by active status (1=active, 0=inactive)'
         },
+        primaryContact: {
+          type: 'boolean',
+          description: 'Filter to the primary contact (Autotask "Is Primary" flag) for the company'
+        },
+        billingContact: {
+          type: 'boolean',
+          description: 'Filter to the billing contact (Autotask "Is Billing Contact" flag) for the company'
+        },
         page: {
           type: 'number',
-          
+
           minimum: 1
         },
         pageSize: {
