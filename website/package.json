@@ -17,6 +17,7 @@
   "overrides": {
     "js-yaml": "^4.3.2",
     "smol-toml": "^1.7.1",
-    "svgo": "^4.1.0"
+    "svgo": "^4.1.0",
+    "devalue": "^5.9.2"
   }
 }
