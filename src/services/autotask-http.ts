@@ -448,12 +448,25 @@ export class AutotaskHttpClient {
    * When that happens we fall back to `PUT /{Entity}/{id}`, which Autotask
    * supports universally across zones. The fallback is gated strictly on a 404
    * status so genuine validation errors (400/422) still surface to the caller.
+   *
+   * PUT sets every writable field missing from the body to null, so the
+   * fallback turns a partial update into one that clears the rest of the
+   * record. Callers that only ever send partial updates pass
+   * `{ putFallback: false }` to get the PATCH 404 instead.
+   *
+   * `id` is always the one passed in: an `id` inside `body` is overridden
+   * rather than allowed to redirect the update to another record.
    */
-  async update(entity: string, id: number, body: Record<string, any>): Promise<void> {
+  async update(
+    entity: string,
+    id: number,
+    body: Record<string, any>,
+    { putFallback = true }: { putFallback?: boolean } = {}
+  ): Promise<void> {
     try {
-      await this.request<void>('PATCH', `/${entity}`, { id, ...body });
+      await this.request<void>('PATCH', `/${entity}`, { ...body, id });
     } catch (err) {
-      if ((err as { status?: number })?.status === 404) {
+      if (putFallback && (err as { status?: number })?.status === 404) {
         this.logger.debug(
           `Autotask PATCH /${entity} returned 404 (likely Zone DE1) — retrying as PUT /${entity}/${id}`
         );

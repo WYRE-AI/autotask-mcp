@@ -2474,11 +2474,24 @@ export class AutotaskService {
     }
   }
 
+  /**
+   * Partially update opportunity `id`: only the fields in `updates` are sent,
+   * and everything else on the record is left as it is.
+   *
+   * The Zone DE1 PUT fallback is disabled here. PUT nulls every field it is not
+   * given, so falling back would clear the rest of the opportunity; on a zone
+   * without collection-level PATCH this fails with the 404 instead.
+   *
+   * @param id Opportunity to update. Always authoritative: an `id` inside
+   *   `updates` cannot redirect the call to another record.
+   * @param updates Opportunity fields to change, in Autotask's field casing.
+   */
   async updateOpportunity(id: number, updates: Partial<AutotaskOpportunity>): Promise<void> {
     const http = await this.ensureClient();
     try {
-      this.logger.debug(`Updating opportunity ${id}:`, updates);
-      await http.update('Opportunities', id, updates as Record<string, any>);
+      // Field names only: description and UDF values can carry customer data.
+      this.logger.debug(`Updating opportunity ${id}: fields=${Object.keys(updates).join(', ')}`);
+      await http.update('Opportunities', id, updates as Record<string, any>, { putFallback: false });
       this.logger.info(`Opportunity ${id} updated successfully`);
     } catch (error) {
       this.logger.error(`Failed to update opportunity ${id}:`, error);

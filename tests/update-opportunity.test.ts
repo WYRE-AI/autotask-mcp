@@ -148,4 +148,36 @@ describe('AutotaskService.updateOpportunity()', () => {
     expect(`${init.method} ${new URL(url).pathname}`).toBe('PATCH /ATServicesRest/v1.0/Opportunities');
     expect(JSON.parse(init.body as string)).toEqual({ id: 1001, onetimeCost: 250, stage: 3 });
   });
+
+  test('an id inside updates cannot redirect the PATCH to another opportunity', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => JSON.stringify({ itemId: 1001 }),
+    } as unknown as Response);
+
+    const service = new AutotaskService(config, logger);
+    await service.updateOpportunity(1001, { id: 2002, status: 3 });
+
+    const [, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toEqual({ id: 1001, status: 3 });
+  });
+
+  test('a PATCH 404 fails instead of falling back to a field-clearing PUT', async () => {
+    // PUT nulls every field it is not given, so the Zone DE1 fallback would
+    // turn this partial update into one that wipes the rest of the record.
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
+      ok: false,
+      status: 404,
+      headers: { get: () => null },
+      text: async () => '<html><head><title>404 - File or directory not found.</title></head></html>',
+    } as unknown as Response);
+
+    const service = new AutotaskService(config, logger);
+    await expect(service.updateOpportunity(1001, { stage: 3 })).rejects.toBeDefined();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect((fetchMock.mock.calls[0][1] as RequestInit).method).toBe('PATCH');
+  });
 });

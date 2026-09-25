@@ -96,7 +96,7 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | `autotask_get_quote` | Get a quote | `id` (required) |
 | `autotask_search_quotes` | Search quotes | `companyID` |
 | `autotask_create_quote` | Create a quote | `name`, `companyID` (required) |
-| `autotask_update_opportunity` | Update an opportunity | `opportunityId` (required), any updatable field |
+| `autotask_update_opportunity` | Update an opportunity | `opportunityId` (required), plus any field in the tool schema (stage, status, per-period revenue/cost, UDFs, …) |
 | `autotask_search_contracts` | Search contracts | `companyID` |
 | `autotask_search_invoices` | Search invoices | `companyID` |
 
