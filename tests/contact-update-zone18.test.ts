@@ -69,6 +69,33 @@ describe('Bug 1: AutotaskHttpClient.update() PUT fallback for Zone 18 (issue #13
     }
   });
 
+  test('the PUT fallback keeps the id argument authoritative over a body id', async () => {
+    const client = makeClient();
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockImplementation((...args: any[]) => {
+      const init = args[1] as RequestInit;
+      if (init.method === 'PATCH') {
+        return Promise.resolve({
+          ok: false,
+          status: 404,
+          headers: { get: () => null },
+          text: async () => '<html><head><title>404 - File or directory not found.</title></head></html>',
+        } as any);
+      }
+      return Promise.resolve({ ok: true, status: 200, headers: { get: () => null }, text: async () => '' } as any);
+    });
+
+    try {
+      await client.update('Contacts', 12345, { id: 999, firstName: 'Jane' });
+      const patchInit = fetchMock.mock.calls[0][1] as RequestInit;
+      const putInit = fetchMock.mock.calls[1][1] as RequestInit;
+      expect(JSON.parse(patchInit.body as string).id).toBe(12345);
+      expect(fetchMock.mock.calls[1][0] as string).toMatch(/\/Contacts\/12345$/);
+      expect(JSON.parse(putInit.body as string)).toEqual({ id: 12345, firstName: 'Jane' });
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
   test('does NOT fall back to PUT on non-404 errors (e.g. 400)', async () => {
     const client = makeClient();
     const fetchMock = jest.spyOn(global, 'fetch' as any).mockImplementation((...args: any[]) => {
