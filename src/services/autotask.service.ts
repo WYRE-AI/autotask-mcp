@@ -2474,6 +2474,18 @@ export class AutotaskService {
     }
   }
 
+  async updateOpportunity(id: number, updates: Partial<AutotaskOpportunity>): Promise<void> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Updating opportunity ${id}:`, updates);
+      await http.update('Opportunities', id, updates as Record<string, any>);
+      this.logger.info(`Opportunity ${id} updated successfully`);
+    } catch (error) {
+      this.logger.error(`Failed to update opportunity ${id}:`, error);
+      throw error;
+    }
+  }
+
   // =====================================================
   // Products / Services / Service Bundles (read)
   // =====================================================

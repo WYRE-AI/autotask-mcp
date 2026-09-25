@@ -64,6 +64,40 @@ const TICKET_WRITABLE_FIELDS = [
   'userDefinedFields'
 ] as const;
 
+// Fields accepted by autotask_update_opportunity, in Autotask's own casing.
+// Keep this list in sync with the tool definition in tool.definitions.ts.
+const OPPORTUNITY_WRITABLE_FIELDS = [
+  'title',
+  'description',
+  'status',
+  'stage',
+  'probability',
+  'projectedCloseDate',
+  'ownerResourceID',
+  'contactID',
+  'opportunityCategoryID',
+  'nextStep',
+  'winReason',
+  'winReasonDetail',
+  'lossReason',
+  'lossReasonDetail',
+  'useQuoteTotals',
+  'amount',
+  'cost',
+  'onetimeRevenue',
+  'onetimeCost',
+  'monthlyRevenue',
+  'monthlyCost',
+  'quarterlyRevenue',
+  'quarterlyCost',
+  'semiannualRevenue',
+  'semiannualCost',
+  'yearlyRevenue',
+  'yearlyCost',
+  'totalAmountMonths',
+  'userDefinedFields'
+] as const;
+
 function buildTicketPayload(args: Record<string, any>): Record<string, any> {
   const payload: Record<string, any> = {};
   for (const field of TICKET_WRITABLE_FIELDS) {
@@ -1425,6 +1459,28 @@ export class AutotaskToolHandler {
       ['autotask_create_opportunity', async (a) => {
         const id = await s.createOpportunity({ title: a.title, companyID: a.companyId, ownerResourceID: a.ownerResourceId, status: a.status, stage: a.stage, projectedCloseDate: a.projectedCloseDate, startDate: a.startDate, probability: a.probability ?? 50, amount: a.amount ?? 0, cost: a.cost ?? 0, useQuoteTotals: a.useQuoteTotals ?? true, totalAmountMonths: a.totalAmountMonths, contactID: a.contactId, description: a.description, opportunityCategoryID: a.opportunityCategoryID });
         return { result: id, message: `Successfully created opportunity with ID: ${id}` };
+      }],
+      ['autotask_update_opportunity', async (a) => {
+        // create_opportunity advertises ownerResourceId/contactId, so accept
+        // those spellings here too rather than silently dropping them.
+        const args: Record<string, any> = {
+          ...a,
+          ownerResourceID: a.ownerResourceID ?? a.ownerResourceId,
+          contactID: a.contactID ?? a.contactId,
+        };
+        const updates: Record<string, any> = {};
+        // !== undefined, not truthy: status 0 (Not Ready To Buy), probability 0
+        // and a zeroed revenue line are all real values.
+        for (const key of OPPORTUNITY_WRITABLE_FIELDS) {
+          if (args[key] !== undefined) updates[key] = args[key];
+        }
+        if (Object.keys(updates).length === 0) {
+          throw new Error(
+            `autotask_update_opportunity: no updatable fields provided. Accepted fields: ${OPPORTUNITY_WRITABLE_FIELDS.join(', ')}`
+          );
+        }
+        await s.updateOpportunity(a.opportunityId, updates);
+        return { result: undefined, message: `Successfully updated opportunity ID: ${a.opportunityId}` };
       }],
 
       // Products
