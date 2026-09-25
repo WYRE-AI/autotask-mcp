@@ -470,7 +470,7 @@ export class AutotaskHttpClient {
         this.logger.debug(
           `Autotask PATCH /${entity} returned 404 (likely Zone DE1) — retrying as PUT /${entity}/${id}`
         );
-        await this.request<void>('PUT', `/${entity}/${id}`, body);
+        await this.request<void>('PUT', `/${entity}/${id}`, { ...body, id });
         return;
       }
       throw err;
