@@ -1923,6 +1923,114 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       required: ['title', 'companyID', 'ownerResourceId', 'status', 'stage', 'projectedCloseDate', 'startDate']
     }
   },
+  {
+    name: 'autotask_update_opportunity',
+    description: 'Update an existing opportunity in Autotask. Only the fields you provide will be updated. Autotask derives amount (total revenue) and cost from the per-period fields (onetimeRevenue, monthlyRevenue, onetimeCost, monthlyCost, etc.), so change revenue and cost through those. Setting amount or cost directly replaces the whole breakdown: the total becomes one-time and any recurring revenue or cost is cleared. Setting useQuoteTotals=true replaces revenue and cost with the primary quote\'s totals.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        opportunityId: {
+          type: 'number',
+          description: 'The ID of the opportunity to update'
+        },
+        title: {
+          type: 'string',
+          description: 'Opportunity name/title'
+        },
+        description: {
+          type: 'string',
+          description: 'Opportunity description'
+        },
+        status: {
+          type: 'number',
+          description: 'Status: 0=Not Ready To Buy, 1=Active, 2=Lost, 3=Closed, 4=Implemented'
+        },
+        stage: {
+          type: 'number',
+          description: 'Stage picklist value ID (use autotask_get_field_info to find valid values)'
+        },
+        probability: {
+          type: 'number',
+          description: 'Win probability percentage (0-100)'
+        },
+        projectedCloseDate: {
+          type: 'string',
+          description: 'Projected close date (YYYY-MM-DD). Must not be before the start date.'
+        },
+        ownerResourceID: {
+          type: 'number',
+          description: 'Owner resource ID (the sales rep or account manager)'
+        },
+        contactID: {
+          type: 'number',
+          description: 'Contact ID. Must be an active contact at the opportunity\'s company.'
+        },
+        opportunityCategoryID: {
+          type: 'number',
+          description: 'Opportunity category picklist value ID'
+        },
+        nextStep: {
+          type: 'string',
+          description: 'Next step (max 500 characters)'
+        },
+        winReason: {
+          type: 'number',
+          description: 'Win reason picklist value ID, for a won opportunity (use autotask_get_field_info to find valid values)'
+        },
+        winReasonDetail: {
+          type: 'string',
+          description: 'Win reason detail (max 500 characters)'
+        },
+        lossReason: {
+          type: 'number',
+          description: 'Loss reason picklist value ID, for a lost opportunity (use autotask_get_field_info to find valid values)'
+        },
+        lossReasonDetail: {
+          type: 'string',
+          description: 'Loss reason detail (max 500 characters)'
+        },
+        useQuoteTotals: {
+          type: 'boolean',
+          description: 'Take revenue and cost from the primary quote. Setting true overwrites every revenue and cost field; with no quote attached, they all become 0.'
+        },
+        amount: {
+          type: 'number',
+          description: 'Total revenue. Setting this replaces the revenue breakdown: onetimeRevenue becomes this value and recurring revenue is cleared. To keep recurring revenue, set the per-period fields instead.'
+        },
+        cost: {
+          type: 'number',
+          description: 'Total cost. Setting this replaces the cost breakdown: onetimeCost becomes this value and recurring cost is cleared. To keep recurring cost, set the per-period fields instead.'
+        },
+        onetimeRevenue: { type: 'number', description: 'One-time revenue' },
+        onetimeCost: { type: 'number', description: 'One-time cost' },
+        monthlyRevenue: { type: 'number', description: 'Monthly revenue' },
+        monthlyCost: { type: 'number', description: 'Monthly cost' },
+        quarterlyRevenue: { type: 'number', description: 'Quarterly revenue' },
+        quarterlyCost: { type: 'number', description: 'Quarterly cost' },
+        semiannualRevenue: { type: 'number', description: 'Semi-annual revenue' },
+        semiannualCost: { type: 'number', description: 'Semi-annual cost' },
+        yearlyRevenue: { type: 'number', description: 'Yearly revenue' },
+        yearlyCost: { type: 'number', description: 'Yearly cost' },
+        totalAmountMonths: {
+          type: 'number',
+          description: 'Number of months the recurring revenue/cost is totalled over (e.g., 12 for annual)'
+        },
+        userDefinedFields: {
+          type: 'array',
+          description: 'User-defined field values to set on the opportunity (Autotask REST-native shape)',
+          items: {
+            type: 'object',
+            properties: {
+              name: { type: 'string', description: 'UDF name' },
+              value: { type: 'string', description: 'UDF value' }
+            },
+            required: ['name', 'value']
+          }
+        }
+      },
+      required: ['opportunityId']
+    }
+  },
 
   // Product tools
   {
@@ -3330,7 +3438,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   financial: {
     description: 'Quotes, quote items, opportunities, invoices, and contracts',
-    tools: ['autotask_get_quote', 'autotask_search_quotes', 'autotask_create_quote', 'autotask_get_quote_item', 'autotask_search_quote_items', 'autotask_create_quote_item', 'autotask_update_quote_item', 'autotask_delete_quote_item', 'autotask_get_opportunity', 'autotask_search_opportunities', 'autotask_create_opportunity', 'autotask_search_invoices', 'autotask_search_contracts', 'autotask_get_contract', 'autotask_list_expiring_contracts', 'autotask_search_contract_services', 'autotask_search_contract_service_units', 'autotask_search_contract_service_bundles', 'autotask_search_contract_service_bundle_units', 'autotask_get_contract_recurring_lines', 'autotask_create_contract', 'autotask_create_contracts_bulk', 'autotask_update_contract', 'autotask_create_contract_service', 'autotask_update_contract_service']
+    tools: ['autotask_get_quote', 'autotask_search_quotes', 'autotask_create_quote', 'autotask_get_quote_item', 'autotask_search_quote_items', 'autotask_create_quote_item', 'autotask_update_quote_item', 'autotask_delete_quote_item', 'autotask_get_opportunity', 'autotask_search_opportunities', 'autotask_create_opportunity', 'autotask_update_opportunity', 'autotask_search_invoices', 'autotask_search_contracts', 'autotask_get_contract', 'autotask_list_expiring_contracts', 'autotask_search_contract_services', 'autotask_search_contract_service_units', 'autotask_search_contract_service_bundles', 'autotask_search_contract_service_bundle_units', 'autotask_get_contract_recurring_lines', 'autotask_create_contract', 'autotask_create_contracts_bulk', 'autotask_update_contract', 'autotask_create_contract_service', 'autotask_update_contract_service']
   },
   products_and_services: {
     description: 'Products, services, and service bundles catalog',

@@ -365,6 +365,8 @@ The server provides 101 tools for interacting with Autotask:
 #### Financial Operations
 - `autotask_get_expense_report` / `autotask_search_expense_reports` / `autotask_create_expense_report`
 - `autotask_get_quote` / `autotask_search_quotes` / `autotask_create_quote`
+- `autotask_get_opportunity` / `autotask_search_opportunities` / `autotask_create_opportunity`
+- `autotask_update_opportunity` - Update an opportunity (stage, status, revenue/cost lines, UDFs)
 - `autotask_search_invoices` - Search invoices
 
 #### Contract Operations
