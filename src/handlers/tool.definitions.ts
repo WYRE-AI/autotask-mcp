@@ -990,7 +990,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         summaryNotes: {
           type: 'string',
-          description: 'Summary notes for the time entry'
+          description: 'Summary notes for the time entry. The field must be present but may be an empty string ("") to create an entry with internal notes only via the "internalNotes" field.'
         },
         internalNotes: {
           type: 'string',
