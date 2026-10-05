@@ -11,6 +11,7 @@ import { MappingService } from '../utils/mapping.service.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
 import { buildTicketCard, type TicketCard } from './card.builder.js';
+import { buildTicketSearchParams } from './intent-router.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
 // only a handful of concurrent API threads per integration, so enrichment is
@@ -463,12 +464,12 @@ export class AutotaskToolHandler {
   /**
    * Route a natural-language intent to the best matching tool with pre-filled parameters.
    */
-  private routeIntent(rawIntent: string): {
+  private async routeIntent(rawIntent: string): Promise<{
     suggestedTool: string;
     suggestedParams: Record<string, any>;
     description: string;
     requiredParams: string[];
-  } {
+  }> {
     // Extract quoted strings from original (preserves case) before lowercasing
     const quotedStrings = rawIntent.match(/["']([^"']+)["']/g)?.map(s => s.slice(1, -1)) || [];
     const intent = rawIntent.toLowerCase();
@@ -551,19 +552,17 @@ export class AutotaskToolHandler {
           requiredParams: !params.ticketId ? ['ticketId'] : [],
         };
       }
-      // Default: search tickets
-      const params: Record<string, any> = {};
-      if (quotedStrings[0]) params.searchTerm = quotedStrings[0];
-      else if (/for\s+(\w[\w\s]*?)(?:\.|$|,)/i.test(intent)) {
-        const match = intent.match(/for\s+(\w[\w\s]*?)(?:\.|$|,)/i);
-        if (match) params.searchTerm = match[1].trim();
-      }
-      if (numbers[0] !== undefined) params.companyID = numbers[0]; // WYREAI-373
+      // Default: search tickets. searchTerm is a ticket-number prefix only —
+      // company names resolve to companyID (WYREAI-368).
+      const ticketSearch = await buildTicketSearchParams(
+        rawIntent,
+        (searchTerm) => this.autotaskService.searchCompanies({ searchTerm })
+      );
       return {
         suggestedTool: 'autotask_search_tickets',
-        suggestedParams: params,
+        suggestedParams: ticketSearch.suggestedParams,
         description: 'Search for tickets',
-        requiredParams: [],
+        requiredParams: ticketSearch.requiredParams,
       };
     }
 
@@ -1673,7 +1672,7 @@ export class AutotaskToolHandler {
       // Intent-based router
       ['autotask_router', async (a) => {
         const rawIntent = a.intent || '';
-        const suggestion = this.routeIntent(rawIntent);
+        const suggestion = await this.routeIntent(rawIntent);
         return { result: suggestion, message: `Suggested tool: ${suggestion.suggestedTool}` };
       }],
     ]);
