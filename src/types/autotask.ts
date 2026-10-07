@@ -384,17 +384,21 @@ export interface AutotaskTicketAttachmentCreateRequest {
 }
 
 /**
- * Attachment on a ticket note (child of TicketNotes; the top-level
- * TicketNoteAttachments/TicketNoteAttachment entity is the one that
- * populates `data`). Field names verified against the live Autotask REST
- * API's /TicketNoteAttachments/entityInformation/fields — this entity does
- * NOT share field names with AutotaskTicketAttachment above (title/fullPath/
+ * Attachment on a ticket note (child of TicketNotes). File bytes are
+ * populated by GET /TicketNotes/{id}/Attachments/{id} (#315). The top-level
+ * TicketNoteAttachments entity can also carry `data`, but `ticketNoteID` is
+ * optional there — scope it with `ticketNoteID` or `parentID` before using
+ * those bytes. Field names verified against
+ * /TicketNoteAttachments/entityInformation/fields — this entity does NOT
+ * share field names with AutotaskTicketAttachment above (title/fullPath/
  * attachDate here, not fileName/createDate).
  */
 export interface AutotaskTicketNoteAttachment {
   id?: number;
   ticketID?: number;
   ticketNoteID?: number;
+  /** Owning entity id. For a note attachment this is the ticket note id. */
+  parentID?: number;
   title?: string;
   fullPath?: string;
   fileSize?: number;
