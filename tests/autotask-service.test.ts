@@ -354,6 +354,33 @@ describe('AutotaskService', () => {
         expect(fetchSpy).toHaveBeenCalledTimes(1);
       });
 
+      test('includeData=true does not unwrap an items entry with a different id', async () => {
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({
+            items: [{ id: 999, title: 'other.pdf', data: 'SECRET' }],
+          }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r).toBeNull();
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+      });
+
+      test('includeData=true accepts a sole items entry that has no id', async () => {
+        const smallBase64 = Buffer.from('hello').toString('base64');
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({
+            items: [{ title: 'a.pdf', data: smallBase64 }],
+          }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r?.data).toBe(smallBase64);
+        expect(r?.title).toBe('a.pdf');
+      });
+
       test('includeData=true strips oversized data and surfaces dataOmittedReason', async () => {
         // Build a base64 string above the 750_000-byte default cap
         const big = 'A'.repeat(1_000_000);

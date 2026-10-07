@@ -2045,7 +2045,12 @@ export class AutotaskService {
       (item): item is AutotaskTicketNoteAttachment => !!item && typeof item === 'object'
     );
     if (records.length === 0) return null;
-    return records.find((item) => item.id === attachmentId) ?? records[0] ?? null;
+    const match = records.find((item) => item.id === attachmentId);
+    if (match) return match;
+    // A single id-less row can be the requested attachment. Any other
+    // identified row is a different attachment and must not be returned.
+    const only = records.length === 1 ? records[0] : undefined;
+    return only !== undefined && only.id === undefined ? only : null;
   }
 
   private static noteAttachmentHasBytes(data: unknown): data is string {
