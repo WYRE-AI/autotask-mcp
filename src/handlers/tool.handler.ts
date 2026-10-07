@@ -12,6 +12,7 @@ import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
 import { buildTicketCard, type TicketCard } from './card.builder.js';
 import { buildTicketSearchParams } from './intent-router.js';
+import { markUntrustedContent, untrustedContentToolName } from '../utils/untrusted-content.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
 // only a handful of concurrent API threads per integration, so enrichment is
@@ -1725,6 +1726,10 @@ export class AutotaskToolHandler {
     // at each of the ~20 individual read sites across this file — every
     // handler below can keep reading whichever key it already used.
     const args = normalizeCompanyIdAlias(rawArgs);
+    // autotask_execute_tool returns the delegated tool's payload under its
+    // own name. Marking must follow args.toolName or every delegated
+    // ticket/note/contact result skips the untrusted-content boundary.
+    const contentToolName = untrustedContentToolName(name, args);
     this.logger.debug(`Calling tool: ${name}`, args);
 
     try {
@@ -1770,10 +1775,15 @@ export class AutotaskToolHandler {
         }
         this.logger.debug(`Successfully executed tool: ${name}`);
         if (card) {
+          // The model-facing summary includes the client-authored title.
+          // structuredContent stays the object the ticket card renders from;
+          // wrapping that object would break the card. Notes live there for
+          // the app, and the summary text carries the untrusted boundary.
+          const summary = `Ticket ${card.ticketNumber ?? card.id}: ${card.title} (${card.priority}, ${card.status})`;
           return {
             content: [{
               type: 'text',
-              text: `Ticket ${card.ticketNumber ?? card.id}: ${card.title} (${card.priority}, ${card.status})`,
+              text: markUntrustedContent(contentToolName, summary),
             }],
             structuredContent: { message, data },
           };
@@ -1784,7 +1794,12 @@ export class AutotaskToolHandler {
       }
 
       this.logger.debug(`Successfully executed tool: ${name}`);
-      return { content: [{ type: 'text', text: responseText }] };
+      // Marks results carrying text written outside this organisation - client
+      // email lands in ticket descriptions and notes verbatim. No-op for tools
+      // that return only IDs, enums and timestamps. See untrusted-content.ts.
+      return {
+        content: [{ type: 'text', text: markUntrustedContent(contentToolName, responseText) }],
+      };
 
     } catch (error) {
       this.logger.error(`Tool execution failed for ${name}:`, error);

@@ -240,6 +240,14 @@ AUTOTASK_ENHANCE_CONCURRENCY=3
 
 # Environment
 NODE_ENV=production
+
+# Untrusted-content markers (default on). Tool results that can contain
+# client-authored text — ticket descriptions and notes, contacts, companies,
+# attachment names, ticket history, and autotask_raw_request — are wrapped in
+# an <autotask-data> boundary so a model treats them as data, not instructions.
+# Set to off only if a consumer parses tool text byte-for-byte and needs the
+# previous shape. Any other value leaves the markers on.
+# AUTOTASK_UNTRUSTED_MARKERS=off
 ```
 
 ### Gateway Mode
