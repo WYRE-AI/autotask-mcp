@@ -6,6 +6,10 @@ Workflow defaults (commits, changelog, memory) come from the global `~/.claude/C
 ## Learnings
 <!-- Record non-obvious discoveries as dated entries: "## Learnings - YYYY-MM-DD" -->
 
+## Learnings - 2026-10-07
+
+- Ticket **note** attachment bytes are on the parent-scoped child `GET /TicketNotes/{id}/Attachments/{id}` (Autotask's documented retrieve-attachment call, confirmed live in #315). That is the opposite of the ticket-attachment split, where only `GET /TicketAttachments/{id}` populates `data`. `ticketNoteID` is optional on `TicketNoteAttachments`, so fail-closed `!== ticketNoteId` on the top-level row turns a real attachment into null — and `buildNotFoundMessage` then reports the first `*id` argument (`ticketNoteId`) as "not found".
+
 ## Learnings - 2026-08-10
 
 - Issue asks can be stale: #237 claimed "no Contracts tools" but search/create/update already existed (added after the issue was filed). Always scope against `src/handlers/tool.definitions.ts` before implementing "missing" tools.

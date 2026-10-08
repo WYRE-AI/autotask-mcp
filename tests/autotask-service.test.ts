@@ -304,33 +304,81 @@ describe('AutotaskService', () => {
         jest.restoreAllMocks();
       });
 
-      test('includeData=false hits the child endpoint and returns metadata only', async () => {
+      test('includeData=false hits the child endpoint and strips file bytes', async () => {
         const fetchSpy = jest
           .spyOn(globalThis, 'fetch')
-          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'a.pdf', fileSize: 100 } }));
+          .mockResolvedValue(jsonResponse({
+            item: { id: 456, ticketNoteID: 123, title: 'a.pdf', fileSize: 100, data: Buffer.from('hello').toString('base64') },
+          }));
 
         const r = await service.getTicketNoteAttachment(123, 456);
 
         expect(r).toEqual({ id: 456, ticketNoteID: 123, title: 'a.pdf', fileSize: 100 });
+        expect(r).not.toHaveProperty('data');
         expect(fetchSpy).toHaveBeenCalledTimes(1);
         const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
-        // Child endpoint — never returns the binary `data` field
         expect(url).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNotes/123/Attachments/456');
       });
 
-      test('includeData=true hits the top-level entity endpoint and returns data', async () => {
+      test('includeData=true returns child-endpoint bytes even when ticketNoteID is omitted', async () => {
+        // #315: the note-scoped child call already carries `data`, and the
+        // top-level entity often omits ticketNoteID. That used to fail closed
+        // and surface as "not found".
         const smallBase64 = Buffer.from('hello').toString('base64');
         const fetchSpy = jest
           .spyOn(globalThis, 'fetch')
-          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'a.pdf', data: smallBase64 } }));
+          .mockResolvedValue(jsonResponse({ item: { id: 456, title: 'a.pdf', data: smallBase64 } }));
 
         const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
 
         expect(r?.data).toBe(smallBase64);
         expect(r?.dataOmittedReason).toBeUndefined();
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
         const [url] = fetchSpy.mock.calls[0] as [string, RequestInit];
-        // Top-level entity endpoint — the only one that populates `data`
-        expect(url).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNoteAttachments/456');
+        expect(url).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNotes/123/Attachments/456');
+      });
+
+      test('includeData=true unwraps the documented { items: [...] } child shape', async () => {
+        const smallBase64 = Buffer.from('hello').toString('base64');
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({
+            items: [{ id: 456, ticketNoteID: 123, title: 'a.pdf', data: smallBase64 }],
+            pageDetails: { count: 1 },
+          }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r?.data).toBe(smallBase64);
+        expect(r?.title).toBe('a.pdf');
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+      });
+
+      test('includeData=true does not unwrap an items entry with a different id', async () => {
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({
+            items: [{ id: 999, title: 'other.pdf', data: 'SECRET' }],
+          }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r).toBeNull();
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+      });
+
+      test('includeData=true accepts a sole items entry that has no id', async () => {
+        const smallBase64 = Buffer.from('hello').toString('base64');
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValue(jsonResponse({
+            items: [{ title: 'a.pdf', data: smallBase64 }],
+          }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r?.data).toBe(smallBase64);
+        expect(r?.title).toBe('a.pdf');
       });
 
       test('includeData=true strips oversized data and surfaces dataOmittedReason', async () => {
@@ -348,27 +396,85 @@ describe('AutotaskService', () => {
         expect(r?.title).toBe('big.bin');
       });
 
-      test('includeData=true returns null when attachment belongs to a different note', async () => {
-        jest
+      test('includeData=true returns null when the child record belongs to a different note', async () => {
+        const fetchSpy = jest
           .spyOn(globalThis, 'fetch')
-          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 999, title: 'a.pdf' } }));
+          .mockResolvedValue(jsonResponse({ item: { id: 456, ticketNoteID: 999, title: 'a.pdf', data: 'SECRET' } }));
 
-        // Caller asked for note 123, but attachment 456 belongs to note 999.
-        // Must not leak it across notes.
+        // Caller asked for note 123, but the record says note 999.
+        // Must not leak it, and must not fall through to the unscoped entity.
         const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
         expect(r).toBeNull();
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
       });
 
-      test('includeData=true returns null when ticketNoteID is omitted from the response', async () => {
-        jest
+      test('includeData=true returns null on child 404 without querying the top-level entity', async () => {
+        const fetchSpy = jest
           .spyOn(globalThis, 'fetch')
-          .mockResolvedValue(jsonResponse({ item: { id: 456, title: 'a.pdf' } }));
+          .mockResolvedValue(jsonResponse({ errors: ['not found'] }, 404));
 
-        // Autotask's own field metadata marks ticketNoteID as not required, so a
-        // legitimate response can omit it entirely. Must fail closed, not pass
-        // through unscoped — see CodeRabbit PR #300 review.
         const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
         expect(r).toBeNull();
+        expect(fetchSpy).toHaveBeenCalledTimes(1);
+      });
+
+      test('includeData=true falls back to TicketNoteAttachments when the child omits data and ticketNoteID matches', async () => {
+        const smallBase64 = Buffer.from('hello').toString('base64');
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'a.pdf' } }))
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, ticketNoteID: 123, title: 'a.pdf', data: smallBase64 } }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+
+        expect(r?.data).toBe(smallBase64);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+        const [childUrl] = fetchSpy.mock.calls[0] as [string, RequestInit];
+        const [topUrl] = fetchSpy.mock.calls[1] as [string, RequestInit];
+        expect(childUrl).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNotes/123/Attachments/456');
+        expect(topUrl).toBe('https://example.autotask.net/atservicesrest/v1.0/TicketNoteAttachments/456');
+      });
+
+      test('includeData=true accepts top-level bytes when ticketNoteID is absent and parentID matches', async () => {
+        const smallBase64 = Buffer.from('hello').toString('base64');
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, title: 'a.pdf' } }))
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, parentID: 123, title: 'a.pdf', data: smallBase64 } }));
+
+        const r = await service.getTicketNoteAttachment(123, 456, { includeData: true });
+        expect(r?.data).toBe(smallBase64);
+      });
+
+      test('includeData=true errors instead of not-found when top-level bytes cannot be scoped', async () => {
+        const fetchSpy = jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, title: 'a.pdf', contentType: 'image/png' } }))
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, title: 'other.pdf', data: 'SECRET' } }));
+
+        await expect(service.getTicketNoteAttachment(123, 456, { includeData: true }))
+          .rejects.toThrow(/could not be verified as this note's attachment/);
+        expect(fetchSpy).toHaveBeenCalledTimes(2);
+      });
+
+      test('includeData=true errors when a mismatched ticketNoteID would otherwise supply bytes', async () => {
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, title: 'a.pdf' } }))
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, ticketNoteID: 999, parentID: 123, data: 'SECRET' } }));
+
+        await expect(service.getTicketNoteAttachment(123, 456, { includeData: true }))
+          .rejects.toThrow(/ticketNoteID: 999/);
+      });
+
+      test('includeData=true errors clearly when neither endpoint returns bytes', async () => {
+        jest
+          .spyOn(globalThis, 'fetch')
+          .mockResolvedValueOnce(jsonResponse({ item: { id: 456, title: 'link.url', attachmentType: 'URL' } }))
+          .mockResolvedValueOnce(jsonResponse({ errors: ['not found'] }, 404));
+
+        await expect(service.getTicketNoteAttachment(123, 456, { includeData: true }))
+          .rejects.toThrow(/returned no record/);
       });
 
       test('includeData=true respects a higher maxInlineBase64Bytes', async () => {
