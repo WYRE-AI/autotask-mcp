@@ -218,6 +218,44 @@ describe('autotask_create_ticket assigned resource role', () => {
   });
 });
 
+describe('autotask_update_ticket assigned resource role', () => {
+  function patched(calls: Array<{ path: string; method: string; body: any }>): any {
+    const call = calls.find(c => c.method === 'PATCH' && c.path.endsWith('/Tickets'));
+    expect(call).toBeDefined();
+    return call!.body;
+  }
+
+  test('PATCH body carries both assignedResourceID and assignedResourceRoleID as given', async () => {
+    const { calls } = mockAutotask({ '/Tickets': () => ({ itemId: 12345 }) });
+
+    const result = await handler().callTool('autotask_update_ticket', {
+      ticketId: 12345, assignedResourceID: RYAN, assignedResourceRoleID: 502,
+    });
+
+    expect(result.isError).toBeFalsy();
+    expect(patched(calls)).toEqual({ id: 12345, assignedResourceID: RYAN, assignedResourceRoleID: 502 });
+    expect(calls.some(c => c.path.endsWith('/ResourceRoles/query'))).toBe(false);
+  });
+
+  test('a supplied role is not replaced by the resource\'s only role', async () => {
+    const { calls } = mockAutotask({ ...oneRole, '/Tickets': () => ({ itemId: 12345 }) });
+
+    await handler().callTool('autotask_update_ticket', {
+      ticketId: 12345, assignedResourceID: RYAN, assignedResourceRoleID: 502,
+    });
+
+    expect(patched(calls).assignedResourceRoleID).toBe(502);
+  });
+
+  test('fills the role when only assignedResourceID is given', async () => {
+    const { calls } = mockAutotask({ ...oneRole, '/Tickets': () => ({ itemId: 12345 }) });
+
+    await handler().callTool('autotask_update_ticket', { ticketId: 12345, assignedResourceID: RYAN });
+
+    expect(patched(calls)).toMatchObject({ assignedResourceID: RYAN, assignedResourceRoleID: 501 });
+  });
+});
+
 describe('autotask_create_time_entry roleID', () => {
   // A fresh object per call: the handler resolves into (and deletes from) its argument.
   const entry = (): Record<string, any> => ({ ticketID: 19879, resourceID: RYAN, dateWorked: '2026-09-10', startDateTime: '2026-09-10T09:00:00', endDateTime: '2026-09-10T10:00:00', hoursWorked: 1, summaryNotes: 'work' });
