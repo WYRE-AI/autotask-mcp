@@ -1682,7 +1682,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Ticket Note Attachments tools
   {
     name: 'autotask_get_ticket_note_attachment',
-    description: 'Get an attachment on a ticket NOTE (e.g. a pasted screenshot or file inside an internal note — distinct from attachments on the ticket itself). With includeData=false (default) returns metadata only — fast, suitable for browsing. With includeData=true returns the base64 binary content via the top-level /TicketNoteAttachments/{id} endpoint (the child endpoint never populates data). The attachment is verified to belong to the given ticketNoteId. Oversized binaries are stripped from the response with a dataOmittedReason field — Autotask attachments can be up to 3 MB, which is ~4 MB as base64 and may exceed the MCP client tool-result limit (~1 MB).',
+    description: 'Get an uploaded file attachment on a ticket note (distinct from attachments on the ticket itself). With includeData=false (default) returns metadata only — any file bytes Autotask included are omitted. With includeData=true returns the base64 file bytes from GET /TicketNotes/{ticketNoteId}/Attachments/{attachmentId}, which is parent-scoped and is the call that populates data for note attachments. If that response omits data, falls back to GET /TicketNoteAttachments/{id} and uses those bytes only when ticketNoteID or parentID matches the note; if the bytes cannot be verified, returns an error instead of reporting the attachment as missing. Oversized binaries are stripped from the response with a dataOmittedReason field — Autotask attachments can be up to 3 MB, which is ~4 MB as base64 and may exceed the MCP client tool-result limit (~1 MB).',
     annotations: {
       readOnlyHint: true,
       destructiveHint: false,
@@ -1702,7 +1702,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         includeData: {
           type: 'boolean',
-          description: 'Set true to fetch the base64-encoded file bytes. Default false returns metadata only.',
+          description: 'Set true to fetch the base64-encoded file bytes from the note-scoped attachment. Default false returns metadata only (bytes are omitted even if Autotask sent them).',
           default: false
         },
         maxInlineBase64Bytes: {
