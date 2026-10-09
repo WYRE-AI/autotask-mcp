@@ -462,7 +462,7 @@ export class AutotaskService {
       }
 
       if (options.unassigned === true) {
-        filters.push({ op: 'eq', field: 'assignedResourceID', value: null });
+        filters.push({ op: 'notExist', field: 'assignedResourceID' }); // Autotask matches nothing on eq null
       } else if (options.assignedResourceID !== undefined) {
         filters.push({ op: 'eq', field: 'assignedResourceID', value: options.assignedResourceID });
       }
@@ -2913,9 +2913,9 @@ export class AutotaskService {
 
       const approvalStatus = (options as any).approvalStatus;
       if (approvalStatus === 'unapproved') {
-        filters.push({ op: 'eq', field: 'billingApprovalDateTime', value: null });
+        filters.push({ op: 'notExist', field: 'billingApprovalDateTime' });
       } else if (approvalStatus === 'approved') {
-        filters.push({ op: 'isnotnull', field: 'billingApprovalDateTime' });
+        filters.push({ op: 'exist', field: 'billingApprovalDateTime' });
       }
 
       if ((options as any).billable !== undefined) {
