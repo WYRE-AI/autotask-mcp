@@ -311,12 +311,19 @@ describe('Tool annotations - readOnlyHint', () => {
     }
   });
 
-  test('progressive-discovery meta-tools are local (openWorldHint: false)', () => {
-    for (const name of ['autotask_list_categories', 'autotask_list_category_tools', 'autotask_router']) {
+  test('progressive-discovery list tools are local (openWorldHint: false)', () => {
+    for (const name of ['autotask_list_categories', 'autotask_list_category_tools']) {
       const tool = TOOL_DEFINITIONS.find(t => t.name === name);
       expect(tool).toBeDefined();
       expect(tool!.annotations?.openWorldHint).toBe(false);
     }
+  });
+
+  test('autotask_router is open-world: company intents call searchCompanies', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_router');
+    expect(tool).toBeDefined();
+    expect(tool!.annotations?.openWorldHint).toBe(true);
+    expect(tool!.annotations?.readOnlyHint).toBe(true);
   });
 });
 

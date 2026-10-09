@@ -3346,7 +3346,9 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       readOnlyHint: true,
       destructiveHint: false,
       idempotentHint: true,
-      openWorldHint: false,
+      // Company-name intents call AutotaskService.searchCompanies, so this
+      // tool reaches Autotask and is not local-only like the list tools.
+      openWorldHint: true,
     },
     inputSchema: {
       type: 'object',
