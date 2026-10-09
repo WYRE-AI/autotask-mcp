@@ -48,6 +48,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_test_connection',
     description: 'Test Autotask API connection',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {},
@@ -59,6 +65,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_companies',
     description: 'Search companies by name or status. Max 200/page.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -276,6 +288,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_company_site_configuration',
     description: 'Get company site configuration records. Call first to discover available fields.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -311,6 +329,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_contacts',
     description: 'Search contacts by name, email, or company. Max 200/page.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -462,6 +486,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_tickets',
     description: 'Search tickets by company, queue, status, priority. Use autotask_get_ticket_details for full data. Max 500/page.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -528,6 +558,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     name: 'autotask_get_ticket_details',
     description: 'Get full ticket details including notes, time entries, and custom fields.',
     _meta: TICKET_CARD_META,
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -718,6 +754,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_ticket_charge',
     description: 'Get a specific ticket charge by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -732,6 +774,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_ticket_charges',
     description: 'Search ticket charges (materials, costs, expenses). Provide ticketId for best performance. Max 10 if unfiltered.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -882,6 +930,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_ticket_history',
     description: 'Get a single ticket history entry by ID. Each entry records one audited change to a ticket field (who, when, before/after).',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -896,6 +950,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_ticket_history',
     description: 'Get the audit trail of field changes for a ticket (status transitions, assignment changes, priority edits, etc.). Use this to answer questions like "when did this ticket move from In Progress to Waiting Customer" or "who changed the priority". Returns entries ordered by Autotask; sort/filter client-side if needed.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -934,7 +994,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         }
       }
     },
-    annotations: { readOnlyHint: true }
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
   },
 
   // Time entry tools
@@ -1005,6 +1070,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_projects',
     description: 'Search for projects in Autotask. Returns 25 results per page by default. Use page parameter for more results.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1156,6 +1227,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_resources',
     description: 'Search for resources (users) in Autotask. Returns 25 results per page by default. Use page parameter for more results.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1191,6 +1268,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_ticket_note',
     description: 'Get a specific ticket note by ticket ID and note ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1209,6 +1292,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_ticket_notes',
     description: 'Search for notes on a specific ticket. Iterating across many tickets trips Autotask\'s per-integration API threshold — scope the parent list first.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1262,6 +1351,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_ticket_checklist_items',
     description: 'List all checklist items on a ticket, including their completion status. Checklist items are a sub-resource of a ticket and cannot be queried without a ticket ID.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1362,6 +1457,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_project_note',
     description: 'Get a specific project note by project ID and note ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1380,6 +1481,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_project_notes',
     description: 'Search for notes on a specific project. Fan-out across many projects trips Autotask\'s API threshold (see issue #69) — scope the parent list (status, company, date range) first.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1436,6 +1543,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_company_note',
     description: 'Get a specific company note by company ID and note ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1454,6 +1567,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_company_notes',
     description: 'Search for notes on a specific company. Iterating across many companies trips Autotask\'s API threshold — scope the parent list first.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1502,6 +1621,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_ticket_attachment',
     description: 'Get a ticket attachment. With includeData=false (default) returns metadata only — fast, suitable for browsing. With includeData=true returns the base64 binary content via the top-level /TicketAttachments/{id} endpoint (the child endpoint never populates data). The attachment is verified to belong to the given ticketId. Oversized binaries are stripped from the response with a dataOmittedReason field — Autotask attachments can be up to 3 MB, which is ~4 MB as base64 and may exceed the MCP client tool-result limit (~1 MB).',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1530,6 +1655,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_ticket_attachments',
     description: 'Search for attachments on a specific ticket. Each parent triggers a separate query — scope the parent ticket list before iterating.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1552,6 +1683,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_ticket_note_attachment',
     description: 'Get an uploaded file attachment on a ticket note (distinct from attachments on the ticket itself). With includeData=false (default) returns metadata only — any file bytes Autotask included are omitted. With includeData=true returns the base64 file bytes from GET /TicketNotes/{ticketNoteId}/Attachments/{attachmentId}, which is parent-scoped and is the call that populates data for note attachments. If that response omits data, falls back to GET /TicketNoteAttachments/{id} and uses those bytes only when ticketNoteID or parentID matches the note; if the bytes cannot be verified, returns an error instead of reporting the attachment as missing. Oversized binaries are stripped from the response with a dataOmittedReason field — Autotask attachments can be up to 3 MB, which is ~4 MB as base64 and may exceed the MCP client tool-result limit (~1 MB).',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1580,6 +1717,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_ticket_note_attachments',
     description: 'Search for attachments on a specific ticket note — use this when autotask_search_ticket_notes returns a note with an empty or unhelpful `description`, since the real content is often a pasted image or file living on the note rather than in its text. Each note triggers a separate query — scope the parent note list before iterating.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1639,6 +1782,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_expense_report',
     description: 'Get a specific expense report by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1653,6 +1802,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_expense_reports',
     description: 'Search for expense reports with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1727,6 +1882,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_quote',
     description: 'Get a specific quote by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1741,6 +1902,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_quotes',
     description: 'Search for quotes with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1813,6 +1980,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_opportunity',
     description: 'Get a specific opportunity by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -1827,6 +2000,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_opportunities',
     description: 'Search for opportunities with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2036,6 +2215,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_product',
     description: 'Get a specific product by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2050,6 +2235,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_products',
     description: 'Search for products with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2076,6 +2267,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_service',
     description: 'Get a specific service by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2090,6 +2287,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_services',
     description: 'Search for services with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2116,6 +2319,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_service_bundle',
     description: 'Get a specific service bundle by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2130,6 +2339,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_service_bundles',
     description: 'Search for service bundles with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2156,6 +2371,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_quote_item',
     description: 'Get a specific quote item by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2170,6 +2391,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_quote_items',
     description: 'Search for quote items, typically filtered by quote ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2336,6 +2563,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_configuration_items',
     description: 'Search for configuration items in Autotask with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2378,6 +2611,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_contracts',
     description: 'Search for contracts in Autotask with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2418,6 +2657,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_contract',
     description: 'Get a single contract by ID (header fields only, no service lines)',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2432,6 +2677,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_contract_services',
     description: 'List the service line items on a contract (ContractServices): which catalog services are on the contract and at what contract-specific unit price. Read-only. Pair with autotask_search_contract_service_units for billed quantities, or use autotask_get_contract_recurring_lines for both in one call.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2444,6 +2695,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_contract_service_units',
     description: 'Billed unit rows for a contract (ContractServiceUnits): the quantity and contract price of each service line over a date range. By default returns only rows active today, i.e. what is currently being invoiced. Read-only.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2457,6 +2714,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_contract_service_bundles',
     description: 'List the service-bundle line items on a contract (ContractServiceBundles). Read-only.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2469,6 +2732,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_contract_service_bundle_units',
     description: 'Billed unit rows for bundle lines on a contract (ContractServiceBundleUnits), active on a given day (default today). Read-only.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2482,6 +2751,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_contract_recurring_lines',
     description: 'Recurring-revenue roll-up for one contract: every service and bundle line with units active on a day, joined to the catalog (service name, vendor, billing period) and normalized to a monthly total. Returns { contractID, contractName, companyID, companyName, activeOn, lines[], monthlyTotal, monthlyCost, unresolvedPeriodTypes[] }. Use this for MRR, licensing reconciliation, and "what does this client pay for" questions. Read-only.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2494,6 +2769,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_expiring_contracts',
     description: 'List contracts whose end date falls within the next N days (expiring-contracts report). Optionally include already-expired contracts, and scope to one company or the whole org.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2529,6 +2810,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_invoices',
     description: 'Search for invoices in Autotask with optional filters',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2557,6 +2844,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_invoice_details',
     description: 'Get a single Autotask invoice with its nested line items (billing items posted to the invoice). Use for finance workflows that need to see exactly what an invoice contains.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2573,6 +2866,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_tasks',
     description: 'Search for tasks in Autotask. Returns 25 results per page by default. Use page parameter for more results.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2658,6 +2957,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_phases',
     description: 'List phases for a project in Autotask',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2714,6 +3019,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_queues',
     description: 'List all available ticket queues in Autotask. Use this to find queue IDs for filtering tickets by queue.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {},
@@ -2723,6 +3034,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_ticket_statuses',
     description: 'List all available ticket statuses in Autotask. Use this to find status values for filtering or creating tickets.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {},
@@ -2732,6 +3049,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_ticket_priorities',
     description: 'List all available ticket priorities in Autotask. Use this to find priority values for filtering or creating tickets.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {},
@@ -2741,6 +3064,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_field_info',
     description: 'Get field definitions for an Autotask entity type, including picklist values. Useful for discovering valid values for any picklist field.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2761,6 +3090,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_billing_items',
     description: 'Search for billing items in Autotask. Billing items represent approved and posted billable items from the "Approve and Post" workflow. Returns 25 results per page by default.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2822,6 +3157,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_billing_item',
     description: 'Get detailed information for a specific billing item by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2838,6 +3179,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_billing_item_approval_levels',
     description: 'Search for billing item approval levels. These describe multi-level approval records for Autotask time entries, enabling visibility into tiered approval workflows.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2881,6 +3228,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_time_entries',
     description: 'Search for time entries in Autotask. Returns 25 results per page by default. Time entries can be filtered by resource, ticket, task, date range, or approval status. Use approvalStatus="unapproved" to find entries not yet posted. There is no project filter — Autotask time entries have no project field; to get a project\'s time, call autotask_search_tasks with that projectID and filter by the returned taskId values. Common fan-out target — scope by date range first to avoid Autotask\'s API threshold.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2933,6 +3286,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_categories',
     description: 'List available tool categories. Use this to discover what types of Autotask operations are available before loading specific tools.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {},
@@ -2942,6 +3301,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_list_category_tools',
     description: 'List tools in a specific category with full schemas. Use after autotask_list_categories to see available tools and their parameters.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: false,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2953,6 +3318,9 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       required: ['category']
     }
   },
+  // Dispatcher: can run any tool, including writes. Left unannotated
+  // (no readOnlyHint) on purpose. callTool marks the delegated result using
+  // args.toolName — see untrustedContentToolName in untrusted-content.ts.
   {
     name: 'autotask_execute_tool',
     description: 'Execute any Autotask tool by name. Use after discovering tools via autotask_list_category_tools.',
@@ -2974,6 +3342,14 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_router',
     description: 'Intelligent tool router - describe what you want to do and get the right tool suggestion with pre-filled parameters. Use this when unsure which tool to call.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      // Company-name intents call AutotaskService.searchCompanies, so this
+      // tool reaches Autotask and is not local-only like the list tools.
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -2990,6 +3366,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_get_service_call',
     description: 'Get a specific service call by ID',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -3004,6 +3386,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_service_calls',
     description: 'Search for service calls in Autotask. Filter by company, status, or date range.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -3134,6 +3522,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_service_call_tickets',
     description: 'Search for ticket associations on service calls. Use this to find which tickets are linked to a service call, or which service calls contain a specific ticket.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -3202,6 +3596,12 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   {
     name: 'autotask_search_service_call_ticket_resources',
     description: 'Search for resource (technician) assignments on service call tickets.',
+    annotations: {
+      readOnlyHint: true,
+      destructiveHint: false,
+      idempotentHint: true,
+      openWorldHint: true,
+    },
     inputSchema: {
       type: 'object',
       properties: {
@@ -3380,6 +3780,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       required: ['id', 'contractID']
     }
   },
+  // Passthrough over GET/POST/PATCH/PUT/DELETE, so it must not carry
+  // readOnlyHint. Its results are still wrapped as untrusted content
+  // (UNTRUSTED_CONTENT_TOOLS in untrusted-content.ts): a read through it
+  // can return any entity, including client-authored text.
   {
     name: 'autotask_raw_request',
     description: 'Escape hatch for Autotask REST endpoints not yet wrapped by a typed tool. Use sparingly — typed tools are preferred for safety. The existing Content-Type, Accept, ApiIntegrationcode, UserName, Secret headers are added automatically. The path is resolved against the zone-resolved base URL (https://webservices<N>.autotask.net/ATServicesRest/v1.0). Pass queryParams as a flat object of string/number/boolean values; they will be URL-encoded and appended to the path.',
