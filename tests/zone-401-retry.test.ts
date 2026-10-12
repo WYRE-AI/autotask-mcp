@@ -4,7 +4,7 @@
 // once against a freshly-resolved zone on 401, and resolveAutotaskApiUrl's
 // cache supports targeted per-username invalidation.
 
-import { AutotaskHttpClient } from '../src/services/autotask-http';
+import { AutotaskHttpClient, _resetRateLimitCooldowns, _resetTenantSemaphores } from '../src/services/autotask-http';
 import { _resetZoneUrlCache, invalidateZoneUrlCache, resolveAutotaskApiUrl } from '../src/utils/config';
 
 const logger = {
@@ -19,6 +19,8 @@ const makeClient = (apiUrl = 'https://webservices18.autotask.net/ATServicesRest/
 
 beforeEach(() => {
   _resetZoneUrlCache();
+  _resetRateLimitCooldowns();
+  _resetTenantSemaphores();
   Object.values(logger).forEach((m: any) => m.mockReset?.());
 });
 
@@ -143,11 +145,11 @@ describe('AutotaskHttpClient 401 retry (stale zone cache)', () => {
     }
   });
 
-  it('does not retry a 401 reached via rawRequest (already resolved to an absolute zone URL)', async () => {
-    // rawRequest() resolves `${base}${path}` into an absolute URL itself before
-    // calling request(), so request() sees path.startsWith('http') === true and
-    // skips the retry — rewriting an already zone-baked absolute URL wouldn't
-    // pick up a freshly-invalidated zone anyway.
+  it('retries a rawRequest 401 once against the relative path (exactly one retry)', async () => {
+    // rawRequest() used to hand request() an absolute zone URL, and request()
+    // skips the stale-zone retry when path.startsWith('http'). The host check
+    // still happens in rawRequest; request() now receives the relative path
+    // so a 401 can drop the cached zone and try once more.
     const client = makeClient();
     const fetchMock = jest.spyOn(global, 'fetch' as any).mockResolvedValue({
       ok: false,
@@ -160,7 +162,53 @@ describe('AutotaskHttpClient 401 retry (stale zone cache)', () => {
       await expect(
         client.rawRequest('GET', '/Companies/query/next?paging=abc')
       ).rejects.toThrow(/HTTP 401/);
-      expect(fetchMock).toHaveBeenCalledTimes(1); // no retry
+      expect(fetchMock).toHaveBeenCalledTimes(2);
+      const urls = fetchMock.mock.calls.map((call) => String(call[0]));
+      expect(urls[0]).toContain('/Companies/query/next?paging=abc');
+      expect(urls[1]).toContain('/Companies/query/next?paging=abc');
+      expect(urls.every((url) => url.startsWith('https://webservices18.autotask.net/'))).toBe(true);
+    } finally {
+      fetchMock.mockRestore();
+    }
+  });
+
+  it('rawRequest succeeds after a 401 once zone lookup returns a working host', async () => {
+    const client = new AutotaskHttpClient('user@example.com', 'secret', 'integration-code', undefined, logger as any);
+    let zoneCalls = 0;
+
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockImplementation((urlArg: any) => {
+      const url = String(urlArg);
+      if (url.includes('zoneInformation')) {
+        zoneCalls += 1;
+        const zoneUrl =
+          zoneCalls === 1
+            ? 'https://webservices18.autotask.net/atservicesrest/'
+            : 'https://webservices31.autotask.net/atservicesrest/';
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ url: zoneUrl }) } as any);
+      }
+      if (url.startsWith('https://webservices18')) {
+        return Promise.resolve({
+          ok: false,
+          status: 401,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ errors: ['Authentication failed'] }),
+        } as any);
+      }
+      if (url.startsWith('https://webservices31')) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          headers: { get: () => null },
+          text: async () => JSON.stringify({ id: 123, companyName: 'Acme' }),
+        } as any);
+      }
+      throw new Error(`unexpected host in test: ${url}`);
+    });
+
+    try {
+      const result = await client.rawRequest<{ id: number; companyName: string }>('GET', '/Companies/123');
+      expect(result).toEqual({ id: 123, companyName: 'Acme' });
+      expect(zoneCalls).toBe(2);
     } finally {
       fetchMock.mockRestore();
     }

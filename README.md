@@ -238,6 +238,10 @@ LOG_FORMAT=simple       # simple, json
 # concurrent-thread limit (raising it risks HTTP 429 "thread threshold").
 AUTOTASK_ENHANCE_CONCURRENCY=3
 
+# Max Autotask REST calls in flight per tenant. Further calls queue instead of
+# tripping the concurrent-thread limit (HTTP 429 "thread threshold").
+AUTOTASK_MAX_INFLIGHT=3
+
 # Environment
 NODE_ENV=production
 ```
@@ -623,6 +627,7 @@ npm test -- tests/autotask-service.test.ts
 | `LOG_LEVEL` | ❌ | `info` | Logging level |
 | `LOG_FORMAT` | ❌ | `simple` | Log output format |
 | `AUTOTASK_ENHANCE_CONCURRENCY` | ❌ | `3` | Max concurrent Autotask API calls used to resolve company/resource names on search results. Kept low to stay under Autotask's concurrent-thread limit. |
+| `AUTOTASK_MAX_INFLIGHT` | ❌ | `3` | Max Autotask REST calls in flight per tenant. Further calls queue in the HTTP client instead of tripping the concurrent-thread limit. |
 | `NODE_ENV` | ❌ | `development` | Node.js environment |
 
 ### Logging Levels
@@ -647,6 +652,7 @@ Autotask enforces per-integration-code API thresholds on a rolling 1-hour window
 LLM-driven workflows fan out easily — "status report on all open projects with notes" can issue hundreds of requests across a few minutes. The server tries to make this safer:
 
 - **429 responses are surfaced as structured errors.** Tool results carry `error_type: "rate_limited"` and a `retry_after_seconds` field parsed from Autotask's `Retry-After` header. The error message explicitly tells the LLM **not to retry** and to ask the user to scope the query — this prevents repeated retries from extending the cooldown.
+- **Concurrent-thread 429s are queued, not cooled down for a minute.** Autotask also returns HTTP 429 when an integration exceeds its thread threshold (the body mentions "thread threshold"). That is a burst problem, separate from the hourly quota. The HTTP client allows `AUTOTASK_MAX_INFLIGHT` calls in flight per tenant (default 3) and queues the rest. A thread-threshold 429 on a read (`GET`, `DELETE`, or `POST /{Entity}/query`) is retried with a short backoff and does not arm the 60s cooldown. Hourly-threshold 429s still arm it. Create/update calls are not retried automatically.
 - **Fan-out tool descriptions include rate-limit tips.** Tools that are commonly looped over (`autotask_search_ticket_notes`, `autotask_search_project_notes`, `autotask_search_company_notes`, `autotask_search_time_entries`, `autotask_search_ticket_attachments`, `autotask_search_ticket_note_attachments`) include a hint reminding the LLM to scope the parent record list before iterating.
 
 ### Raising the limit
@@ -725,7 +731,7 @@ LOG_LEVEL=debug npm start
 
 Autotask enforces **3 concurrent threads per endpoint per API tracking identifier**. When an LLM issues multiple tool calls simultaneously (e.g., searching tickets, companies, and contacts at once), requests can pile up and hit this limit.
 
-**Built-in mitigation**: The underlying `autotask-node` SDK automatically queues excess requests rather than failing immediately. Requests wait for a slot to free up, so you generally won't see 429 errors — but you may notice slower responses under heavy load.
+**Built-in mitigation**: The HTTP client caps in-flight requests per tenant (`AUTOTASK_MAX_INFLIGHT`, default 3) and queues the rest, so a parallel burst waits for a free slot instead of tripping the thread threshold. You may notice slower responses under heavy load. A thread-threshold 429 on a read is retried briefly; the hourly request threshold still surfaces as a structured rate-limit error and a short tenant cooldown.
 
 **Critical for team/multi-user deployments**: If multiple users or the MCP Gateway share the **same API credentials**, they compete for the same 3-thread budget. This can cause noticeable slowdowns and, in severe cases, queued requests that time out.
 

@@ -10,7 +10,7 @@
  * and locally until it passes.
  */
 
-import { AutotaskHttpClient, AutotaskRateLimitError, _resetRateLimitCooldowns } from '../src/services/autotask-http';
+import { AutotaskHttpClient, AutotaskRateLimitError, _resetRateLimitCooldowns, _resetTenantSemaphores } from '../src/services/autotask-http';
 import { _resetZoneUrlCache } from '../src/utils/config';
 
 const logger = {
@@ -47,6 +47,7 @@ const success = () =>
 
 beforeEach(() => {
   _resetRateLimitCooldowns();
+  _resetTenantSemaphores();
   _resetZoneUrlCache();
   Object.values(logger).forEach((m: any) => m.mockReset?.());
 });

@@ -3382,7 +3382,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_raw_request',
-    description: 'Escape hatch for Autotask REST endpoints not yet wrapped by a typed tool. Use sparingly — typed tools are preferred for safety. The existing Content-Type, Accept, ApiIntegrationcode, UserName, Secret headers are added automatically. The path is resolved against the zone-resolved base URL (https://webservices<N>.autotask.net/ATServicesRest/v1.0). Pass queryParams as a flat object of string/number/boolean values; they will be URL-encoded and appended to the path.',
+    description: 'Escape hatch for Autotask REST endpoints not yet wrapped by a typed tool. Prefer typed tools. The path is relative to the zone v1.0 base (https://webservices<N>.autotask.net/ATServicesRest/v1.0) and must not start with /v1.0. Searches are POST /{Entity}/query with a body of {"filter":[...]}. Example: POST /Companies/query {"filter":[{"op":"eq","field":"id","value":175}]}. Auth headers are added automatically. queryParams is a flat object of string/number/boolean values appended to the path.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3393,11 +3393,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         path: {
           type: 'string',
-          description: 'Path under the Autotask REST v1.0 base (e.g. "/Companies/175" or "/Companies/query")'
+          description: 'Relative path under the v1.0 base. Must not start with /v1.0 (e.g. "/Companies/175" or "/Companies/query")'
         },
         body: {
           type: 'object',
-          description: 'Optional JSON body for POST/PATCH requests',
+          description: 'Optional JSON body. Searches use {"filter":[{"op":"eq","field":"id","value":0}]}',
           additionalProperties: true
         },
         queryParams: {

@@ -125,6 +125,200 @@ export function _resetRateLimitCooldowns(): void {
   rateLimitCooldowns.clear();
 }
 
+/**
+ * Default cap on requests in flight to Autotask for one tenant.
+ * Autotask allows about 3 concurrent threads per integration; a burst above
+ * that returns HTTP 429 ("thread threshold") even when the hourly quota is
+ * fine. Override with AUTOTASK_MAX_INFLIGHT.
+ */
+export const DEFAULT_MAX_INFLIGHT = 3;
+
+/** Idempotent thread-limit retries after the first rejected attempt. */
+export const THREAD_LIMIT_MAX_RETRIES = 3;
+
+/** First-retry ceiling. Later retries double it, up to THREAD_LIMIT_MAX_DELAY_MS. */
+export const THREAD_LIMIT_BASE_DELAY_MS = 200;
+
+const THREAD_LIMIT_MAX_DELAY_MS = 1_600;
+
+/**
+ * Per-tenant in-flight gate, keyed like the cooldown map (lowercased API
+ * username). Gateway mode builds a new client per request, so an
+ * instance-level cap would never see a parallel burst.
+ *
+ * The release function closes over its semaphore. Resetting the map orphans
+ * the old object instead of letting a late release decrement a newer one.
+ */
+interface TenantSemaphore {
+  inFlight: number;
+  waiters: Array<() => void>;
+}
+
+const tenantSemaphores = new Map<string, TenantSemaphore>();
+
+export function resolveMaxInflight(raw: string | undefined): number {
+  const parsed = Number.parseInt(raw ?? '', 10);
+  return Number.isFinite(parsed) && parsed >= 1 ? parsed : DEFAULT_MAX_INFLIGHT;
+}
+
+function currentMaxInflight(): number {
+  const raw = typeof process !== 'undefined' ? process.env.AUTOTASK_MAX_INFLIGHT : undefined;
+  return resolveMaxInflight(raw);
+}
+
+function semaphoreFor(key: string): TenantSemaphore {
+  let sem = tenantSemaphores.get(key);
+  if (!sem) {
+    sem = { inFlight: 0, waiters: [] };
+    tenantSemaphores.set(key, sem);
+  }
+  return sem;
+}
+
+async function acquireTenantSlot(key: string): Promise<() => void> {
+  const sem = semaphoreFor(key);
+  let released = false;
+  const release = (): void => {
+    if (released) return;
+    released = true;
+    const next = sem.waiters.shift();
+    if (next) {
+      next();
+      return;
+    }
+    sem.inFlight = Math.max(0, sem.inFlight - 1);
+  };
+
+  if (sem.inFlight < currentMaxInflight()) {
+    sem.inFlight += 1;
+    return release;
+  }
+
+  await new Promise<void>((resolve) => {
+    sem.waiters.push(resolve);
+  });
+  return release;
+}
+
+/** Drop queued state. Intended for tests only. */
+export function _resetTenantSemaphores(): void {
+  tenantSemaphores.clear();
+}
+
+type SleepFn = (ms: number) => Promise<void>;
+
+function defaultSleep(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    setTimeout(resolve, ms);
+  });
+}
+
+let sleepImpl: SleepFn = defaultSleep;
+
+/** Test-only override for the thread-limit backoff wait. */
+export function _setAutotaskSleepForTests(fn: SleepFn | null): void {
+  sleepImpl = fn ?? defaultSleep;
+}
+
+/**
+ * Equal jitter: the wait grows exponentially, and half of each ceiling is
+ * random so a burst of retries does not land on the same millisecond.
+ * `retryIndex` 0 is the first retry.
+ */
+export function threadLimitDelayMs(retryIndex: number): number {
+  const ceiling = Math.min(
+    THREAD_LIMIT_MAX_DELAY_MS,
+    THREAD_LIMIT_BASE_DELAY_MS * 2 ** retryIndex,
+  );
+  const jitter = Math.random() * (ceiling / 2);
+  return Math.round(ceiling / 2 + jitter);
+}
+
+function errorDetail(text: string): string {
+  let detail = text.slice(0, 1000);
+  try {
+    const parsed = JSON.parse(text);
+    if (parsed?.errors && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
+      detail = parsed.errors.join('; ');
+    }
+  } catch {
+    /* fall through with raw text */
+  }
+  return detail;
+}
+
+/**
+ * Thread-limit 429s say "thread threshold" (or split it, as in "threshold of
+ * N concurrent threads"). Hourly 429s say "API threshold" and do not mention
+ * threads — that word is the discriminator. Matching "threshold" alone would
+ * arm the 60s cooldown on a concurrency rejection.
+ */
+export function isThreadLimitMessage(detail: string): boolean {
+  return /thread/i.test(detail) && /threshold/i.test(detail);
+}
+
+/**
+ * POST /{Entity}/query and POST .../query/next are reads. Child collections
+ * use the same suffix. Pagination passes an absolute nextPageUrl.
+ */
+export function isAutotaskQueryRead(method: string, path: string): boolean {
+  if (method.toUpperCase() !== 'POST') return false;
+  let pathname: string;
+  if (path.startsWith('http://') || path.startsWith('https://')) {
+    try {
+      pathname = new URL(path).pathname;
+    } catch {
+      return false;
+    }
+  } else {
+    pathname = path.split('?')[0] ?? path;
+  }
+  return /\/query(?:\/next)?$/i.test(pathname);
+}
+
+/**
+ * Create/update POST/PATCH/PUT are not idempotent. GET and DELETE are.
+ * A query POST is a read even though the verb is POST.
+ *
+ * A thread-limit 429 is rejected before Autotask processes the request, so
+ * the body was not applied and a retry would not double-create or
+ * double-update. That is the only 429 for which a write retry is safe.
+ * Writes are still not retried here — only idempotent calls are — so a
+ * mis-read hourly 429 cannot duplicate a mutation. Callers re-issue writes.
+ */
+export function isIdempotentAutotaskRequest(method: string, path: string): boolean {
+  const verb = method.toUpperCase();
+  if (verb === 'GET' || verb === 'HEAD' || verb === 'DELETE') return true;
+  return isAutotaskQueryRead(verb, path);
+}
+
+function threadLimitError(detail: string, retriesUsed: number): AutotaskRateLimitError {
+  const retryNote =
+    retriesUsed > 0
+      ? `Retried ${retriesUsed} time(s) with backoff.`
+      : 'Create/update calls are not retried automatically.';
+  return new AutotaskRateLimitError(
+    `Autotask concurrent thread threshold exceeded (HTTP 429). This call was rejected before Autotask processed it, so it was NOT applied. ${retryNote} ` +
+      `Do not fan out parallel calls; in-flight requests are already capped per tenant. Detail: ${detail}`,
+    1,
+  );
+}
+
+function assertNotCoolingDown(cooldownKey: string): void {
+  const cooldownUntil = rateLimitCooldowns.get(cooldownKey);
+  if (cooldownUntil === undefined) return;
+  const remainingSeconds = Math.ceil((cooldownUntil - Date.now()) / 1000);
+  if (remainingSeconds > 0) {
+    throw new AutotaskRateLimitError(
+      `Autotask API threshold exceeded (HTTP 429) — this tenant is in a ${remainingSeconds}s cooldown and this call was NOT sent upstream. ` +
+        `Do NOT retry until the cooldown passes; retries cannot succeed and querying again immediately only delays recovery. ` +
+        `Wait ${remainingSeconds}s, or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
+      remainingSeconds,
+    );
+  }
+  rateLimitCooldowns.delete(cooldownKey);
+}
+
 function assertSafeRelativePath(path: string): void {
   if (typeof path !== 'string' || path.length === 0) {
     throw new Error('Autotask rawRequest: path must be a non-empty string');
@@ -193,26 +387,35 @@ export class AutotaskHttpClient {
    * Shared low-level request wrapper. `path` is either a leading-slash path
    * (resolved against the zone base URL) or an absolute URL (used by
    * pageDetails.nextPageUrl pagination).
+   *
+   * In-flight calls are capped per tenant (`AUTOTASK_MAX_INFLIGHT`, default
+   * 3). The slot is held across a thread-limit retry so the retry itself
+   * does not add another in-flight call. Zone and thread-limit retries go
+   * through `send()` and do not acquire a second slot — re-entering
+   * `request()` here would deadlock when every slot is already taken.
    */
   private async request<T>(method: string, path: string, body?: any, isZoneRetry = false): Promise<T> {
-    // Cooldown gate: while this tenant is inside a known 429 window, fail
-    // fast locally instead of sending more requests upstream. See
-    // rateLimitCooldowns.
     const cooldownKey = this.username.toLowerCase();
-    const cooldownUntil = rateLimitCooldowns.get(cooldownKey);
-    if (cooldownUntil !== undefined) {
-      const remainingSeconds = Math.ceil((cooldownUntil - Date.now()) / 1000);
-      if (remainingSeconds > 0) {
-        throw new AutotaskRateLimitError(
-          `Autotask API threshold exceeded (HTTP 429) — this tenant is in a ${remainingSeconds}s cooldown and this call was NOT sent upstream. ` +
-          `Do NOT retry until the cooldown passes; retries cannot succeed and querying again immediately only delays recovery. ` +
-          `Wait ${remainingSeconds}s, or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
-          remainingSeconds,
-        );
-      }
-      rateLimitCooldowns.delete(cooldownKey);
+    // Fail before taking a slot when this tenant is already in an hourly
+    // cooldown, so a retry storm does not queue behind the in-flight cap.
+    assertNotCoolingDown(cooldownKey);
+    const release = await acquireTenantSlot(cooldownKey);
+    try {
+      // A sibling call may have armed the cooldown while we waited.
+      assertNotCoolingDown(cooldownKey);
+      return await this.send<T>(method, path, body, { isZoneRetry, threadRetries: 0 });
+    } finally {
+      release();
     }
+  }
 
+  private async send<T>(
+    method: string,
+    path: string,
+    body: any,
+    opts: { isZoneRetry: boolean; threadRetries: number },
+  ): Promise<T> {
+    const cooldownKey = this.username.toLowerCase();
     const url = path.startsWith('http') ? path : `${await this.baseUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
 
     this.logger.debug(`Autotask HTTP ${method} ${url}`);
@@ -246,24 +449,50 @@ export class AutotaskHttpClient {
       // stale (e.g. a data-center migration moved this tenant to a new
       // zone after we cached the old one). Drop the cache and retry once
       // against a freshly-resolved zone before giving up.
-      if (response.status === 401 && !isZoneRetry && !path.startsWith('http')) {
+      if (response.status === 401 && !opts.isZoneRetry && !path.startsWith('http')) {
         this.logger.debug(
           `Autotask ${method} ${path} returned 401 — invalidating cached zone for ${this.username} and retrying once`
         );
         this.resolvedBaseUrl = null;
         invalidateZoneUrlCache(this.username);
-        return this.request<T>(method, path, body, true);
+        return this.send<T>(method, path, body, { isZoneRetry: true, threadRetries: opts.threadRetries });
       }
-      let detail = text.slice(0, 1000);
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed?.errors && Array.isArray(parsed.errors) && parsed.errors.length > 0) {
-          detail = parsed.errors.join('; ');
-        }
-      } catch {
-        /* fall through with raw text */
-      }
+      const detail = errorDetail(text);
       if (response.status === 429) {
+        // Two different Autotask 429s share this status code.
+        //
+        // Thread / concurrency limit ("thread threshold"): Autotask rejected
+        // the call before processing it, so the body was not applied. A retry
+        // cannot double-apply a write — that is the only 429 for which a
+        // write retry is safe. We still only retry idempotent calls (GET,
+        // DELETE, and POST /{Entity}/query, which is a read). Create/update
+        // POST/PATCH/PUT are not retried; the caller re-issues the mutation.
+        // This branch must not arm the 60s hourly cooldown. Doing so turns a
+        // millisecond concurrency rejection into a tenant-wide outage.
+        //
+        // Hourly request limit: keep the cooldown. Retrying into a tenant
+        // that is over its hourly budget can extend the window.
+        const threadLimited =
+          isThreadLimitMessage(detail) || isThreadLimitMessage(text.slice(0, 2000));
+        if (threadLimited) {
+          if (
+            isIdempotentAutotaskRequest(method, path) &&
+            opts.threadRetries < THREAD_LIMIT_MAX_RETRIES
+          ) {
+            const delay = threadLimitDelayMs(opts.threadRetries);
+            this.logger.debug(
+              `Autotask ${method} ${path} hit the concurrent thread threshold — ` +
+                `retry ${opts.threadRetries + 1}/${THREAD_LIMIT_MAX_RETRIES} in ${delay}ms (no tenant cooldown)`
+            );
+            await sleepImpl(delay);
+            return this.send<T>(method, path, body, {
+              isZoneRetry: opts.isZoneRetry,
+              threadRetries: opts.threadRetries + 1,
+            });
+          }
+          throw threadLimitError(detail, opts.threadRetries);
+        }
+
         const retryAfter = parseRetryAfter(response.headers.get('retry-after'));
         // Arm the per-tenant cooldown gate so any further calls (including
         // LLM retry-spam and mapping-cache lookups) fail fast locally until
@@ -352,7 +581,11 @@ export class AutotaskHttpClient {
       throw new Error('Autotask rawRequest: refusing to send to non-zone host');
     }
 
-    return this.request<T>(upperMethod, absoluteUrl, body);
+    // Pass the relative path. An absolute URL makes request() skip the
+    // stale-zone 401 retry (`!path.startsWith('http')`), so a cached zone
+    // that started returning 401 would stick for the rest of the process.
+    // The host check above already ran against the resolved zone.
+    return this.request<T>(upperMethod, finalPath, body);
   }
 
   /**

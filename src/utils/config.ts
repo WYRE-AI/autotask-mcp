@@ -378,6 +378,7 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
   LOG_LEVEL                - Logging level: error, warn, info, debug (default: info)
   LOG_FORMAT               - Log format: simple, json (default: simple)
   AUTOTASK_ENHANCE_CONCURRENCY - Max concurrent Autotask API calls used to resolve company/resource names on search results (default: 3). Kept low to stay under Autotask's concurrent-thread limit.
+  AUTOTASK_MAX_INFLIGHT    - Max Autotask REST calls in flight per tenant (default: 3). Further calls queue in the HTTP client instead of tripping the concurrent-thread limit.
 
 Example (Local Mode):
   AUTOTASK_USERNAME=api-user@example.com

@@ -9,7 +9,7 @@
 //      LLM clients can stop retrying.
 
 import { AutotaskService } from '../src/services/autotask.service';
-import { AutotaskRateLimitError, _resetRateLimitCooldowns } from '../src/services/autotask-http';
+import { AutotaskRateLimitError, _resetRateLimitCooldowns, _resetTenantSemaphores } from '../src/services/autotask-http';
 import { AutotaskToolHandler } from '../src/handlers/tool.handler';
 import { Logger } from '../src/utils/logger';
 import type { McpServerConfig } from '../src/types/mcp';
@@ -48,6 +48,7 @@ describe('Rate limit handling (#69, #91)', () => {
     // These tests reuse one username; the module-level per-tenant cooldown
     // gate would otherwise leak a 429 window from one test into the next.
     _resetRateLimitCooldowns();
+    _resetTenantSemaphores();
   });
 
   afterEach(() => {

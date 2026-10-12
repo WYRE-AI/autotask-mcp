@@ -6,6 +6,10 @@ Workflow defaults (commits, changelog, memory) come from the global `~/.claude/C
 ## Learnings
 <!-- Record non-obvious discoveries as dated entries: "## Learnings - YYYY-MM-DD" -->
 
+## Learnings - 2026-10-11
+
+- Autotask HTTP 429 is two limits. A body that mentions both "thread" and "threshold" is the concurrent-thread gate (rejected before the request is processed) and must not arm `rateLimitCooldowns` (`DEFAULT_RETRY_AFTER_SECONDS = 60`). The hourly "API threshold" 429 is the one that arms it. `AUTOTASK_MAX_INFLIGHT` (default 3) queues inside `request()`. `rawRequest()` must pass the relative path into `request()` — an absolute URL skips the 401 stale-zone retry.
+
 ## Learnings - 2026-10-07
 
 - Ticket **note** attachment bytes are on the parent-scoped child `GET /TicketNotes/{id}/Attachments/{id}` (Autotask's documented retrieve-attachment call, confirmed live in #315). That is the opposite of the ticket-attachment split, where only `GET /TicketAttachments/{id}` populates `data`. `ticketNoteID` is optional on `TicketNoteAttachments`, so fail-closed `!== ticketNoteId` on the top-level row turns a real attachment into null — and `buildNotFoundMessage` then reports the first `*id` argument (`ticketNoteId`) as "not found".
