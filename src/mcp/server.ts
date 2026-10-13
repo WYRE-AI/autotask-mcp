@@ -360,7 +360,7 @@ export class AutotaskMcpServer {
    * request headers on each request and missing headers are rejected.
    */
   private async startHttpTransport(): Promise<void> {
-    const port = this.envConfig?.transport?.port || 8080;
+    const port = this.envConfig?.transport?.port ?? 8080;
     const s2sSecret = this.resolveHttpS2sSecret();
     const listen = resolveHttpListenHost({
       s2sSecret,
@@ -501,8 +501,12 @@ export class AutotaskMcpServer {
 
     await new Promise<void>((resolve) => {
       this.httpServer!.listen(port, host, () => {
-        this.logger.info(`Autotask MCP Server listening on http://${host}:${port}/mcp`);
-        this.logger.info(`Health check available at http://${host}:${port}/health`);
+        const bound = this.httpServer!.address();
+        const shown = bound && typeof bound !== 'string'
+          ? `${bound.address}:${bound.port}`
+          : `${host}:${port}`;
+        this.logger.info(`Autotask MCP Server listening on http://${shown}/mcp`);
+        this.logger.info(`Health check available at http://${shown}/health`);
         this.logger.info(`Authentication mode: ${isGatewayMode ? 'gateway (header-based)' : 'env (environment variables)'}`);
         resolve();
       });

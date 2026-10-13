@@ -39,12 +39,26 @@ function mintS2sHeader(secret: string, unixSeconds = Math.floor(Date.now() / 100
 
 function captureStderr(): { text: () => string; restore: () => void } {
   const lines: string[] = [];
-  const spy = jest.spyOn(console, 'error').mockImplementation((...args: unknown[]) => {
+  const record = (chunk: unknown) => {
+    if (typeof chunk === 'string') lines.push(chunk);
+    else if (Buffer.isBuffer(chunk)) lines.push(chunk.toString('utf8'));
+  };
+  // Winston writes stderrLevels through console._stderr.write. Under Jest that
+  // stream is not always process.stderr, so spy on whichever object is live.
+  const stderrStream = (console as unknown as { _stderr?: NodeJS.WriteStream })._stderr ?? process.stderr;
+  const writeSpy = jest.spyOn(stderrStream, 'write').mockImplementation((chunk: string | Uint8Array) => {
+    record(chunk);
+    return true;
+  });
+  const logSpy = jest.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
     lines.push(args.map((arg) => (typeof arg === 'string' ? arg : JSON.stringify(arg))).join(' '));
   });
   return {
     text: () => lines.join('\n'),
-    restore: () => spy.mockRestore(),
+    restore: () => {
+      writeSpy.mockRestore();
+      logSpy.mockRestore();
+    },
   };
 }
 
