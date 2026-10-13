@@ -34,8 +34,16 @@ function pickPort(): number {
 describe('HTTP transport CORS preflight', () => {
   let server: AutotaskMcpServer;
   let port: number;
+  let savedSecret: string | undefined;
+  let savedInsecure: string | undefined;
 
   beforeEach(async () => {
+    savedSecret = process.env.CONDUIT_S2S_SECRET;
+    savedInsecure = process.env.MCP_ALLOW_INSECURE_DEV;
+    // Local loopback test. HTTP now refuses to listen without a usable
+    // CONDUIT_S2S_SECRET unless this flag is exactly "1".
+    delete process.env.CONDUIT_S2S_SECRET;
+    process.env.MCP_ALLOW_INSECURE_DEV = '1';
     port = pickPort();
     const logger = new Logger('error', 'simple');
     server = new AutotaskMcpServer(buildMcpConfig(), logger, buildEnvConfig(port));
@@ -44,6 +52,10 @@ describe('HTTP transport CORS preflight', () => {
 
   afterEach(async () => {
     await server.stop();
+    if (savedSecret === undefined) delete process.env.CONDUIT_S2S_SECRET;
+    else process.env.CONDUIT_S2S_SECRET = savedSecret;
+    if (savedInsecure === undefined) delete process.env.MCP_ALLOW_INSECURE_DEV;
+    else process.env.MCP_ALLOW_INSECURE_DEV = savedInsecure;
   });
 
   it('responds 204 with CORS headers to OPTIONS /mcp from claude.ai origin', async () => {

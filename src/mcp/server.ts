@@ -26,7 +26,21 @@ import { EnvironmentConfig, parseCredentialsFromHeaders, GatewayCredentials, get
 import { AutotaskResourceHandler } from '../handlers/resource.handler.js';
 import { AutotaskToolHandler } from '../handlers/tool.handler.js';
 import { registerPromptHandlers } from './prompts.js';
-import { verifyS2sHeader, S2S_HEADER } from './s2s-verify.js';
+import {
+  verifyS2sHeader,
+  S2S_HEADER,
+  isUsableConduitS2sSecret,
+  resolveHttpListenHost,
+} from './s2s-verify.js';
+
+function readHeader(value: string | string[] | undefined): string | undefined {
+  if (typeof value === 'string' && value.length > 0) return value;
+  if (Array.isArray(value)) {
+    const first = value[0];
+    if (typeof first === 'string' && first.length > 0) return first;
+  }
+  return undefined;
+}
 
 export class AutotaskMcpServer {
   private config: McpServerConfig;
@@ -297,12 +311,70 @@ export class AutotaskMcpServer {
   }
 
   /**
-   * Start with HTTP Streamable transport
-   * In gateway mode, credentials are extracted from request headers on each request
+   * Listen address of the HTTP server. Undefined until the HTTP transport is listening.
+   */
+  boundHttpAddress(): { address: string; port: number } | undefined {
+    const address = this.httpServer?.address();
+    if (!address || typeof address === 'string') return undefined;
+    return { address: address.address, port: address.port };
+  }
+
+  /**
+   * Secret for X-Gateway-S2S. Read at HTTP startup, not per request.
+   * Empty and known placeholders are fail-closed: the process exits unless
+   * MCP_ALLOW_INSECURE_DEV=1. The secret value is never written to logs.
+   */
+  private resolveHttpS2sSecret(): string {
+    const trimmed = (process.env.CONDUIT_S2S_SECRET ?? '').trim();
+    if (isUsableConduitS2sSecret(trimmed)) return trimmed;
+
+    const placeholder = trimmed.length > 0;
+    if (process.env.MCP_ALLOW_INSECURE_DEV === '1') {
+      const why = placeholder
+        ? 'CONDUIT_S2S_SECRET is a known placeholder'
+        : 'CONDUIT_S2S_SECRET is empty';
+      this.logger.error(
+        `SECURITY WARNING: ${why} and MCP_ALLOW_INSECURE_DEV=1. ` +
+          'HTTP /mcp is not enforcing X-Gateway-S2S and listens on 127.0.0.1 only. ' +
+          'Do not use this outside local development.'
+      );
+      return '';
+    }
+
+    const why = placeholder
+      ? 'CONDUIT_S2S_SECRET is a known placeholder value, not a real service-to-service secret.'
+      : 'CONDUIT_S2S_SECRET is empty.';
+    this.logger.error(
+      `Refusing to start HTTP transport: ${why} ` +
+        'An empty or placeholder secret would accept unauthenticated /mcp requests (CWE-306). ' +
+        'Set CONDUIT_S2S_SECRET to the gateway-provisioned secret, or set MCP_ALLOW_INSECURE_DEV=1 for local development only.'
+    );
+    process.exit(1);
+  }
+
+  /**
+   * Start with HTTP Streamable transport.
+   * Refuses to listen without a usable CONDUIT_S2S_SECRET unless
+   * MCP_ALLOW_INSECURE_DEV=1, which forces 127.0.0.1. A configured secret
+   * honors MCP_HTTP_HOST. In gateway mode, credentials are extracted from
+   * request headers on each request and missing headers are rejected.
    */
   private async startHttpTransport(): Promise<void> {
     const port = this.envConfig?.transport?.port || 8080;
-    const host = this.envConfig?.transport?.host || '0.0.0.0';
+    const s2sSecret = this.resolveHttpS2sSecret();
+    const listen = resolveHttpListenHost({
+      s2sSecret,
+      configuredHost: this.envConfig?.transport?.host,
+      explicitHost: process.env.MCP_HTTP_HOST,
+    });
+    if (listen.overriddenHost !== undefined) {
+      this.logger.error(
+        `WARNING: MCP_HTTP_HOST=${listen.overriddenHost} is not 127.0.0.1. ` +
+          'MCP_ALLOW_INSECURE_DEV=1 without a usable CONDUIT_S2S_SECRET cannot listen there. ' +
+          'Binding 127.0.0.1 only.'
+      );
+    }
+    const host = listen.host;
     const isGatewayMode = this.envConfig?.auth?.mode === 'gateway';
 
     // One dual-era handler for the process: modern (2026-07-28 envelope)
@@ -362,25 +434,21 @@ export class AutotaskMcpServer {
       // request in both eras; nothing is shared between requests)
       if (url.pathname === '/mcp') {
         // Gateway S2S verification (gateway#377 parity). Runs before any
-        // credential extraction — see src/mcp/s2s-verify.ts. Empty secret
-        // means S2S enforcement isn't provisioned for this vendor yet, so
-        // we don't call verifyS2sHeader at all (dark-by-default).
-        const s2sSecret = process.env.CONDUIT_S2S_SECRET || '';
-        if (s2sSecret) {
-          const s2sHeader = req.headers[S2S_HEADER] as string | undefined;
-          if (!verifyS2sHeader(s2sHeader, s2sSecret)) {
-            this.logger.warn('Rejected request with missing/invalid gateway S2S header');
-            res.writeHead(401, { 'Content-Type': 'application/json' });
-            res.end(JSON.stringify({
-              jsonrpc: '2.0',
-              error: {
-                code: -32001,
-                message: 'Unauthorized: missing or invalid gateway S2S authentication header',
-              },
-              id: null,
-            }));
-            return;
-          }
+        // credential extraction — see src/mcp/s2s-verify.ts. An empty
+        // s2sSecret is only reachable when MCP_ALLOW_INSECURE_DEV=1; startup
+        // refuses otherwise. A configured secret is always enforced.
+        if (s2sSecret && !verifyS2sHeader(readHeader(req.headers[S2S_HEADER]), s2sSecret)) {
+          this.logger.warn('Rejected request with missing/invalid gateway S2S header');
+          res.writeHead(401, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32001,
+              message: 'Unauthorized: missing or invalid X-Gateway-S2S header',
+            },
+            id: null,
+          }));
+          return;
         }
 
         // In gateway mode, require the injected credential headers up front.

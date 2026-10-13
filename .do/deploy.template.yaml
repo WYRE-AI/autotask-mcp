@@ -27,3 +27,6 @@ spec:
     - key: AUTOTASK_INTEGRATION_CODE
       type: SECRET
       scope: RUN_AND_BUILD_TIME
+    - key: CONDUIT_S2S_SECRET
+      type: SECRET
+      scope: RUN_TIME

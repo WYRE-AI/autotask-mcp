@@ -71,7 +71,8 @@ Add this to your MCP client config (e.g., `claude_desktop_config.json`):
 ```bash
 docker run -d \
   --name autotask-mcp \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
+  -e CONDUIT_S2S_SECRET="your-real-s2s-secret" \
   -e AUTOTASK_USERNAME="your-user@company.com" \
   -e AUTOTASK_SECRET="your-secret" \
   -e AUTOTASK_INTEGRATION_CODE="your-code" \
@@ -79,8 +80,10 @@ docker run -d \
   ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Verify
-curl http://localhost:8080/health
+curl http://127.0.0.1:8080/health
 ```
+
+`/mcp` requires an `X-Gateway-S2S` header signed with `CONDUIT_S2S_SECRET`. See the repository README.
 
 Clients connect to `http://host:8080/mcp` using MCP Streamable HTTP transport.
 

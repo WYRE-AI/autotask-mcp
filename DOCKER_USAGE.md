@@ -182,13 +182,16 @@ For a persistent HTTP-based MCP server:
 # Start the container (HTTP transport, default)
 docker run -d \
   --name autotask-mcp-server \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
   --env-file .env \
   ghcr.io/wyre-ai/autotask-mcp:latest
 
-# Verify health
-curl http://localhost:8080/health
+# Verify health (does not require X-Gateway-S2S)
+curl http://127.0.0.1:8080/health
 ```
+
+HTTP exits unless `CONDUIT_S2S_SECRET` is a real secret. `/mcp` then requires `X-Gateway-S2S` (`t=<unix seconds>,v1=<hex hmac-sha256 of the string t=...>`). See the README.
 
 ## Container Management
 

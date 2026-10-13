@@ -18,7 +18,9 @@ description: Configure credentials, transport, and server options.
 | `AUTOTASK_API_URL` | Auto-detected | Override the Autotask API zone URL |
 | `MCP_TRANSPORT` | `stdio` | Transport type: `stdio` or `http` |
 | `MCP_HTTP_PORT` | `8080` | Port for HTTP transport |
-| `MCP_HTTP_HOST` | `0.0.0.0` | Host for HTTP transport |
+| `MCP_HTTP_HOST` | `0.0.0.0` when `CONDUIT_S2S_SECRET` is set; `127.0.0.1` otherwise | Bind address for HTTP. A configured secret honors this. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
+| `CONDUIT_S2S_SECRET` | — | Required to start HTTP. Signs `X-Gateway-S2S`. Empty and known placeholders are rejected. |
+| `MCP_ALLOW_INSECURE_DEV` | unset | Set to exactly `1` for local HTTP without a usable secret. Skips `X-Gateway-S2S` and listens on `127.0.0.1` only. |
 | `LOG_LEVEL` | `info` | Logging level: `error`, `warn`, `info`, `debug` |
 
 ## Using a .env File
@@ -43,8 +45,10 @@ The default transport communicates over stdin/stdout. This is the standard mode 
 For remote or multi-client deployments, use the HTTP transport:
 
 ```bash
-MCP_TRANSPORT=http MCP_HTTP_PORT=8080 node dist/entry.js
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" MCP_TRANSPORT=http MCP_HTTP_PORT=8080 node dist/entry.js
 ```
+
+`/mcp` requires `X-Gateway-S2S: t=<unix seconds>,v1=<hex hmac-sha256 of "t=<unix seconds>">`, keyed with `CONDUIT_S2S_SECRET`. `/health` stays unauthenticated.
 
 This starts an HTTP server with:
 - `POST /mcp` — MCP protocol endpoint

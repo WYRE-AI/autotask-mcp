@@ -44,8 +44,12 @@ Set environment variables:
 ```bash
 MCP_TRANSPORT=http
 MCP_HTTP_PORT=8080      # Default: 8080
-MCP_HTTP_HOST=0.0.0.0   # Default: 0.0.0.0
+# Honored only when CONDUIT_S2S_SECRET is set. Otherwise the server binds 127.0.0.1.
+MCP_HTTP_HOST=0.0.0.0
+CONDUIT_S2S_SECRET=     # Required. Empty and known placeholders refuse startup.
 ```
+
+`/mcp` requires `X-Gateway-S2S: t=<unix seconds>,v1=<hex hmac-sha256 of the ASCII string t=<unix seconds>>`, keyed with `CONDUIT_S2S_SECRET` (300 second skew). `/health` does not.
 
 ### Endpoints
 
@@ -75,12 +79,13 @@ MCP_HTTP_HOST=0.0.0.0   # Default: 0.0.0.0
 
 ```bash
 docker run -d \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
   -e AUTOTASK_USERNAME=user@example.com \
   -e AUTOTASK_SECRET=secret \
   -e AUTOTASK_INTEGRATION_CODE=code \
   -e MCP_TRANSPORT=http \
   -e MCP_HTTP_PORT=8080 \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
   autotask-mcp
 ```
 

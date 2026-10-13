@@ -1,5 +1,5 @@
 import { createHmac } from 'node:crypto';
-import { verifyS2sHeader } from '../src/mcp/s2s-verify.js';
+import { isUsableConduitS2sSecret, resolveHttpListenHost, verifyS2sHeader } from '../src/mcp/s2s-verify.js';
 
 function deriveRecipientSubkey(masterSecret: string, slug: string): string {
   return createHmac('sha256', masterSecret).update(`s2s-recipient:${slug}`).digest('hex');
@@ -48,9 +48,54 @@ describe('verifyS2sHeader', () => {
   it('rejects a missing header', () => {
     expect(verifyS2sHeader(undefined, ownSubkey)).toBe(false);
   });
-  it('rejects when the secret is empty (dark-by-default guarantee)', () => {
+  it('rejects when the secret is empty', () => {
     expect(verifyS2sHeader(mintHeader(ownSubkey, NOW), '')).toBe(false);
   });
+  it('rejects known placeholders and unresolved templates as a usable secret', () => {
+    expect(isUsableConduitS2sSecret(undefined)).toBe(false);
+    expect(isUsableConduitS2sSecret('')).toBe(false);
+    expect(isUsableConduitS2sSecret('   ')).toBe(false);
+    expect(isUsableConduitS2sSecret('changeme')).toBe(false);
+    expect(isUsableConduitS2sSecret('CHANGE-ME')).toBe(false);
+    expect(isUsableConduitS2sSecret('your-s2s-secret')).toBe(false);
+    expect(isUsableConduitS2sSecret('placeholder')).toBe(false);
+    expect(isUsableConduitS2sSecret('${user_config.conduit_s2s_secret}')).toBe(false);
+    expect(isUsableConduitS2sSecret('  ${CONDUIT_S2S_SECRET}  ')).toBe(false);
+    expect(isUsableConduitS2sSecret(ownSubkey)).toBe(true);
+  });
+
+  it('defaults the listen address to 127.0.0.1 without a secret and honors MCP_HTTP_HOST with one', () => {
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '0.0.0.0',
+      explicitHost: undefined,
+    })).toEqual({ host: '127.0.0.1', overriddenHost: undefined });
+
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '127.0.0.1',
+      explicitHost: '0.0.0.0',
+    })).toEqual({ host: '127.0.0.1', overriddenHost: '0.0.0.0' });
+
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '0.0.0.0',
+      explicitHost: '[::1]',
+    })).toEqual({ host: '127.0.0.1', overriddenHost: '[::1]' });
+
+    expect(resolveHttpListenHost({
+      s2sSecret: ownSubkey,
+      configuredHost: '0.0.0.0',
+      explicitHost: undefined,
+    })).toEqual({ host: '0.0.0.0', overriddenHost: undefined });
+
+    expect(resolveHttpListenHost({
+      s2sSecret: ownSubkey,
+      configuredHost: '0.0.0.0',
+      explicitHost: '10.1.2.3',
+    })).toEqual({ host: '10.1.2.3', overriddenHost: undefined });
+  });
+
   it('rejects a tampered signature', () => {
     const header = mintHeader(ownSubkey, NOW);
     const tampered = header.slice(0, -1) + (header.endsWith('0') ? '1' : '0');

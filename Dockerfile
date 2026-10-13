@@ -84,14 +84,20 @@ EXPOSE 8080
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://localhost:8080/health || exit 1
 
-# Set environment variables
+# 0.0.0.0 is the in-container bind. Startup refuses to listen unless
+# CONDUIT_S2S_SECRET is a real secret (empty values and known placeholders
+# are rejected). MCP_ALLOW_INSECURE_DEV=1 is local-only and forces 127.0.0.1,
+# so this address is not used for that bypass. Publish the host port on
+# loopback unless a proxy sits in front.
+# AUTH_MODE=env is single-tenant HTTP and still requires CONDUIT_S2S_SECRET.
+# The Compose gateway service sets AUTH_MODE=gateway and does not inject
+# AUTOTASK_* credentials; those arrive per request as headers.
 ENV NODE_ENV=production
 ENV LOG_LEVEL=info
 ENV LOG_FORMAT=json
 ENV MCP_TRANSPORT=http
 ENV MCP_HTTP_PORT=8080
 ENV MCP_HTTP_HOST=0.0.0.0
-# Default to env mode for backward compatibility; set to 'gateway' for hosted deployment
 ENV AUTH_MODE=env
 
 # Define volume for logs

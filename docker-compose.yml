@@ -1,6 +1,12 @@
 
 
 services:
+  # Gateway mode. Autotask credentials arrive per request on X-API-Key,
+  # X-API-Secret, and X-Integration-Code. Do not set AUTOTASK_USERNAME,
+  # AUTOTASK_SECRET, AUTOTASK_INTEGRATION_CODE, or env_file here — that would
+  # put static vendor credentials in the container. The project .env is used
+  # only for Compose interpolation of CONDUIT_S2S_SECRET. For AUTH_MODE=env,
+  # pass AUTOTASK_* on that process instead (see the README).
   autotask-mcp:
     build:
       context: .
@@ -9,34 +15,24 @@ services:
     image: autotask-mcp:latest
     container_name: autotask-mcp-server
     restart: unless-stopped
-    env_file:
-      - .env
+    ports:
+      - "127.0.0.1:8080:8080"
     environment:
-      # Required Autotask credentials (set these in .env file)
-      - AUTOTASK_USERNAME=${AUTOTASK_USERNAME}
-      - AUTOTASK_SECRET=${AUTOTASK_SECRET}
-      - AUTOTASK_INTEGRATION_CODE=${AUTOTASK_INTEGRATION_CODE}
-      
-      # Optional configuration
-      - AUTOTASK_API_URL=${AUTOTASK_API_URL:-}
+      - MCP_TRANSPORT=http
+      - MCP_HTTP_PORT=8080
+      - MCP_HTTP_HOST=0.0.0.0
+      - AUTH_MODE=gateway
+      - CONDUIT_S2S_SECRET=${CONDUIT_S2S_SECRET:?set CONDUIT_S2S_SECRET}
       - MCP_SERVER_NAME=${MCP_SERVER_NAME:-autotask-mcp}
-      - MCP_SERVER_VERSION=${MCP_SERVER_VERSION:-1.0.0}
-      
-      # Logging configuration
       - LOG_LEVEL=${LOG_LEVEL:-info}
       - LOG_FORMAT=${LOG_FORMAT:-json}
       - NODE_ENV=production
     volumes:
       # Mount logs directory for persistence
       - autotask-mcp-logs:/app/logs
-    # Note: MCP servers typically use stdio transport, not HTTP
-    # If you need HTTP interface in the future, uncomment the ports section
-    # ports:
-    #   - "8080:8080"
-    
-    # Health check
+    # Health check hits the unauthenticated /health endpoint.
     healthcheck:
-      test: ["CMD", "node", "-e", "console.log('Health check passed')"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -52,6 +48,9 @@ services:
           cpus: '0.1'
           memory: 128M
 
+  # Local stdio development (profile "dev"). This is not the gateway service;
+  # it may carry AUTOTASK_* for a single tenant. HTTP gateway deploys use
+  # autotask-mcp above, which has no static vendor credentials.
   # Development service - runs once for testing, doesn't restart
   autotask-mcp-dev:
     profiles: ["dev"]
@@ -91,10 +90,9 @@ volumes:
   autotask-mcp-dev-logs:
     driver: local
 
-# Example .env file structure (create this file with your actual credentials):
-# AUTOTASK_USERNAME=your-api-user@example.com
-# AUTOTASK_SECRET=your-secret-key
-# AUTOTASK_INTEGRATION_CODE=your-integration-code
-# AUTOTASK_API_URL=https://webservices.autotask.net/atservices/1.6/atws.asmx
+# Compose interpolates CONDUIT_S2S_SECRET from the project .env (or the shell).
+# Leave it empty in the example file; never commit a real value. The gateway
+# service does not receive AUTOTASK_* — those headers are injected per request.
+# CONDUIT_S2S_SECRET=
 # LOG_LEVEL=info
 # LOG_FORMAT=json 

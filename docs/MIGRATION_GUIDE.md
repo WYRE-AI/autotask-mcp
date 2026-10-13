@@ -82,12 +82,15 @@ docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 
 # Run in gateway mode (credentials via headers)
 docker run -d \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
   -e AUTH_MODE=gateway \
   -e MCP_TRANSPORT=http \
   -e LOG_LEVEL=info \
   ghcr.io/wyre-ai/autotask-mcp:latest
 ```
+
+HTTP refuses to start when `CONDUIT_S2S_SECRET` is empty or a known placeholder. Do not pass `AUTOTASK_*` into a gateway container; credentials arrive on each request.
 
 ### Gateway Mode Headers
 
@@ -95,6 +98,7 @@ When running in gateway mode, the MCP server expects credentials in HTTP headers
 
 | Header | Description |
 |--------|-------------|
+| `X-Gateway-S2S` | `t=<unix seconds>,v1=<hex hmac-sha256 of t=...>`, keyed with `CONDUIT_S2S_SECRET`. Required on `/mcp`. |
 | `X-API-Key` | Autotask API username (email) |
 | `X-API-Secret` | Autotask API secret key |
 | `X-Integration-Code` | Autotask integration code |
@@ -103,12 +107,14 @@ When running in gateway mode, the MCP server expects credentials in HTTP headers
 ### Example Gateway Request
 
 ```bash
-curl -X POST http://localhost:8080/mcp \
+curl -X POST http://127.0.0.1:8080/mcp \
   -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-Gateway-S2S: t=<unix seconds>,v1=<hex hmac-sha256 of t=...>" \
   -H "X-API-Key: your-api-user@example.com" \
   -H "X-API-Secret: your-api-secret" \
   -H "X-Integration-Code: your-integration-code" \
-  -d '{"method": "tools/list"}'
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
 ## Environment Variables Reference
@@ -138,7 +144,9 @@ curl -X POST http://localhost:8080/mcp \
 | `AUTH_MODE` | `env` | Authentication mode: `env` or `gateway` |
 | `MCP_TRANSPORT` | `stdio` | Transport: `stdio` or `http` |
 | `MCP_HTTP_PORT` | `8080` | HTTP port (when transport=http) |
-| `MCP_HTTP_HOST` | `0.0.0.0` | HTTP host (when transport=http) |
+| `MCP_HTTP_HOST` | `0.0.0.0` when a secret is set; `127.0.0.1` without one | HTTP host (when transport=http). A configured secret honors this. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
+| `CONDUIT_S2S_SECRET` | — | Required for HTTP. Signs `X-Gateway-S2S`. Empty and known placeholders are rejected. |
+| `MCP_ALLOW_INSECURE_DEV` | unset | Set to exactly `1` for local HTTP without a usable secret. Listens on `127.0.0.1` only. |
 | `LOG_LEVEL` | `info` | Logging: `error`, `warn`, `info`, `debug` |
 | `LOG_FORMAT` | `simple` | Log format: `simple` or `json` |
 

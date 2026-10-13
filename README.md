@@ -135,39 +135,42 @@ claude mcp add autotask-mcp \
 ```bash
 docker run -d \
   --name autotask-mcp \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
+  -e CONDUIT_S2S_SECRET="your-real-s2s-secret" \
   -e AUTOTASK_USERNAME="your-user@company.com" \
   -e AUTOTASK_SECRET="your-secret" \
   -e AUTOTASK_INTEGRATION_CODE="your-code" \
   --restart unless-stopped \
   ghcr.io/wyre-ai/autotask-mcp:latest
 
-# Verify
-curl http://localhost:8080/health
+# Verify (health does not require X-Gateway-S2S)
+curl http://127.0.0.1:8080/health
 ```
 
-Clients connect to `http://host:8080/mcp` using MCP Streamable HTTP transport.
+The HTTP server refuses to start when `CONDUIT_S2S_SECRET` is empty or a known placeholder. Clients connect to `http://127.0.0.1:8080/mcp` using MCP Streamable HTTP transport and must send `X-Gateway-S2S`. See [X-Gateway-S2S signing](#x-gateway-s2s-signing).
 
 **Gateway Mode (for MCP Gateway deployments):**
 
-When deploying behind an MCP Gateway that injects credentials via HTTP headers:
+When deploying behind an MCP Gateway that injects credentials via HTTP headers. This container has no static Autotask credentials:
 
 ```bash
 docker run -d \
   --name autotask-mcp \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
+  -e CONDUIT_S2S_SECRET="your-real-s2s-secret" \
   -e AUTH_MODE=gateway \
   --restart unless-stopped \
   ghcr.io/wyre-ai/autotask-mcp:latest
 ```
 
 The gateway injects credentials via headers:
+- `X-Gateway-S2S`: service-to-service proof (required on `/mcp`)
 - `X-API-Key`: Autotask username
 - `X-API-Secret`: Autotask secret
 - `X-Integration-Code`: Autotask integration code
 - `X-Impersonation-Resource-Id`: (optional) Autotask resource ID to act on behalf of
 
-See [Gateway Mode](#gateway-mode) for details.
+A `/mcp` request missing any of the three Autotask headers returns 401 and does not fall back to `AUTOTASK_*` in the environment. See [Gateway Mode](#gateway-mode) for details.
 
 ### Option 3: From Source (Development)
 
@@ -223,9 +226,17 @@ MCP_SERVER_NAME=autotask-mcp
 # Authentication mode
 AUTH_MODE=env               # env (local), gateway (hosted)
 
+# Required to start HTTP. Empty and known placeholders are rejected.
+# Never commit a real value. stdio does not use this.
+CONDUIT_S2S_SECRET=
+
+# Local HTTP only. Exactly "1" skips X-Gateway-S2S and forces 127.0.0.1.
+# MCP_ALLOW_INSECURE_DEV=1
+
 # Transport (stdio for local/desktop, http for remote/Docker)
 MCP_TRANSPORT=stdio          # stdio, http
 MCP_HTTP_PORT=8080           # HTTP transport port (only used when MCP_TRANSPORT=http)
+# Honored when CONDUIT_S2S_SECRET is set. Without a usable secret the bind is 127.0.0.1.
 MCP_HTTP_HOST=0.0.0.0        # HTTP transport bind address
 
 # Logging
@@ -251,17 +262,55 @@ When deployed behind an MCP Gateway (e.g., `mcp.wyre.ai`), the server operates i
 ```bash
 AUTH_MODE=gateway
 MCP_TRANSPORT=http
+CONDUIT_S2S_SECRET=<gateway-provisioned secret>
 ```
+
+Every `/mcp` request must include a valid `X-Gateway-S2S` header and the three Autotask credential headers. A request missing any credential header returns 401. The server does not fall back to `AUTOTASK_USERNAME`, `AUTOTASK_SECRET`, or `AUTOTASK_INTEGRATION_CODE` in the process environment.
 
 **Expected Headers:**
 
 | Header | Description |
 |--------|-------------|
+| `X-Gateway-S2S` | Service-to-service proof. `t=<unix seconds>,v1=<hex hmac-sha256>`. Required on `/mcp` whenever `CONDUIT_S2S_SECRET` is set. See [X-Gateway-S2S signing](#x-gateway-s2s-signing). |
 | `X-API-Key` | Autotask API username (email) |
 | `X-API-Secret` | Autotask API secret key |
 | `X-Integration-Code` | Autotask integration code |
 | `X-API-URL` | (Optional) Custom Autotask API URL |
 | `X-Impersonation-Resource-Id` | (Optional) Autotask resource ID to act on behalf of. Forwarded to Autotask as its `ImpersonationResourceId` header, so actions are attributed to that resource instead of the API user, and recorded in the entity's read-only `impersonatorCreatorResourceID` field. Must be a positive integer; anything else is ignored with a warning. The impersonated resource must itself have permission for the action, and the API user's security level must permit impersonation. |
+
+### X-Gateway-S2S signing
+
+`MCP_TRANSPORT=http` refuses to start unless `CONDUIT_S2S_SECRET` is a real secret. Empty values and known placeholders are rejected, including `changeme`, `placeholder`, `your-s2s-secret`, `secret`, `password`, `test`, and any value that is only an unresolved `${...}` template. The process logs an error and exits non-zero. It never prints the secret.
+
+`MCP_ALLOW_INSECURE_DEV=1` is the local-only escape hatch. The process logs a warning, does not check `X-Gateway-S2S`, and listens on `127.0.0.1` only. A non-loopback `MCP_HTTP_HOST` (including `0.0.0.0`, `localhost`, and `::1`) is ignored in that mode and the override is logged.
+
+Without a usable secret the bind address defaults to `127.0.0.1`. A configured secret honors `MCP_HTTP_HOST` (default `0.0.0.0` when that variable is unset, which is what the container image sets). Publish the host port on loopback unless a proxy sits in front.
+
+`/health` stays unauthenticated and does not read credentials. The stdio transport does not use `CONDUIT_S2S_SECRET`.
+
+With a usable secret, every `/mcp` request must include:
+
+```
+X-Gateway-S2S: t=<unix seconds>,v1=<lowercase hex>
+```
+
+`v1` is HMAC-SHA256, hex-encoded, of the ASCII string `t=<unix seconds>` (the same `t=` prefix that starts the header), keyed with `CONDUIT_S2S_SECRET`. The timestamp must be within 300 seconds of the server clock. A missing or invalid header returns HTTP 401. The secret is never written to logs or the response body.
+
+```bash
+# t is the current unix time. v1 is HMAC-SHA256 of the literal "t=$t".
+t=$(date +%s)
+v1=$(printf 't=%s' "$t" | openssl dgst -sha256 -hmac "$CONDUIT_S2S_SECRET" | awk '{print $NF}')
+curl -sS http://127.0.0.1:8080/mcp \
+  -H "Content-Type: application/json" \
+  -H "Accept: application/json, text/event-stream" \
+  -H "X-Gateway-S2S: t=${t},v1=${v1}" \
+  -H "X-API-Key: api-user@example.com" \
+  -H "X-API-Secret: the-api-secret" \
+  -H "X-Integration-Code: the-integration-code" \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
+```
+
+In `AUTH_MODE=env`, `/mcp` still requires a valid `X-Gateway-S2S` header. Autotask credentials then come from `AUTOTASK_*`. In `AUTH_MODE=gateway`, the three `X-API-*` headers above are required as well and are the only credential source for that request.
 
 **Health Check Response (Gateway Mode):**
 
@@ -295,8 +344,11 @@ For detailed setup instructions, see the [Autotask API documentation](https://ww
 # Start the MCP server (stdio transport, for piping to an MCP client)
 node dist/entry.js
 
-# Start with HTTP transport
-MCP_TRANSPORT=http node dist/index.js
+# HTTP refuses to start until CONDUIT_S2S_SECRET is a real secret
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" MCP_TRANSPORT=http node dist/index.js
+
+# Local HTTP only, without a service-to-service secret (always binds 127.0.0.1)
+MCP_ALLOW_INSECURE_DEV=1 MCP_TRANSPORT=http node dist/index.js
 ```
 
 ### MCP Client Configuration
@@ -460,13 +512,13 @@ For detailed mapping documentation, see [docs/mapping.md](docs/mapping.md).
 The server supports the MCP Streamable HTTP transport for remote deployments (e.g., Docker, cloud hosting). Set `MCP_TRANSPORT=http` to enable it.
 
 ```bash
-# Start with HTTP transport
-MCP_TRANSPORT=http MCP_HTTP_PORT=8080 node dist/index.js
+# Start with HTTP transport (exits unless CONDUIT_S2S_SECRET is a real secret)
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" MCP_TRANSPORT=http MCP_HTTP_PORT=8080 node dist/index.js
 ```
 
 The HTTP transport exposes:
-- `POST /mcp` — MCP Streamable HTTP endpoint
-- `GET /health` — Health check (returns `{"status":"ok"}`)
+- `POST /mcp` — MCP Streamable HTTP endpoint. Requires `X-Gateway-S2S` when `CONDUIT_S2S_SECRET` is set. See [X-Gateway-S2S signing](#x-gateway-s2s-signing).
+- `GET /health` — Unauthenticated health check (returns `{"status":"ok"}`). Does not read credentials.
 
 Clients must send requests to `/mcp` with `Accept: application/json, text/event-stream` headers per the MCP Streamable HTTP specification.
 
@@ -482,18 +534,26 @@ The Docker image defaults to **HTTP transport** on port 8080 — suitable for re
 # Pull the latest image
 docker pull ghcr.io/wyre-ai/autotask-mcp:latest
 
-# Run container with HTTP transport (default)
+# Run container with HTTP transport (default). The image binds 0.0.0.0 inside
+# the container; publish on loopback and pass the S2S secret.
 docker run -d \
   --name autotask-mcp \
-  -p 8080:8080 \
+  -p 127.0.0.1:8080:8080 \
+  -e CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" \
   -e AUTOTASK_USERNAME="your-api-user@example.com" \
   -e AUTOTASK_SECRET="your-secret-key" \
   -e AUTOTASK_INTEGRATION_CODE="your-integration-code" \
   --restart unless-stopped \
   ghcr.io/wyre-ai/autotask-mcp:latest
 
-# Verify it's running
-curl http://localhost:8080/health
+# Verify it's running (health does not require X-Gateway-S2S)
+curl http://127.0.0.1:8080/health
+```
+
+Compose will not start when `CONDUIT_S2S_SECRET` is unset. The checked-in gateway service sets `AUTH_MODE=gateway`, publishes `127.0.0.1:8080:8080`, and does not inject `AUTOTASK_*`:
+
+```bash
+CONDUIT_S2S_SECRET="$CONDUIT_S2S_SECRET" docker compose up
 ```
 
 For **stdio** usage with Claude Desktop, see [Installation Option 2](#option-2-docker).
@@ -619,7 +679,9 @@ npm test -- tests/autotask-service.test.ts
 | `MCP_SERVER_NAME` | ❌ | `autotask-mcp` | MCP server name |
 | `MCP_TRANSPORT` | ❌ | `stdio` | Transport type (`stdio` or `http`) |
 | `MCP_HTTP_PORT` | ❌ | `8080` | HTTP transport port |
-| `MCP_HTTP_HOST` | ❌ | `0.0.0.0` | HTTP transport bind address |
+| `MCP_HTTP_HOST` | ❌ | `0.0.0.0` when a secret is set; `127.0.0.1` without one | HTTP bind address. A configured `CONDUIT_S2S_SECRET` honors this variable. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
+| `CONDUIT_S2S_SECRET` | Yes for HTTP | — | Service-to-service secret for `X-Gateway-S2S`. HTTP exits if this is empty or a known placeholder. Never commit a real value. |
+| `MCP_ALLOW_INSECURE_DEV` | ❌ | unset | Set to exactly `1` for local HTTP without a usable secret. Logs a warning, skips `X-Gateway-S2S`, and listens on `127.0.0.1` only. |
 | `LOG_LEVEL` | ❌ | `info` | Logging level |
 | `LOG_FORMAT` | ❌ | `simple` | Log output format |
 | `AUTOTASK_ENHANCE_CONCURRENCY` | ❌ | `3` | Max concurrent Autotask API calls used to resolve company/resource names on search results. Kept low to stay under Autotask's concurrent-thread limit. |
