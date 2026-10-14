@@ -265,6 +265,68 @@ describe('autotask_search_tickets companyID 0', () => {
   });
 });
 
+describe('Tool annotations - readOnlyHint', () => {
+  const PASSTHROUGH = new Set(['autotask_execute_tool', 'autotask_raw_request']);
+  const mutatingName = /^autotask_(create|update|delete)_/;
+
+  test('a representative read-only tool is annotated readOnlyHint: true', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_search_companies');
+    expect(tool).toBeDefined();
+    expect(tool!.annotations?.readOnlyHint).toBe(true);
+    expect(tool!.annotations?.destructiveHint).toBe(false);
+    expect(tool!.annotations?.idempotentHint).toBe(true);
+    expect(tool!.annotations?.openWorldHint).toBe(true);
+  });
+
+  test('a known mutating tool is NOT annotated readOnlyHint: true', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_create_ticket');
+    expect(tool).toBeDefined();
+    expect(tool!.annotations?.readOnlyHint).not.toBe(true);
+  });
+
+  test('no create/update/delete tool is ever annotated readOnlyHint: true', () => {
+    // Guards against a future sweep carelessly marking a mutating tool read-only.
+    const mutating = TOOL_DEFINITIONS.filter(t => mutatingName.test(t.name));
+    expect(mutating.length).toBeGreaterThan(0);
+    for (const tool of mutating) {
+      expect(tool.annotations?.readOnlyHint).not.toBe(true);
+    }
+  });
+
+  test('generic passthrough/dispatcher tools stay unannotated (they can perform writes)', () => {
+    for (const name of PASSTHROUGH) {
+      const tool = TOOL_DEFINITIONS.find(t => t.name === name);
+      expect(tool).toBeDefined();
+      expect(tool!.annotations?.readOnlyHint).not.toBe(true);
+    }
+  });
+
+  test('every other tool is annotated as a pure read', () => {
+    const reads = TOOL_DEFINITIONS.filter(t => !mutatingName.test(t.name) && !PASSTHROUGH.has(t.name));
+    expect(reads.length).toBeGreaterThan(0);
+    for (const tool of reads) {
+      expect(tool.annotations?.readOnlyHint).toBe(true);
+      expect(tool.annotations?.destructiveHint).toBe(false);
+      expect(tool.annotations?.idempotentHint).toBe(true);
+    }
+  });
+
+  test('progressive-discovery list tools are local (openWorldHint: false)', () => {
+    for (const name of ['autotask_list_categories', 'autotask_list_category_tools']) {
+      const tool = TOOL_DEFINITIONS.find(t => t.name === name);
+      expect(tool).toBeDefined();
+      expect(tool!.annotations?.openWorldHint).toBe(false);
+    }
+  });
+
+  test('autotask_router is open-world: company intents call searchCompanies', () => {
+    const tool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_router');
+    expect(tool).toBeDefined();
+    expect(tool!.annotations?.openWorldHint).toBe(true);
+    expect(tool!.annotations?.readOnlyHint).toBe(true);
+  });
+});
+
 describe('autotask_update_ticket schema', () => {
   const updateTicketTool = TOOL_DEFINITIONS.find(t => t.name === 'autotask_update_ticket');
 
