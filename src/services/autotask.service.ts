@@ -2741,13 +2741,22 @@ export class AutotaskService {
         throw new Error('quoteID is required to create a quote item');
       }
 
+      // Autotask rejects Product(1) lines without a periodType. Take it from the
+      // product's catalog entry, as the Autotask UI does, else One-Time(1).
+      let periodType = item.periodType;
+      if (periodType == null && quoteItemType === 1) {
+        const product = item.productID ? await this.getProduct(item.productID) : null;
+        periodType = product?.periodType ?? 1;
+      }
+
       const quoteItem = {
         unitDiscount: 0,
         lineDiscount: 0,
         percentageDiscount: 0,
         isOptional: false,
         ...item,
-        quoteItemType: item.quoteItemType || quoteItemType,
+        quoteItemType,
+        periodType,
       };
       this.logger.debug('Creating quote item:', quoteItem);
       // QuoteItems are child of Quotes: POST /Quotes/{quoteId}/Items

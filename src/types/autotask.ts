@@ -472,6 +472,7 @@ export interface AutotaskProduct {
   unitCost?: number;
   isActive?: boolean;
   isSerialized?: boolean;
+  periodType?: number;
   [key: string]: any;
 }
 
@@ -519,6 +520,7 @@ export interface AutotaskQuoteItem {
   expenseID?: number;
   shippingID?: number;
   quoteItemType?: number;
+  periodType?: number;
   sortOrderID?: number;
   totalEffectiveTax?: number;
   averageDiscount?: number;

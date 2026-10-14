@@ -2256,6 +2256,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         quoteItemType: {
           type: 'number',
           description: 'Quote item type (auto-determined if omitted): 1=Product, 2=Cost, 3=Labor, 4=Expense, 6=Shipping, 11=Service, 12=ServiceBundle'
+        },
+        periodType: {
+          type: 'number',
+          description: 'Billing period: 1=One-Time, 2=Monthly, 3=Quarterly, 4=Semi-Annual, 5=Yearly. Required by Autotask for Product lines; if omitted there, taken from the product, else One-Time.'
         }
       },
       required: ['quoteId', 'quantity']
