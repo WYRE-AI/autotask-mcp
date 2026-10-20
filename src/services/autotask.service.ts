@@ -3267,6 +3267,7 @@ export class AutotaskService {
 export { resolveAutotaskApiUrl };
 
 const MAX_OPTIMIZED_UDF_VALUE_LENGTH = 200;
+const OPTIMIZED_UDF_TRUNCATION_MARKER = '... [truncated]';
 
 /** Non-empty UDFs only, each value capped for the optimized (non-full) ticket view. */
 function optimizeUserDefinedFields(udfs: AutotaskTicket['userDefinedFields']): NonNullable<AutotaskTicket['userDefinedFields']> {
@@ -3277,8 +3278,10 @@ function optimizeUserDefinedFields(udfs: AutotaskTicket['userDefinedFields']): N
       const value = String(u.value);
       return {
         name: u.name,
+        // The cap includes the marker, so a truncated value is exactly 200 chars.
         value: value.length > MAX_OPTIMIZED_UDF_VALUE_LENGTH
-          ? value.substring(0, MAX_OPTIMIZED_UDF_VALUE_LENGTH) + '... [truncated]'
+          ? value.substring(0, MAX_OPTIMIZED_UDF_VALUE_LENGTH - OPTIMIZED_UDF_TRUNCATION_MARKER.length)
+            + OPTIMIZED_UDF_TRUNCATION_MARKER
           : value,
       };
     });

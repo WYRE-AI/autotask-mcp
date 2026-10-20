@@ -98,7 +98,7 @@ Full ticket record (JSON):
 {"id":48231,"ticketNumber":"T20240115.0023","title":"Email server not responding", ...}
 ```
 
-By default (`fullDetails: false`) the description is cut at 500 characters, the resolution at 300, and each custom field value at 200, and custom fields with no value are left out. Ask for full details (`fullDetails: true`) to get everything untruncated. In MCP Apps hosts such as Claude Desktop, the same result also renders as an interactive ticket card.
+By default (`fullDetails: false`) the description is cut at 500 characters, the resolution at 300, and each custom field value at 200 (counting the truncation marker), and custom fields with no value are left out. Ask for full details (`fullDetails: true`) to get everything untruncated. In MCP Apps hosts such as Claude Desktop, the same result also renders as an interactive ticket card.
 
 ---
 

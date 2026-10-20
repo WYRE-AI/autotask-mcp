@@ -10,7 +10,8 @@ import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '.
 import { MappingService } from '../utils/mapping.service.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
-import { buildTicketCard, fetchRecentTicketNotes, type TicketCard } from './card.builder.js';
+import { buildTicketCard, fetchRecentTicketNotes, type RecentTicketNotes, type TicketCard } from './card.builder.js';
+import { vendorStatus } from '../utils/vendor-error.js';
 import { buildTicketSearchParams } from './intent-router.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
@@ -1828,21 +1829,18 @@ export class AutotaskToolHandler {
         // MCP Apps: attach the normalized card payload the ui:// ticket card
         // renders from. Best-effort — a null card just means no UI surface.
         if (name === 'autotask_get_ticket_details') {
-          const card = await buildTicketCard(data, this.picklistCache, this.autotaskService, this.logger);
-          if (card) data._card = card;
           // WYREAI-527: the model only sees `content`, not structuredContent,
           // so the text must carry the ticket itself (description, linked CI,
-          // dates, people, notes), whether or not a card could be built. A
-          // ticket missing title/ticketNumber gets no card, so fetch its notes
-          // here instead.
-          const notes = card
-            ? card.notes
-            : typeof data.id === 'number'
-              ? await fetchRecentTicketNotes(data.id, this.autotaskService, this.logger)
-              : [];
+          // dates, people, notes), whether or not a card could be built.
+          // Notes are fetched once here and shared with the card.
+          const recentNotes: RecentTicketNotes = typeof data.id === 'number'
+            ? await fetchRecentTicketNotes(data.id, this.autotaskService, this.logger)
+            : { notes: [] };
+          const card = await buildTicketCard(data, this.picklistCache, this.autotaskService, this.logger, recentNotes);
+          if (card) data._card = card;
           this.logger.debug(`Successfully executed tool: ${name}`);
           return {
-            content: [{ type: 'text', text: formatTicketDetailsText(data, card, notes) }],
+            content: [{ type: 'text', text: formatTicketDetailsText(data, card, recentNotes) }],
             structuredContent: { message, data },
           };
         }
@@ -1877,14 +1875,6 @@ export class AutotaskToolHandler {
   }
 }
 
-/** HTTP status from an Autotask/vendor error, when it carries one. */
-function vendorStatus(error: unknown): number | undefined {
-  const status = error && typeof error === 'object' && 'status' in error
-    ? (error as { status?: unknown }).status
-    : undefined;
-  return typeof status === 'number' ? status : undefined;
-}
-
 /** Configuration item fields surfaced on a ticket's `configurationItem`. */
 const LINKED_CI_FIELDS = [
   'referenceTitle',
@@ -1917,8 +1907,9 @@ function formatContact(data: Record<string, any>): string {
 export function formatTicketDetailsText(
   data: Record<string, any>,
   card: TicketCard | null,
-  notes: TicketCard['notes'] = card?.notes ?? [],
+  recentNotes: RecentTicketNotes = { notes: card?.notes ?? [] },
 ): string {
+  const notes = recentNotes.notes;
   const lines: string[] = [];
   const id = card?.id ?? data.id;
   const ticketNumber = card?.ticketNumber ?? data.ticketNumber;
@@ -1991,6 +1982,10 @@ export function formatTicketDetailsText(
     for (const note of notes) {
       lines.push(`- ${note.title ? `${note.title}: ` : ''}${note.description}`);
     }
+  } else if (recentNotes.unavailable) {
+    // A failed fetch is not "no notes": say so, with the vendor status.
+    const status = recentNotes.unavailable.status;
+    lines.push('', `Recent notes: unavailable (the Autotask notes lookup failed${status !== undefined ? ` with HTTP ${status}` : ''}; the ticket may still have notes)`);
   } else {
     lines.push('', 'Recent notes: none');
   }

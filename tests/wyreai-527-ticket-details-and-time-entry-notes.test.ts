@@ -62,7 +62,7 @@ function setup(ticket: Record<string, unknown>, ci: Record<string, unknown> | Er
     getResourceName: async () => null,
   });
   jest.spyOn((handler as any).picklistCache, 'getPicklistValues').mockResolvedValue([]);
-  return { handler, getTicket, getCi };
+  return { handler, service, getTicket, getCi };
 }
 
 describe('WYREAI-527 autotask_get_ticket_details content text', () => {
@@ -134,6 +134,38 @@ describe('WYREAI-527 autotask_get_ticket_details content text', () => {
     expect(text).toContain('Full ticket record (JSON):');
     const structured = result.structuredContent as { data: Record<string, any> };
     expect(structured.data._card).toBeUndefined();
+  });
+
+  it('says notes are unavailable (with the HTTP status) when the notes fetch fails, not "none"', async () => {
+    const { handler, service } = setup(baseTicket(), null) as any;
+    jest.spyOn(service, 'searchTicketNotes').mockRejectedValue(
+      Object.assign(new Error('Autotask POST /TicketNotes/query failed: HTTP 503'), { status: 503 }),
+    );
+    const warn = jest.spyOn(logger, 'warn');
+    const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217 });
+    expect(result.isError).toBeFalsy();
+    const text = result.content[0].text;
+    expect(text).toContain('Recent notes: unavailable (the Autotask notes lookup failed with HTTP 503; the ticket may still have notes)');
+    expect(text).not.toContain('Recent notes: none');
+    expect(text).toContain(DESCRIPTION);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Ticket 48217 notes lookup failed (HTTP 503)'));
+    warn.mockRestore();
+  });
+
+  it('still says "none" when the notes fetch succeeds with no notes', async () => {
+    const { handler, service } = setup(baseTicket(), null) as any;
+    jest.spyOn(service, 'searchTicketNotes').mockResolvedValue([]);
+    const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217 });
+    expect(result.content[0].text).toContain('Recent notes: none');
+  });
+
+  it('fetches notes once and shares them with the card', async () => {
+    const { handler, service } = setup(baseTicket(), null) as any;
+    const notesSpy = jest.spyOn(service, 'searchTicketNotes');
+    const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217 });
+    expect(notesSpy).toHaveBeenCalledTimes(1);
+    const structured = result.structuredContent as { data: Record<string, any> };
+    expect(structured.data._card.notes).toEqual([{ title: 'Triage', description: 'Confirmed on two laptops.' }]);
   });
 
   it('says when no CI is linked and skips the lookup', async () => {
@@ -264,7 +296,10 @@ describe('WYREAI-527 note writing enabled (card with noteDefaults)', () => {
     const http = { get: jest.fn(async () => ({ ...RAW_TICKET, userDefinedFields: [{ name: 'Long', value: long }, { name: 'Blank', value: '' }] })) };
     jest.spyOn(service as any, 'ensureClient').mockResolvedValue(http);
     const t = await service.getTicket(48217, false);
-    expect(t?.userDefinedFields).toEqual([{ name: 'Long', value: 'x'.repeat(200) + '... [truncated]' }]);
+    const marker = '... [truncated]';
+    expect(t?.userDefinedFields).toEqual([{ name: 'Long', value: 'x'.repeat(200 - marker.length) + marker }]);
+    // The cap includes the marker.
+    expect(t?.userDefinedFields?.[0].value).toHaveLength(200);
     const full = await service.getTicket(48217, true);
     expect(full?.userDefinedFields).toHaveLength(2);
   });
