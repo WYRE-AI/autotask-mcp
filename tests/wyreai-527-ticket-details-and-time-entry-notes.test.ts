@@ -54,7 +54,15 @@ function setup(ticket: Record<string, unknown>, ci: Record<string, unknown> | Er
   const getCi = jest.spyOn(service, 'getConfigurationItem');
   if (ci instanceof Error) getCi.mockRejectedValue(ci);
   else getCi.mockResolvedValue(ci as any);
-  return { handler: new AutotaskToolHandler(service, logger), getTicket, getCi };
+  const handler = new AutotaskToolHandler(service, logger);
+  // Keep every test offline: no real MappingService cache fill and no real
+  // picklist (getFieldInfo) requests through the Autotask client.
+  (handler as any).getMappingService = async () => ({
+    getCompanyName: async () => null,
+    getResourceName: async () => null,
+  });
+  jest.spyOn((handler as any).picklistCache, 'getPicklistValues').mockResolvedValue([]);
+  return { handler, getTicket, getCi };
 }
 
 describe('WYREAI-527 autotask_get_ticket_details content text', () => {
@@ -101,6 +109,31 @@ describe('WYREAI-527 autotask_get_ticket_details content text', () => {
     expect(result.isError).toBeFalsy();
     expect(result.content[0].text).toContain('Configuration item: ID 9001');
     expect(result.content[0].text).toContain(DESCRIPTION);
+  });
+
+  it('warns with the vendor HTTP status when the CI lookup fails, without failing the fetch', async () => {
+    const err = Object.assign(new Error('Autotask GET /ConfigurationItems/9001 failed: HTTP 404'), { status: 404 });
+    const { handler } = setup(baseTicket(), err);
+    const warn = jest.spyOn(logger, 'warn');
+    const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217 });
+    expect(result.isError).toBeFalsy();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('Linked configuration item 9001 lookup failed (HTTP 404)'));
+    warn.mockRestore();
+  });
+
+  it('still returns readable text, with notes, when no card can be built', async () => {
+    // No title/ticketNumber -> buildTicketCard returns null.
+    const { handler } = setup(baseTicket({ title: undefined, ticketNumber: undefined }), null);
+    const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217 });
+    expect(result.isError).toBeFalsy();
+    const text = result.content[0].text;
+    expect(text).toContain('Ticket 48217: (no title)');
+    expect(text).toContain('Status: #1 | Priority: #2 | Queue: #8');
+    expect(text).toContain(DESCRIPTION);
+    expect(text).toContain('- Triage: Confirmed on two laptops.');
+    expect(text).toContain('Full ticket record (JSON):');
+    const structured = result.structuredContent as { data: Record<string, any> };
+    expect(structured.data._card).toBeUndefined();
   });
 
   it('says when no CI is linked and skips the lookup', async () => {

@@ -10,7 +10,7 @@ import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '.
 import { MappingService } from '../utils/mapping.service.js';
 import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
-import { buildTicketCard, type TicketCard } from './card.builder.js';
+import { buildTicketCard, fetchRecentTicketNotes, type TicketCard } from './card.builder.js';
 import { buildTicketSearchParams } from './intent-router.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
@@ -241,7 +241,11 @@ export class AutotaskToolHandler {
       }
       return linked;
     } catch (error) {
-      this.logger.debug(`Linked configuration item ${id} lookup failed`, error);
+      // Nonfatal: the ticket still returns, with the CI shown by ID only.
+      const status = vendorStatus(error);
+      this.logger.warn(
+        `Linked configuration item ${id} lookup failed${status !== undefined ? ` (HTTP ${status})` : ''}; returning the ticket with the CI ID only`,
+      );
       return null;
     }
   }
@@ -261,7 +265,10 @@ export class AutotaskToolHandler {
       if (c.phone) contact.phone = c.phone;
       return contact;
     } catch (error) {
-      this.logger.debug(`Ticket contact ${id} lookup failed`, error);
+      const status = vendorStatus(error);
+      this.logger.warn(
+        `Ticket contact ${id} lookup failed${status !== undefined ? ` (HTTP ${status})` : ''}; returning the ticket with the contact ID only`,
+      );
       return null;
     }
   }
@@ -1820,21 +1827,26 @@ export class AutotaskToolHandler {
         const data = enhanced[0] || result;
         // MCP Apps: attach the normalized card payload the ui:// ticket card
         // renders from. Best-effort — a null card just means no UI surface.
-        let card: TicketCard | null = null;
         if (name === 'autotask_get_ticket_details') {
-          card = await buildTicketCard(data, this.picklistCache, this.autotaskService, this.logger);
+          const card = await buildTicketCard(data, this.picklistCache, this.autotaskService, this.logger);
           if (card) data._card = card;
-        }
-        this.logger.debug(`Successfully executed tool: ${name}`);
-        if (card) {
           // WYREAI-527: the model only sees `content`, not structuredContent,
           // so the text must carry the ticket itself (description, linked CI,
-          // dates, people, notes) — not just a one-line title summary.
+          // dates, people, notes), whether or not a card could be built. A
+          // ticket missing title/ticketNumber gets no card, so fetch its notes
+          // here instead.
+          const notes = card
+            ? card.notes
+            : typeof data.id === 'number'
+              ? await fetchRecentTicketNotes(data.id, this.autotaskService, this.logger)
+              : [];
+          this.logger.debug(`Successfully executed tool: ${name}`);
           return {
-            content: [{ type: 'text', text: formatTicketDetailsText(data, card) }],
+            content: [{ type: 'text', text: formatTicketDetailsText(data, card, notes) }],
             structuredContent: { message, data },
           };
         }
+        this.logger.debug(`Successfully executed tool: ${name}`);
         responseText = JSON.stringify({ message, data });
       } else {
         responseText = JSON.stringify({ message, data: result });
@@ -1863,6 +1875,14 @@ export class AutotaskToolHandler {
       });
     }
   }
+}
+
+/** HTTP status from an Autotask/vendor error, when it carries one. */
+function vendorStatus(error: unknown): number | undefined {
+  const status = error && typeof error === 'object' && 'status' in error
+    ? (error as { status?: unknown }).status
+    : undefined;
+  return typeof status === 'number' ? status : undefined;
 }
 
 /** Configuration item fields surfaced on a ticket's `configurationItem`. */
@@ -1894,16 +1914,29 @@ function formatContact(data: Record<string, any>): string {
  * UDFs when fullDetails is true — is hidden from the model. The `_card` UI
  * payload is omitted from the JSON; its useful parts are in the header.
  */
-export function formatTicketDetailsText(data: Record<string, any>, card: TicketCard): string {
+export function formatTicketDetailsText(
+  data: Record<string, any>,
+  card: TicketCard | null,
+  notes: TicketCard['notes'] = card?.notes ?? [],
+): string {
   const lines: string[] = [];
-  lines.push(`Ticket ${card.ticketNumber ?? card.id}: ${card.title}`);
-  lines.push(`Ticket ID: ${card.id}`);
+  const id = card?.id ?? data.id;
+  const ticketNumber = card?.ticketNumber ?? data.ticketNumber;
+  const title = card?.title ?? data.title;
+  lines.push(`Ticket ${ticketNumber ?? id ?? '(unknown)'}: ${title ?? '(no title)'}`);
+  if (id != null) lines.push(`Ticket ID: ${id}`);
 
+  // Without a card the picklist labels are unresolved, so show the raw IDs.
   const join = (parts: Array<string | undefined>) => parts.filter(Boolean).join(' | ');
+  const label = (resolved: string | undefined, raw: unknown) =>
+    resolved ?? (raw != null ? `#${raw}` : undefined);
+  const status = label(card?.status, data.status);
+  const priority = label(card?.priority, data.priority);
+  const queue = label(card?.queue, data.queueID);
   const statusLine = join([
-    card.status ? `Status: ${card.status}` : undefined,
-    card.priority ? `Priority: ${card.priority}` : undefined,
-    card.queue ? `Queue: ${card.queue}` : undefined,
+    status ? `Status: ${status}` : undefined,
+    priority ? `Priority: ${priority}` : undefined,
+    queue ? `Queue: ${queue}` : undefined,
   ]);
   if (statusLine) lines.push(statusLine);
 
@@ -1953,9 +1986,9 @@ export function formatTicketDetailsText(data: Record<string, any>, card: TicketC
     lines.push('', 'Custom fields (UDFs): none with values');
   }
 
-  if (card.notes.length > 0) {
-    lines.push('', `Recent notes (${card.notes.length}, newest Autotask returned):`);
-    for (const note of card.notes) {
+  if (notes.length > 0) {
+    lines.push('', `Recent notes (${notes.length}, newest Autotask returned):`);
+    for (const note of notes) {
       lines.push(`- ${note.title ? `${note.title}: ` : ''}${note.description}`);
     }
   } else {

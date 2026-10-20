@@ -121,9 +121,27 @@ export async function buildTicketCard(
   if (queue) card.queue = queue;
 
   // Recent notes give the card (and its add-note round-trip) visible context.
+  card.notes = await fetchRecentTicketNotes(ticket.id, service, logger);
+
+  const noteDefaults = await resolveNoteDefaults(picklists, logger);
+  if (noteDefaults) card.noteDefaults = noteDefaults;
+
+  return card;
+}
+
+/**
+ * The ticket's most recent notes, trimmed for display. Best-effort: a failed
+ * fetch returns an empty list. Shared by the card and by the ticket-detail
+ * text when no card can be built (WYREAI-527).
+ */
+export async function fetchRecentTicketNotes(
+  ticketId: number,
+  service: AutotaskService,
+  logger: Logger,
+): Promise<TicketCard['notes']> {
   try {
-    const notes = await service.searchTicketNotes(ticket.id, { pageSize: CARD_NOTE_LIMIT });
-    card.notes = notes.slice(0, CARD_NOTE_LIMIT).map((n) => {
+    const notes = await service.searchTicketNotes(ticketId, { pageSize: CARD_NOTE_LIMIT });
+    return notes.slice(0, CARD_NOTE_LIMIT).map((n) => {
       const note: TicketCard['notes'][number] = {
         description: String(n.description ?? '').slice(0, CARD_NOTE_MAX_LENGTH),
       };
@@ -131,13 +149,9 @@ export async function buildTicketCard(
       return note;
     });
   } catch (error) {
-    logger.debug('Ticket card: note fetch failed, rendering without notes', error);
+    logger.debug('Ticket notes fetch failed, continuing without notes', error);
+    return [];
   }
-
-  const noteDefaults = await resolveNoteDefaults(picklists, logger);
-  if (noteDefaults) card.noteDefaults = noteDefaults;
-
-  return card;
 }
 
 async function picklistLabel(
