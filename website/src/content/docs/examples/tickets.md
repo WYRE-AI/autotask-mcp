@@ -74,33 +74,31 @@ This calls `autotask_list_ticket_priorities` and returns the valid values for yo
 **Prompt:**
 > "Show me the details for ticket 48231"
 
-**What happens:** The server calls `autotask_get_ticket_details` with `ticketId: 48231`.
+**What happens:** The server calls `autotask_get_ticket_details` with `ticketID: 48231`. It resolves the company, assignee, contact and linked configuration item to names, and fetches the latest notes.
 
-**Expected output:**
-```json
-{
-  "message": "Retrieved ticket details successfully",
-  "data": {
-    "id": 48231,
-    "ticketNumber": "T20240115.0023",
-    "title": "Email server not responding",
-    "description": "Users report that the email server has been unresponsive since 9am...",
-    "status": 1,
-    "priority": 2,
-    "queueID": 29682999,
-    "companyID": 29683451,
-    "contactID": 30412,
-    "assignedResourceID": 12345,
-    "createDate": "2024-01-15T09:30:00Z",
-    "lastActivityDate": "2024-01-15T14:22:00Z",
-    "_enhanced": {
-      "companyName": "Northwind Traders",
-      "assignedResourceName": "John Smith",
-      "contactName": "Alice Johnson"
-    }
-  }
-}
+**Expected output** (the text the assistant reads; the full record follows as JSON):
+```text
+Ticket T20240115.0023: Email server not responding
+Ticket ID: 48231
+Status: New | Priority: Medium | Queue: Service Desk
+Company: Northwind Traders (ID 29683451) | Contact: Alice Johnson (ID 30412, alice@northwind.example) | Assigned to: John Smith
+Created: 2024-01-15T09:30:00Z | Last activity: 2024-01-15T14:22:00Z
+Configuration item: NW-EXCH01 (ID 81022 | serial VMW-4C1D)
+
+Description:
+Users report that the email server has been unresponsive since 9am...
+
+Custom fields (UDFs, 1 with values):
+- Site: Head office
+
+Recent notes (1, newest Autotask returned):
+- Triage: Confirmed outage for all users; restarting transport service.
+
+Full ticket record (JSON):
+{"id":48231,"ticketNumber":"T20240115.0023","title":"Email server not responding", ...}
 ```
+
+By default (`fullDetails: false`) the description is cut at 500 characters, the resolution at 300, and each custom field value at 200, and custom fields with no value are left out. Ask for full details (`fullDetails: true`) to get everything untruncated. In MCP Apps hosts such as Claude Desktop, the same result also renders as an interactive ticket card.
 
 ---
 

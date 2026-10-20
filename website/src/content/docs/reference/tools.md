@@ -31,14 +31,15 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `autotask_search_tickets` | Search for tickets | `searchTerm`, `companyID`, `status`, `priority`, `queueID`, `assignedResourceID` |
-| `autotask_get_ticket_details` | Get full ticket details | `ticketId` (required) |
+| `autotask_get_ticket_details` | Get one ticket: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs) and recent notes, then the full ticket record as JSON | `ticketID` (required), `fullDetails` (untruncated description/resolution and all UDFs) |
 | `autotask_create_ticket` | Create a new ticket | `title`, `companyID` (required), `priority`, `status`, `queueID`, `description` |
 
 ## Time Entries
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `autotask_create_time_entry` | Log time against a ticket | `ticketID` (required), `hoursWorked` (required), `summaryNotes`, `dateWorked`, `resourceID` |
+| `autotask_create_time_entry` | Log time against a ticket | `ticketID` (required), `hoursWorked` (required), `summaryNotes`, `internalNotes`, `dateWorked`, `resourceID` |
+| `autotask_search_time_entries` | Search time entries. Each entry includes `summaryNotes` and `internalNotes` | `resourceId`, `ticketId`, `taskId`, `dateWorkedAfter`, `dateWorkedBefore`, `approvalStatus`, `billable` |
 
 ## Projects
 

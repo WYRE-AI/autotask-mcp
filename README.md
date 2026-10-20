@@ -55,7 +55,7 @@ See [Installation](#installation) for Docker and from-source methods.
 ## Features
 
 - **🔌 MCP Protocol Compliance**: Full support for MCP resources and tools
-- **🎴 Interactive Ticket Card (MCP Apps)**: `autotask_get_ticket_details` renders as an interactive card in MCP Apps hosts (Claude Desktop/web) with an in-card "Add note" round-trip; neutral theme by default, brandable via `MCP_BRAND_*` env vars; plain-JSON behavior is unchanged in other hosts
+- **🎴 Interactive Ticket Card (MCP Apps)**: `autotask_get_ticket_details` renders as an interactive card in MCP Apps hosts (Claude Desktop/web) with an in-card "Add note" round-trip; neutral theme by default, brandable via `MCP_BRAND_*` env vars. In every host, the text the assistant reads carries the full ticket: description, contact, linked configuration item, custom fields (UDFs), recent notes and the complete record as JSON
 - **🛠️ Comprehensive API Coverage**: 101 tools spanning companies, contacts, tickets, projects, billing items, time entries, notes, attachments, and more
 - **🔍 Advanced Search**: Powerful search capabilities with filters across all entities
 - **📝 CRUD Operations**: Create, read, update operations for core Autotask entities
@@ -388,12 +388,12 @@ The server provides 101 tools for interacting with Autotask:
 
 #### Ticket Operations
 - `autotask_search_tickets` - Search tickets with filters
-- `autotask_get_ticket_details` - Get full ticket details by ID
+- `autotask_get_ticket_details` - Get a ticket by ID: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs)
 - `autotask_create_ticket` - Create new ticket
 
 #### Time Entry Operations
 - `autotask_create_time_entry` - Log time entry
-- `autotask_search_time_entries` - Search time entries with filters (resource, ticket, task, date range)
+- `autotask_search_time_entries` - Search time entries with filters (resource, ticket, task, date range); each entry includes `summaryNotes` and `internalNotes`
 
 #### Billing Items (Approve and Post Workflow)
 - `autotask_search_billing_items` - Search approved and posted billing items
