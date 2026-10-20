@@ -228,6 +228,25 @@ export class AutotaskToolHandler {
   }
 
   /**
+   * Best-effort lookup of a ticket's linked configuration item, reduced to the
+   * fields that identify it. Returns null (never throws) on any failure.
+   */
+  private async resolveLinkedConfigurationItem(id: number): Promise<Record<string, unknown> | null> {
+    try {
+      const ci = await this.autotaskService.getConfigurationItem(id);
+      if (!ci) return null;
+      const linked: Record<string, unknown> = { id };
+      for (const field of LINKED_CI_FIELDS) {
+        if (ci[field] !== undefined && ci[field] !== null && ci[field] !== '') linked[field] = ci[field];
+      }
+      return linked;
+    } catch (error) {
+      this.logger.debug(`Linked configuration item ${id} lookup failed`, error);
+      return null;
+    }
+  }
+
+  /**
    * Set the MCP server reference for elicitation support
    */
   setServer(server: Server): void {
@@ -965,7 +984,15 @@ export class AutotaskToolHandler {
         return { result: r, message: `Found ${r.length} tickets` };
       }],
       ['autotask_get_ticket_details', async (a) => {
-        const r = await s.getTicket(a.ticketID, a.fullDetails); return { result: r, message: 'Ticket details retrieved successfully' };
+        const r = await s.getTicket(a.ticketID, a.fullDetails);
+        // WYREAI-527: a ticket only carries configurationItemID, which tells
+        // the model nothing on its own. Resolve the linked CI (best-effort —
+        // a failed lookup must never fail the ticket fetch).
+        if (r && typeof r.configurationItemID === 'number') {
+          const ci = await this.resolveLinkedConfigurationItem(r.configurationItemID);
+          if (ci) (r as Record<string, unknown>).configurationItem = ci;
+        }
+        return { result: r, message: 'Ticket details retrieved successfully' };
       }],
       ['autotask_create_ticket', async (a) => {
         const payload = buildTicketPayload(a);
@@ -1770,11 +1797,11 @@ export class AutotaskToolHandler {
         }
         this.logger.debug(`Successfully executed tool: ${name}`);
         if (card) {
+          // WYREAI-527: the model only sees `content`, not structuredContent,
+          // so the text must carry the ticket itself (description, linked CI,
+          // dates, people, notes) — not just a one-line title summary.
           return {
-            content: [{
-              type: 'text',
-              text: `Ticket ${card.ticketNumber ?? card.id}: ${card.title} (${card.priority}, ${card.status})`,
-            }],
+            content: [{ type: 'text', text: formatTicketDetailsText(data, card) }],
             structuredContent: { message, data },
           };
         }
@@ -1806,6 +1833,89 @@ export class AutotaskToolHandler {
       });
     }
   }
+}
+
+/** Configuration item fields surfaced on a ticket's `configurationItem`. */
+const LINKED_CI_FIELDS = [
+  'referenceTitle',
+  'referenceNumber',
+  'serialNumber',
+  'configurationItemName',
+  'configurationItemType',
+  'productID',
+  'companyID',
+  'isActive',
+] as const;
+
+/**
+ * Model-facing text for autotask_get_ticket_details (WYREAI-527).
+ *
+ * MCP clients hand the model `content`, not `structuredContent`, so this text
+ * has to carry the ticket: a readable header (title, status, priority, queue,
+ * company, assignee, dates, linked CI, description, resolution, recent notes)
+ * followed by the full ticket record as JSON so no fetched field — including
+ * UDFs when fullDetails is true — is hidden from the model. The `_card` UI
+ * payload is omitted from the JSON; its useful parts are in the header.
+ */
+export function formatTicketDetailsText(data: Record<string, any>, card: TicketCard): string {
+  const lines: string[] = [];
+  lines.push(`Ticket ${card.ticketNumber ?? card.id}: ${card.title}`);
+  lines.push(`Ticket ID: ${card.id}`);
+
+  const join = (parts: Array<string | undefined>) => parts.filter(Boolean).join(' | ');
+  const statusLine = join([
+    card.status ? `Status: ${card.status}` : undefined,
+    card.priority ? `Priority: ${card.priority}` : undefined,
+    card.queue ? `Queue: ${card.queue}` : undefined,
+  ]);
+  if (statusLine) lines.push(statusLine);
+
+  const company = typeof data.company === 'string'
+    ? `${data.company}${data.companyID != null ? ` (ID ${data.companyID})` : ''}`
+    : data.companyID != null ? `ID ${data.companyID}` : undefined;
+  const peopleLine = join([
+    company ? `Company: ${company}` : undefined,
+    data.contactID != null ? `Contact ID: ${data.contactID}` : undefined,
+    typeof data.assignedTo === 'string'
+      ? `Assigned to: ${data.assignedTo}`
+      : data.assignedResourceID != null ? `Assigned resource ID: ${data.assignedResourceID}` : undefined,
+  ]);
+  if (peopleLine) lines.push(peopleLine);
+
+  const dateLine = join([
+    data.createDate ? `Created: ${data.createDate}` : undefined,
+    data.dueDateTime ? `Due: ${data.dueDateTime}` : undefined,
+    data.lastActivityDate ? `Last activity: ${data.lastActivityDate}` : undefined,
+    data.completedDate ? `Completed: ${data.completedDate}` : undefined,
+  ]);
+  if (dateLine) lines.push(dateLine);
+
+  if (data.configurationItemID != null) {
+    const ci = data.configurationItem as Record<string, any> | undefined;
+    const name = ci?.referenceTitle ?? ci?.configurationItemName;
+    const extras = join([
+      `ID ${data.configurationItemID}`,
+      ci?.referenceNumber ? `reference ${ci.referenceNumber}` : undefined,
+      ci?.serialNumber ? `serial ${ci.serialNumber}` : undefined,
+    ]);
+    lines.push(`Configuration item: ${name ? `${name} (${extras})` : extras}`);
+  } else {
+    lines.push('Configuration item: none linked');
+  }
+
+  lines.push('', 'Description:', data.description ? String(data.description) : '(no description)');
+  if (data.resolution) lines.push('', 'Resolution:', String(data.resolution));
+
+  if (card.notes.length > 0) {
+    lines.push('', `Recent notes (${card.notes.length}):`);
+    for (const note of card.notes) {
+      lines.push(`- ${note.title ? `${note.title}: ` : ''}${note.description}`);
+    }
+  }
+
+  const { _card: _omit, ...record } = data;
+  lines.push('', 'Full ticket record (JSON):', JSON.stringify(record));
+  return lines.join('\n');
 }
 
 /**

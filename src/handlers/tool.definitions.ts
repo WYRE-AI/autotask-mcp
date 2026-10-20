@@ -526,7 +526,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_get_ticket_details',
-    description: 'Get full ticket details including notes, time entries, and custom fields.',
+    description: 'Get a ticket\'s details: description, status, priority, queue, company, assignee, dates, linked configuration item, resolution and recent notes. Set fullDetails:true for untruncated description/resolution and custom (UDF) fields.',
     _meta: TICKET_CARD_META,
     inputSchema: {
       type: 'object',
@@ -2884,7 +2884,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Time Entries search tool
   {
     name: 'autotask_search_time_entries',
-    description: 'Search for time entries in Autotask. Returns 25 results per page by default. Time entries can be filtered by resource, ticket, task, date range, or approval status. Use approvalStatus="unapproved" to find entries not yet posted. There is no project filter — Autotask time entries have no project field; to get a project\'s time, call autotask_search_tasks with that projectID and filter by the returned taskId values. Common fan-out target — scope by date range first to avoid Autotask\'s API threshold.',
+    description: 'Search for time entries in Autotask. Returns 25 results per page by default. Time entries can be filtered by resource, ticket, task, date range, or approval status. Use approvalStatus="unapproved" to find entries not yet posted. Each entry includes summaryNotes and internalNotes. There is no project filter — Autotask time entries have no project field; to get a project\'s time, call autotask_search_tasks with that projectID and filter by the returned taskId values. Common fan-out target — scope by date range first to avoid Autotask\'s API threshold.',
     inputSchema: {
       type: 'object',
       properties: {

@@ -338,9 +338,10 @@ describe('autotask_create_time_entry roleID', () => {
 
 describe('compact search results keep the role ids', () => {
   test('time entries carry roleID and tickets carry assignedResourceRoleID', () => {
-    const entries = formatCompactResponse([{ id: 1, resourceID: RYAN, roleID: 501, ticketID: 2, dateWorked: '2026-09-10', hoursWorked: 1, summaryNotes: 'x', internalNotes: 'hidden' }], 'timeEntries', {});
-    expect(entries.items[0]).toMatchObject({ roleID: 501 });
-    expect(entries.items[0]).not.toHaveProperty('internalNotes');
+    const entries = formatCompactResponse([{ id: 1, resourceID: RYAN, roleID: 501, ticketID: 2, dateWorked: '2026-09-10', hoursWorked: 1, summaryNotes: 'x', internalNotes: 'y', billingCodeID: 9 }], 'timeEntries', {});
+    // internalNotes is a summary field since WYREAI-527; billingCodeID stays out.
+    expect(entries.items[0]).toMatchObject({ roleID: 501, internalNotes: 'y' });
+    expect(entries.items[0]).not.toHaveProperty('billingCodeID');
 
     const tickets = formatCompactResponse([{ id: 2, ticketNumber: 'T1', title: 't', status: 1, priority: 2, companyID: 1, assignedResourceID: RYAN, assignedResourceRoleID: 501, description: 'hidden' }], 'tickets', {});
     expect(tickets.items[0]).toMatchObject({ assignedResourceRoleID: 501 });

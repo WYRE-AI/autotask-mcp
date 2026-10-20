@@ -30,7 +30,7 @@ const SUMMARY_FIELDS: Record<EntityType, string[]> = {
   resources: ['id', 'firstName', 'lastName', 'email', 'isActive'],
   billingItems: ['id', 'itemName', 'companyID', 'ticketID', 'projectID', 'postedDate', 'totalAmount', 'invoiceID', 'billingItemType'],
   billingItemApprovalLevels: ['id', 'timeEntryID', 'approvalLevel', 'approvalResourceID', 'approvalDateTime'],
-  timeEntries: ['id', 'resourceID', 'roleID', 'ticketID', 'taskID', 'dateWorked', 'hoursWorked', 'summaryNotes'],
+  timeEntries: ['id', 'resourceID', 'roleID', 'ticketID', 'taskID', 'dateWorked', 'hoursWorked', 'summaryNotes', 'internalNotes'],
 };
 
 /**
