@@ -542,7 +542,10 @@ export class AutotaskService {
       resolution: ticket.resolution && ticket.resolution.length > maxNotesLength
         ? ticket.resolution.substring(0, maxNotesLength) + '... [truncated]'
         : ticket.resolution,
-      userDefinedFields: [],
+      // WYREAI-527: UDFs were fetched but blanked here, so the default
+      // (fullDetails:false) response hid them. Keep the ones that hold a
+      // value, trimmed, and drop the empty ones that make up most of the list.
+      userDefinedFields: optimizeUserDefinedFields(ticket.userDefinedFields),
       ...(ticket.purchaseOrderNumber && {
         purchaseOrderNumber: ticket.purchaseOrderNumber.length > 50
           ? ticket.purchaseOrderNumber.substring(0, 50) + '...'
@@ -3262,3 +3265,21 @@ export class AutotaskService {
 // for tooling that may not see usage inside AutotaskHttpClient (it's used
 // there). This re-export is harmless.
 export { resolveAutotaskApiUrl };
+
+const MAX_OPTIMIZED_UDF_VALUE_LENGTH = 200;
+
+/** Non-empty UDFs only, each value capped for the optimized (non-full) ticket view. */
+function optimizeUserDefinedFields(udfs: AutotaskTicket['userDefinedFields']): NonNullable<AutotaskTicket['userDefinedFields']> {
+  if (!Array.isArray(udfs)) return [];
+  return udfs
+    .filter((u) => u && typeof u.name === 'string' && u.value !== undefined && u.value !== null && String(u.value).trim() !== '')
+    .map((u) => {
+      const value = String(u.value);
+      return {
+        name: u.name,
+        value: value.length > MAX_OPTIMIZED_UDF_VALUE_LENGTH
+          ? value.substring(0, MAX_OPTIMIZED_UDF_VALUE_LENGTH) + '... [truncated]'
+          : value,
+      };
+    });
+}

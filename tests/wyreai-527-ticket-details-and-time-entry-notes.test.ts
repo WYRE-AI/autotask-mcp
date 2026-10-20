@@ -50,6 +50,7 @@ function setup(ticket: Record<string, unknown>, ci: Record<string, unknown> | Er
   jest.spyOn(service, 'searchTicketNotes').mockResolvedValue([
     { id: 1, title: 'Triage', description: 'Confirmed on two laptops.' },
   ] as any);
+  jest.spyOn(service, 'getContact').mockRejectedValue(new Error('Autotask 500'));
   const getCi = jest.spyOn(service, 'getConfigurationItem');
   if (ci instanceof Error) getCi.mockRejectedValue(ci);
   else getCi.mockResolvedValue(ci as any);
@@ -75,7 +76,8 @@ describe('WYREAI-527 autotask_get_ticket_details content text', () => {
     expect(text).toContain('T20260717.0042');
     expect(text).toContain(DESCRIPTION);
     expect(text).toMatch(/Configuration item: HQ-FW01 \(ID 9001 \| reference CI-0042 \| serial FGT60F123456\)/);
-    expect(text).toContain('Contact ID: 311');
+    // Contact lookup failed here, so the ID still comes through.
+    expect(text).toContain('Contact: ID 311');
     expect(text).toContain('Due: 2026-07-18T14:02:00Z');
     expect(text).toContain('Rolled firewall firmware back to 7.2.4.');
     expect(text).toContain('Triage: Confirmed on two laptops.');
@@ -147,5 +149,90 @@ describe('WYREAI-527 time entry search keeps internalNotes', () => {
   it('tool description tells the model internalNotes is returned', () => {
     const tool = TOOL_DEFINITIONS.find((t) => t.name === 'autotask_search_time_entries');
     expect(tool?.description).toContain('internalNotes');
+  });
+});
+
+// Net3's trigger: with autotask_create_ticket_note enabled the result carries a
+// `_card` with noteDefaults, and the client showed only the one-line summary.
+// These run the real getTicket (fullDetails true and false) behind a fake HTTP
+// client, with picklists that resolve note defaults, so the card is fully built.
+describe('WYREAI-527 note writing enabled (card with noteDefaults)', () => {
+  const RAW_TICKET = {
+    ...baseTicket(),
+    description: DESCRIPTION,
+    userDefinedFields: [
+      { name: 'Site', value: 'HQ' },
+      { name: 'Asset Tag', value: 'NET3-00417' },
+      { name: 'Empty UDF', value: null },
+    ],
+  };
+
+  const PICKLISTS: Record<string, Array<{ value: string; label: string }>> = {
+    'Tickets.status': [{ value: '1', label: 'New' }],
+    'Tickets.priority': [{ value: '2', label: 'Medium' }],
+    'Tickets.queueID': [{ value: '8', label: 'Service Desk' }],
+    'TicketNotes.noteType': [{ value: '1', label: 'Task Note' }],
+    'TicketNotes.publish': [{ value: '1', label: 'All Autotask Users' }, { value: '2', label: 'Internal Only' }],
+  };
+
+  function setupWithCard() {
+    const service = new AutotaskService(mockConfig, logger);
+    const http = { get: jest.fn(async () => JSON.parse(JSON.stringify(RAW_TICKET))) };
+    jest.spyOn(service as any, 'ensureClient').mockResolvedValue(http);
+    jest.spyOn(service, 'searchTicketNotes').mockResolvedValue([
+      { id: 1, title: 'Triage', description: 'Confirmed on two laptops.' },
+      { id: 2, title: 'Vendor', description: 'Opened case with firewall vendor.' },
+    ] as any);
+    jest.spyOn(service, 'getConfigurationItem').mockResolvedValue({
+      id: 9001, referenceTitle: 'HQ-FW01', serialNumber: 'FGT60F123456',
+    } as any);
+    jest.spyOn(service, 'getContact').mockResolvedValue({
+      id: 311, firstName: 'Pat', lastName: 'Jensen', emailAddress: 'pat@example.com',
+    } as any);
+    const handler = new AutotaskToolHandler(service, logger);
+    jest.spyOn((handler as any).picklistCache, 'getPicklistValues')
+      .mockImplementation(async (...args: unknown[]) => PICKLISTS[`${args[0]}.${args[1]}`] ?? []);
+    (handler as any).getMappingService = async () => ({
+      getCompanyName: async () => 'Acme Corp',
+      getResourceName: async () => null,
+    });
+    return handler;
+  }
+
+  it.each([true, false])('fullDetails=%s: text carries description, contact, CI, UDFs and notes', async (fullDetails) => {
+    const handler = setupWithCard();
+    const result = await handler.callTool('autotask_get_ticket_details', { ticketID: 48217, fullDetails });
+
+    expect(result.isError).toBeFalsy();
+    const structured = result.structuredContent as { data: Record<string, any> };
+    // The exact Net3 shape: card attached, with note-writing defaults.
+    expect(structured.data._card.noteDefaults).toEqual({ noteType: 1, publish: 2 });
+
+    const text = result.content[0].text;
+    expect(text).toContain('Ticket T20260717.0042: VPN outage - main office');
+    expect(text).toContain('Status: New | Priority: Medium | Queue: Service Desk');
+    expect(text).toContain(DESCRIPTION);
+    expect(text).toContain('Contact: Pat Jensen (ID 311, pat@example.com)');
+    expect(text).toContain('Configuration item: HQ-FW01 (ID 9001 | serial FGT60F123456)');
+    expect(text).toContain('Custom fields (UDFs, 2 with values):\n- Site: HQ\n- Asset Tag: NET3-00417');
+    expect(text).not.toContain('Empty UDF:');
+    expect(text).toContain('Recent notes (2');
+    expect(text).toContain('- Triage: Confirmed on two laptops.');
+    expect(text).toContain('- Vendor: Opened case with firewall vendor.');
+    expect(text).toContain('Rolled firewall firmware back to 7.2.4.');
+    // Not the old one-liner, and not a bare JSON dump either.
+    expect(text.split('\n').length).toBeGreaterThan(10);
+    expect(text).toContain('Full ticket record (JSON):');
+  });
+
+  it('fullDetails=false keeps non-empty UDFs and caps long values', async () => {
+    const service = new AutotaskService(mockConfig, logger);
+    const long = 'x'.repeat(500);
+    const http = { get: jest.fn(async () => ({ ...RAW_TICKET, userDefinedFields: [{ name: 'Long', value: long }, { name: 'Blank', value: '' }] })) };
+    jest.spyOn(service as any, 'ensureClient').mockResolvedValue(http);
+    const t = await service.getTicket(48217, false);
+    expect(t?.userDefinedFields).toEqual([{ name: 'Long', value: 'x'.repeat(200) + '... [truncated]' }]);
+    const full = await service.getTicket(48217, true);
+    expect(full?.userDefinedFields).toHaveLength(2);
   });
 });

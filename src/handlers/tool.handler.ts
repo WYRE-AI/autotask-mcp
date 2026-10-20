@@ -247,6 +247,26 @@ export class AutotaskToolHandler {
   }
 
   /**
+   * Best-effort lookup of a ticket's contact, reduced to name/email/phone.
+   * Returns null (never throws) on any failure.
+   */
+  private async resolveTicketContact(id: number): Promise<Record<string, unknown> | null> {
+    try {
+      const c = await this.autotaskService.getContact(id);
+      if (!c) return null;
+      const contact: Record<string, unknown> = { id };
+      const name = [c.firstName, c.lastName].filter(Boolean).join(' ').trim();
+      if (name) contact.name = name;
+      if (c.emailAddress) contact.emailAddress = c.emailAddress;
+      if (c.phone) contact.phone = c.phone;
+      return contact;
+    } catch (error) {
+      this.logger.debug(`Ticket contact ${id} lookup failed`, error);
+      return null;
+    }
+  }
+
+  /**
    * Set the MCP server reference for elicitation support
    */
   setServer(server: Server): void {
@@ -988,9 +1008,19 @@ export class AutotaskToolHandler {
         // WYREAI-527: a ticket only carries configurationItemID, which tells
         // the model nothing on its own. Resolve the linked CI (best-effort —
         // a failed lookup must never fail the ticket fetch).
-        if (r && typeof r.configurationItemID === 'number') {
-          const ci = await this.resolveLinkedConfigurationItem(r.configurationItemID);
+        // The contact is resolved the same way so the model gets a name, not
+        // just contactID.
+        if (r) {
+          const [ci, contact] = await Promise.all([
+            typeof r.configurationItemID === 'number'
+              ? this.resolveLinkedConfigurationItem(r.configurationItemID)
+              : Promise.resolve(null),
+            typeof r.contactID === 'number'
+              ? this.resolveTicketContact(r.contactID)
+              : Promise.resolve(null),
+          ]);
           if (ci) (r as Record<string, unknown>).configurationItem = ci;
+          if (contact) (r as Record<string, unknown>).contact = contact;
         }
         return { result: r, message: 'Ticket details retrieved successfully' };
       }],
@@ -1847,6 +1877,13 @@ const LINKED_CI_FIELDS = [
   'isActive',
 ] as const;
 
+function formatContact(data: Record<string, any>): string {
+  const c = data.contact as Record<string, any> | undefined;
+  if (!c || !c.name) return `ID ${data.contactID}`;
+  const extras = [`ID ${data.contactID}`, c.emailAddress, c.phone].filter(Boolean).join(', ');
+  return `${c.name} (${extras})`;
+}
+
 /**
  * Model-facing text for autotask_get_ticket_details (WYREAI-527).
  *
@@ -1875,7 +1912,7 @@ export function formatTicketDetailsText(data: Record<string, any>, card: TicketC
     : data.companyID != null ? `ID ${data.companyID}` : undefined;
   const peopleLine = join([
     company ? `Company: ${company}` : undefined,
-    data.contactID != null ? `Contact ID: ${data.contactID}` : undefined,
+    data.contactID != null ? `Contact: ${formatContact(data)}` : undefined,
     typeof data.assignedTo === 'string'
       ? `Assigned to: ${data.assignedTo}`
       : data.assignedResourceID != null ? `Assigned resource ID: ${data.assignedResourceID}` : undefined,
@@ -1906,11 +1943,23 @@ export function formatTicketDetailsText(data: Record<string, any>, card: TicketC
   lines.push('', 'Description:', data.description ? String(data.description) : '(no description)');
   if (data.resolution) lines.push('', 'Resolution:', String(data.resolution));
 
+  const udfs = Array.isArray(data.userDefinedFields)
+    ? data.userDefinedFields.filter((u: any) => u && u.name && u.value !== undefined && u.value !== null && String(u.value).trim() !== '')
+    : [];
+  if (udfs.length > 0) {
+    lines.push('', `Custom fields (UDFs, ${udfs.length} with values):`);
+    for (const u of udfs) lines.push(`- ${u.name}: ${String(u.value)}`);
+  } else {
+    lines.push('', 'Custom fields (UDFs): none with values');
+  }
+
   if (card.notes.length > 0) {
-    lines.push('', `Recent notes (${card.notes.length}):`);
+    lines.push('', `Recent notes (${card.notes.length}, newest Autotask returned):`);
     for (const note of card.notes) {
       lines.push(`- ${note.title ? `${note.title}: ` : ''}${note.description}`);
     }
+  } else {
+    lines.push('', 'Recent notes: none');
   }
 
   const { _card: _omit, ...record } = data;
