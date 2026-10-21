@@ -42,10 +42,10 @@
   "author": "Aaron Sachs",
   "license": "Apache-2.0",
   "dependencies": {
-    "@modelcontextprotocol/node": "^2.1.0",
+    "@modelcontextprotocol/node": "^2.1.1",
     "@modelcontextprotocol/server": "^2.0.0-beta.5",
     "winston": "^3.11.0",
-    "zod": "^4.6.5"
+    "zod": "^4.6.7"
   },
   "devDependencies": {
     "@anthropic-ai/mcpb": "^2.1.2",
