@@ -123,14 +123,50 @@ describe('WYREAI-584 autotask_get_company', () => {
     expect(body.data.id).toBe(77);
   });
 
-  it('adds ownerResourceName when the owner resolves', async () => {
-    const { handler } = setup(COMPANY);
-    (handler as any).getMappingService = async () => ({
-      getCompanyName: async () => null,
-      getResourceName: async (id: number) => (id === 29682001 ? 'Jo Owner' : null),
-    });
+  it('does not cache an empty field-info result, so the next call retries', async () => {
+    const { handler, getFields } = setup(COMPANY, []);
+    const clear = jest.spyOn((handler as any).picklistCache, 'clearCache');
+    await handler.callTool('autotask_get_company', { companyID: 77 });
+    expect(clear).toHaveBeenCalledWith('Companies');
+
+    getFields.mockResolvedValue(COMPANY_FIELDS as any);
     const body = parse(await handler.callTool('autotask_get_company', { companyID: 77 }));
-    expect(body.data.ownerResourceName).toBe('Jo Owner');
+    expect(body.data.picklistLabels).toEqual({ companyType: 'Customer', classification: 'Legacy Platinum' });
+  });
+
+  it('returns the raw record without labels when the field-info lookup stalls past the deadline', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, getFields } = setup(COMPANY);
+      getFields.mockReturnValue(new Promise(() => undefined) as any);
+      const pending = handler.callTool('autotask_get_company', { companyID: 77 });
+      await jest.advanceTimersByTimeAsync(5000);
+      const result = await pending;
+      expect(result.isError).toBeFalsy();
+      const body = parse(result);
+      expect(body.data.classification).toBe(5);
+      expect(body.data.picklistLabels).toBeUndefined();
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('does not add an owner name (out of scope; raw ownerResourceID is kept)', async () => {
+    const { handler } = setup(COMPANY);
+    const body = parse(await handler.callTool('autotask_get_company', { companyID: 77 }));
+    expect(body.data.ownerResourceID).toBe(29682001);
+    expect(body.data.ownerResourceName).toBeUndefined();
+  });
+
+  it('applies not-found handling and companyId aliasing to nested autotask_execute_tool calls', async () => {
+    const { handler, getCompany } = setup(null);
+    const result = await handler.callTool('autotask_execute_tool', {
+      toolName: 'autotask_get_company',
+      arguments: { companyId: 999 },
+    });
+    expect(getCompany).toHaveBeenLastCalledWith(999);
+    expect(result.isError).toBe(true);
+    expect(parse(result).error).toMatch(/^No company found with companyI[Dd] 999\. Verify the ID is correct\.$/);
   });
 
   it('returns the not-found error when the company does not exist', async () => {

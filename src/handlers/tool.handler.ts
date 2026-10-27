@@ -33,6 +33,11 @@ function resolveEnhanceConcurrency(raw: string | undefined): number {
 // `0` — WYRE Technology's own Autotask company id is 0, and a value check
 // here (rather than a `||`/truthy merge) is exactly the class of bug
 // WYREAI-373 is about.
+// Upper bound on the optional company picklist-label lookup in
+// autotask_get_company, so a stalled field-info request never holds back the
+// already-fetched company record.
+const COMPANY_LABEL_DEADLINE_MS = 5000;
+
 function normalizeCompanyIdAlias(args: Record<string, any>): Record<string, any> {
   const provided = [args.companyID, args.companyId, args.CompanyID].find(v => v !== undefined);
   if (provided === undefined) return args;
@@ -231,13 +236,34 @@ export class AutotaskToolHandler {
   /**
    * Best-effort picklist labels for a Companies record. Uses the cached field
    * info directly (not getPicklistValues) so inactive values still label an
-   * existing record. Never throws: failures yield no labels.
+   * existing record. Never throws and never waits longer than
+   * COMPANY_LABEL_DEADLINE_MS: on failure or timeout the caller gets no labels
+   * and still returns the raw record.
    */
   private async resolveCompanyPicklistLabels(company: Record<string, any>): Promise<Record<string, string>> {
     const labels: Record<string, string> = {};
+    let timer: NodeJS.Timeout | undefined;
     try {
-      const fields = await this.picklistCache.getFields('Companies');
-      for (const field of fields ?? []) {
+      const lookup = this.picklistCache.getFields('Companies');
+      lookup.catch(() => undefined); // a late rejection after the deadline must not go unhandled
+      const fields = await Promise.race([
+        lookup,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => resolve(null), COMPANY_LABEL_DEADLINE_MS);
+          timer.unref?.();
+        }),
+      ]);
+      if (fields === null) {
+        this.logger.debug(`Company picklist label lookup exceeded ${COMPANY_LABEL_DEADLINE_MS}ms; returning the record without labels`);
+        return labels;
+      }
+      if (!fields || fields.length === 0) {
+        // PicklistCache turns a vendor failure into [] and caches it forever;
+        // drop that so the next call retries instead of never labelling again.
+        this.picklistCache.clearCache('Companies');
+        return labels;
+      }
+      for (const field of fields) {
         if (!field?.isPickList || !field.name) continue;
         const value = company[field.name];
         if (value === undefined || value === null) continue;
@@ -246,20 +272,10 @@ export class AutotaskToolHandler {
       }
     } catch (error) {
       this.logger.debug('Company picklist label lookup failed:', error);
+    } finally {
+      if (timer) clearTimeout(timer);
     }
     return labels;
-  }
-
-  /** Best-effort cached resource name lookup; undefined on any failure. */
-  private async resolveResourceNameBestEffort(id: unknown): Promise<string | undefined> {
-    if (typeof id !== 'number') return undefined;
-    try {
-      const mappingService = await this.getMappingService();
-      return (await mappingService.getResourceName(id)) || undefined;
-    } catch (error) {
-      this.logger.debug('Resource name lookup failed:', error);
-      return undefined;
-    }
   }
 
   /**
@@ -1008,8 +1024,6 @@ export class AutotaskToolHandler {
         const result: Record<string, any> = { ...company };
         const picklistLabels = await this.resolveCompanyPicklistLabels(company as Record<string, any>);
         if (Object.keys(picklistLabels).length > 0) result.picklistLabels = picklistLabels;
-        const ownerName = await this.resolveResourceNameBestEffort(result.ownerResourceID);
-        if (ownerName) result.ownerResourceName = ownerName;
         return { result, message: `Company ${id} retrieved successfully` };
       }],
       ['autotask_search_companies', async (a) => {
@@ -1780,7 +1794,13 @@ export class AutotaskToolHandler {
         if (!handler) throw new Error(`Unknown tool: ${toolName}`);
         // Prevent recursive meta-tool calls
         if (toolName === 'autotask_execute_tool') throw new Error('Cannot recursively execute autotask_execute_tool');
-        return handler(toolArgs);
+        // Nested calls get the same companyID alias normalization and
+        // not-found handling as direct calls.
+        const nestedArgs = normalizeCompanyIdAlias(toolArgs);
+        const nested = await handler(nestedArgs);
+        const notFoundMsg = this.buildNotFoundMessage(toolName, nestedArgs, nested.result);
+        if (notFoundMsg) throw new Error(notFoundMsg);
+        return nested;
       }],
 
       // Intent-based router
