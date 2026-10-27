@@ -175,7 +175,34 @@ function semaphoreFor(key: string): TenantSemaphore {
   return sem;
 }
 
-async function acquireTenantSlot(key: string): Promise<() => void> {
+function abortError(method: string, path: string): Error {
+  const err = new Error(`Autotask ${method} ${path} aborted`);
+  err.name = 'AbortError';
+  return err;
+}
+
+/**
+ * Caller signal combined with the per-request timeout. AbortSignal.any is
+ * Node >= 20.3; engines allows 20.0, so fall back to a manual link there.
+ */
+function withTimeout(signal: AbortSignal, ms: number): AbortSignal {
+  const timeout = AbortSignal.timeout(ms);
+  const any = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
+  if (typeof any === 'function') return any.call(AbortSignal, [signal, timeout]);
+  const linked = new AbortController();
+  const abort = (src: AbortSignal) => () => linked.abort(src.reason);
+  if (signal.aborted) linked.abort(signal.reason);
+  signal.addEventListener('abort', abort(signal), { once: true });
+  timeout.addEventListener('abort', abort(timeout), { once: true });
+  return linked.signal;
+}
+
+/** True when `err` is the AbortError raised for a caller-cancelled request. */
+export function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'AbortError';
+}
+
+async function acquireTenantSlot(key: string, signal?: AbortSignal, onAbort?: () => Error): Promise<() => void> {
   const sem = semaphoreFor(key);
   let released = false;
   const release = (): void => {
@@ -194,8 +221,24 @@ async function acquireTenantSlot(key: string): Promise<() => void> {
     return release;
   }
 
-  await new Promise<void>((resolve) => {
-    sem.waiters.push(resolve);
+  await new Promise<void>((resolve, reject) => {
+    if (!signal) {
+      sem.waiters.push(resolve);
+      return;
+    }
+    const abort = (): void => {
+      // Already resumed means the slot was handed to us; the caller releases.
+      const idx = sem.waiters.indexOf(resume);
+      if (idx === -1) return;
+      sem.waiters.splice(idx, 1);
+      reject(onAbort ? onAbort() : new Error('aborted'));
+    };
+    const resume = (): void => {
+      signal.removeEventListener('abort', abort);
+      resolve();
+    };
+    sem.waiters.push(resume);
+    signal.addEventListener('abort', abort, { once: true });
   });
   return release;
 }
@@ -394,16 +437,17 @@ export class AutotaskHttpClient {
    * through `send()` and do not acquire a second slot — re-entering
    * `request()` here would deadlock when every slot is already taken.
    */
-  private async request<T>(method: string, path: string, body?: any, isZoneRetry = false): Promise<T> {
+  private async request<T>(method: string, path: string, body?: any, isZoneRetry = false, signal?: AbortSignal): Promise<T> {
     const cooldownKey = this.username.toLowerCase();
+    if (signal?.aborted) throw abortError(method, path);
     // Fail before taking a slot when this tenant is already in an hourly
     // cooldown, so a retry storm does not queue behind the in-flight cap.
     assertNotCoolingDown(cooldownKey);
-    const release = await acquireTenantSlot(cooldownKey);
+    const release = await acquireTenantSlot(cooldownKey, signal, () => abortError(method, path));
     try {
       // A sibling call may have armed the cooldown while we waited.
       assertNotCoolingDown(cooldownKey);
-      return await this.send<T>(method, path, body, { isZoneRetry, threadRetries: 0 });
+      return await this.send<T>(method, path, body, { isZoneRetry, threadRetries: 0, signal });
     } finally {
       release();
     }
@@ -413,7 +457,7 @@ export class AutotaskHttpClient {
     method: string,
     path: string,
     body: any,
-    opts: { isZoneRetry: boolean; threadRetries: number },
+    opts: { isZoneRetry: boolean; threadRetries: number; signal?: AbortSignal | undefined },
   ): Promise<T> {
     const cooldownKey = this.username.toLowerCase();
     const url = path.startsWith('http') ? path : `${await this.baseUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
@@ -425,13 +469,16 @@ export class AutotaskHttpClient {
       const init: RequestInit = {
         method,
         headers: this.headers(),
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+        signal: opts.signal
+          ? withTimeout(opts.signal, REQUEST_TIMEOUT_MS)
+          : AbortSignal.timeout(REQUEST_TIMEOUT_MS),
       };
       if (body !== undefined) {
         init.body = JSON.stringify(body);
       }
       response = await fetch(url, init);
     } catch (err) {
+      if (opts.signal?.aborted) throw abortError(method, path);
       const msg = err instanceof Error ? err.message : String(err);
       throw new Error(`Autotask ${method} ${url} network error: ${msg}`, { cause: err });
     }
@@ -441,6 +488,9 @@ export class AutotaskHttpClient {
     }
 
     const text = await response.text().catch(() => '');
+    // An abort while reading the body leaves text '' — don't let that pass as
+    // an empty success (it would cache empty field info).
+    if (opts.signal?.aborted) throw abortError(method, path);
 
     if (!response.ok) {
       // A 401 against a relative (zone-resolved) path — as opposed to an
@@ -455,7 +505,7 @@ export class AutotaskHttpClient {
         );
         this.resolvedBaseUrl = null;
         invalidateZoneUrlCache(this.username);
-        return this.send<T>(method, path, body, { isZoneRetry: true, threadRetries: opts.threadRetries });
+        return this.send<T>(method, path, body, { isZoneRetry: true, threadRetries: opts.threadRetries, signal: opts.signal });
       }
       const detail = errorDetail(text);
       if (response.status === 429) {
@@ -484,10 +534,13 @@ export class AutotaskHttpClient {
               `Autotask ${method} ${path} hit the concurrent thread threshold — ` +
                 `retry ${opts.threadRetries + 1}/${THREAD_LIMIT_MAX_RETRIES} in ${delay}ms (no tenant cooldown)`
             );
+            if (opts.signal?.aborted) throw abortError(method, path);
             await sleepImpl(delay);
+            if (opts.signal?.aborted) throw abortError(method, path);
             return this.send<T>(method, path, body, {
               isZoneRetry: opts.isZoneRetry,
               threadRetries: opts.threadRetries + 1,
+              signal: opts.signal,
             });
           }
           throw threadLimitError(detail, opts.threadRetries);
@@ -720,10 +773,13 @@ export class AutotaskHttpClient {
   /**
    * GET /{Entity}/entityInformation/fields — returns the raw { fields: [...] } shape.
    */
-  async fieldInfo(entity: string): Promise<{ fields: any[] }> {
+  async fieldInfo(entity: string, opts?: { signal?: AbortSignal }): Promise<{ fields: any[] }> {
     const res = await this.request<{ fields?: any[]; items?: any[] }>(
       'GET',
-      `/${entity}/entityInformation/fields`
+      `/${entity}/entityInformation/fields`,
+      undefined,
+      false,
+      opts?.signal
     );
     return { fields: res?.fields || res?.items || [] };
   }

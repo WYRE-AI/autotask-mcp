@@ -146,6 +146,50 @@ describe('WYREAI-584 autotask_get_company', () => {
       const body = parse(result);
       expect(body.data.classification).toBe(5);
       expect(body.data.picklistLabels).toBeUndefined();
+
+      const signal = (getFields.mock.calls[0]?.[1] as { signal: AbortSignal }).signal;
+      expect(signal).toBeInstanceOf(AbortSignal);
+      expect(signal.aborted).toBe(true);
+
+      // A later call (lookup resolves) labels the record again.
+      getFields.mockResolvedValue(COMPANY_FIELDS as any);
+      const retry = parse(await handler.callTool('autotask_get_company', { companyID: 77 }));
+      expect(retry.data.picklistLabels).toEqual({ companyType: 'Customer', classification: 'Legacy Platinum' });
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('through the real PicklistCache: the deadline aborts getFieldInfo, nothing is cached, and the next call retries', async () => {
+    jest.useFakeTimers();
+    try {
+      const { handler, getFields } = setup(COMPANY);
+      getFields.mockRestore();
+      const service = (handler as any).autotaskService as AutotaskService;
+      const seen: AbortSignal[] = [];
+      const getFieldInfo = jest.spyOn(service, 'getFieldInfo').mockImplementation((_entity, opts) => {
+        const signal = opts?.signal as AbortSignal;
+        seen.push(signal);
+        return new Promise((_resolve, reject) => {
+          signal.addEventListener('abort', () => {
+            const err = new Error('aborted');
+            err.name = 'AbortError';
+            reject(err);
+          }, { once: true });
+        });
+      });
+
+      const pending = handler.callTool('autotask_get_company', { companyID: 77 });
+      await jest.advanceTimersByTimeAsync(5000);
+      const first = await pending;
+      expect(first.isError).toBeFalsy();
+      expect(parse(first).data.picklistLabels).toBeUndefined();
+      expect(seen[0]?.aborted).toBe(true);
+
+      getFieldInfo.mockResolvedValue(COMPANY_FIELDS as any);
+      const second = parse(await handler.callTool('autotask_get_company', { companyID: 77 }));
+      expect(getFieldInfo).toHaveBeenCalledTimes(2);
+      expect(second.data.picklistLabels).toEqual({ companyType: 'Customer', classification: 'Legacy Platinum' });
     } finally {
       jest.useRealTimers();
     }

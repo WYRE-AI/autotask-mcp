@@ -166,7 +166,7 @@ export class AutotaskToolHandler {
     this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
     this.picklistCache = new PicklistCache(
       logger,
-      (entityType) => this.autotaskService.getFieldInfo(entityType)
+      (entityType, opts) => this.autotaskService.getFieldInfo(entityType, opts)
     );
   }
 
@@ -243,13 +243,18 @@ export class AutotaskToolHandler {
   private async resolveCompanyPicklistLabels(company: Record<string, any>): Promise<Record<string, string>> {
     const labels: Record<string, string> = {};
     let timer: NodeJS.Timeout | undefined;
+    const controller = new AbortController();
     try {
-      const lookup = this.picklistCache.getFields('Companies');
-      lookup.catch(() => undefined); // a late rejection after the deadline must not go unhandled
+      const lookup = this.picklistCache.getFields('Companies', { signal: controller.signal });
+      lookup.catch(() => undefined); // the abort rejection after the deadline must not go unhandled
       const fields = await Promise.race([
         lookup,
         new Promise<null>((resolve) => {
-          timer = setTimeout(() => resolve(null), COMPANY_LABEL_DEADLINE_MS);
+          timer = setTimeout(() => {
+            // Cancel the HTTP request so it frees its tenant concurrency slot.
+            controller.abort();
+            resolve(null);
+          }, COMPANY_LABEL_DEADLINE_MS);
           timer.unref?.();
         }),
       ]);
