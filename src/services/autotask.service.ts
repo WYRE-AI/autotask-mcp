@@ -3174,6 +3174,11 @@ export class AutotaskService {
   // Field info / picklists
   // =====================================================
 
+  /**
+   * Field metadata (incl. picklist values) for an entity. `opts.signal` is
+   * optional; aborting it cancels the lookup (rejects with an AbortError,
+   * nothing is cached).
+   */
   async getFieldInfo(entityType: string, opts?: { signal?: AbortSignal }): Promise<FieldInfo[]> {
     const http = await this.ensureClient();
     try {

@@ -8,6 +8,7 @@
 
 import { resolveAutotaskApiUrl, invalidateZoneUrlCache } from '../utils/config';
 import { Logger } from '../utils/logger';
+import { abortError as makeAbortError, isAbortError, withTimeout } from '../utils/abort';
 
 export interface QueryFilter {
   op: string;
@@ -176,31 +177,11 @@ function semaphoreFor(key: string): TenantSemaphore {
 }
 
 function abortError(method: string, path: string): Error {
-  const err = new Error(`Autotask ${method} ${path} aborted`);
-  err.name = 'AbortError';
-  return err;
+  return makeAbortError(`Autotask ${method} ${path} aborted`);
 }
 
-/**
- * Caller signal combined with the per-request timeout. AbortSignal.any is
- * Node >= 20.3; engines allows 20.0, so fall back to a manual link there.
- */
-function withTimeout(signal: AbortSignal, ms: number): AbortSignal {
-  const timeout = AbortSignal.timeout(ms);
-  const any = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
-  if (typeof any === 'function') return any.call(AbortSignal, [signal, timeout]);
-  const linked = new AbortController();
-  const abort = (src: AbortSignal) => () => linked.abort(src.reason);
-  if (signal.aborted) linked.abort(signal.reason);
-  signal.addEventListener('abort', abort(signal), { once: true });
-  timeout.addEventListener('abort', abort(timeout), { once: true });
-  return linked.signal;
-}
-
-/** True when `err` is the AbortError raised for a caller-cancelled request. */
-export function isAbortError(err: unknown): boolean {
-  return err instanceof Error && err.name === 'AbortError';
-}
+// Re-exported so existing importers keep working.
+export { isAbortError };
 
 async function acquireTenantSlot(key: string, signal?: AbortSignal, onAbort?: () => Error): Promise<() => void> {
   const sem = semaphoreFor(key);
@@ -398,9 +379,9 @@ export class AutotaskHttpClient {
     private readonly impersonationResourceId?: number
   ) {}
 
-  private async baseUrl(): Promise<string> {
+  private async baseUrl(signal?: AbortSignal): Promise<string> {
     if (this.resolvedBaseUrl) return this.resolvedBaseUrl;
-    const url = await resolveAutotaskApiUrl(this.username, this.apiUrl, this.logger);
+    const url = await resolveAutotaskApiUrl(this.username, this.apiUrl, this.logger, fetch, { signal });
     // Normalize: strip trailing slashes and append /v1.0 root.
     this.resolvedBaseUrl = `${url.replace(/\/+$/, '')}/v1.0`;
     return this.resolvedBaseUrl;
@@ -460,7 +441,9 @@ export class AutotaskHttpClient {
     opts: { isZoneRetry: boolean; threadRetries: number; signal?: AbortSignal | undefined },
   ): Promise<T> {
     const cooldownKey = this.username.toLowerCase();
-    const url = path.startsWith('http') ? path : `${await this.baseUrl()}${path.startsWith('/') ? '' : '/'}${path}`;
+    const url = path.startsWith('http') ? path : `${await this.baseUrl(opts.signal)}${path.startsWith('/') ? '' : '/'}${path}`;
+    // An abort during zone resolution must not start the request.
+    if (opts.signal?.aborted) throw abortError(method, path);
 
     this.logger.debug(`Autotask HTTP ${method} ${url}`);
 

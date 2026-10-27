@@ -142,3 +142,121 @@ describe('abortable requests', () => {
     expect(fetchMock).not.toHaveBeenCalled();
   });
 });
+
+describe('abortable zone resolution', () => {
+  const ZONE_LOOKUP = 'zoneInformation';
+  const zoneOk = () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ url: 'https://webservices5.autotask.net/ATServicesRest/', zoneName: 'X' }),
+  });
+  const makeZoneClient = () =>
+    new AutotaskHttpClient('user@example.com', 'secret', 'integration-code', undefined, logger as any);
+
+  /** Zone lookup that only settles when its own init.signal aborts. */
+  function stalledZoneFetch(signals: AbortSignal[]) {
+    return (init?: RequestInit) =>
+      new Promise<Response>((_resolve, reject) => {
+        const signal = init?.signal as AbortSignal;
+        signals.push(signal);
+        signal.addEventListener('abort', () => reject(signal.reason), { once: true });
+      });
+  }
+
+  beforeEach(() => {
+    logger.error.mockClear();
+  });
+
+  it('aborts a stalled zone lookup promptly and never starts the field-info fetch', async () => {
+    const zoneSignals: AbortSignal[] = [];
+    const stalled = stalledZoneFetch(zoneSignals);
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes(ZONE_LOOKUP)) return stalled(init);
+      return Promise.resolve(jsonResponse(200, { fields: [] }));
+    });
+    global.fetch = fetchMock as any;
+
+    const controller = new AbortController();
+    const settled = makeZoneClient()
+      .fieldInfo('Companies', { signal: controller.signal })
+      .then(() => null, (e) => e);
+    await flush();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+
+    controller.abort();
+    expect(isAbortError(await settled)).toBe(true);
+    expect(zoneSignals[0]?.aborted).toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    expect(logger.error).not.toHaveBeenCalled();
+  });
+
+  it('caches nothing after an aborted lookup', async () => {
+    const stalled = stalledZoneFetch([]);
+    let zoneStalls = true;
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (String(url).includes(ZONE_LOOKUP)) return zoneStalls ? stalled(init) : Promise.resolve(zoneOk() as any);
+      return Promise.resolve(jsonResponse(200, { fields: [{ name: 'x' }] }));
+    });
+    global.fetch = fetchMock as any;
+
+    const controller = new AbortController();
+    const first = makeZoneClient()
+      .fieldInfo('Companies', { signal: controller.signal })
+      .then(() => null, (e) => e);
+    await flush();
+    controller.abort();
+    expect(isAbortError(await first)).toBe(true);
+
+    zoneStalls = false;
+    fetchMock.mockClear();
+    await expect(makeZoneClient().fieldInfo('Companies')).resolves.toEqual({ fields: [{ name: 'x' }] });
+    const urls = fetchMock.mock.calls.map((c) => String(c[0]));
+    expect(urls).toHaveLength(2);
+    expect(urls[0]).toContain(ZONE_LOOKUP);
+    expect(urls[1]).toContain('https://webservices5.autotask.net/ATServicesRest/v1.0/Companies/entityInformation/fields');
+  });
+
+  it('rejects an already-aborted signal without any fetch when the zone is not cached', async () => {
+    const fetchMock = jest.fn();
+    global.fetch = fetchMock as any;
+    const controller = new AbortController();
+    controller.abort();
+    const err = await makeZoneClient()
+      .fieldInfo('Companies', { signal: controller.signal })
+      .then(() => null, (e) => e);
+    expect(isAbortError(err)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it("does not let one caller's abort affect another caller's concurrent zone lookup", async () => {
+    process.env.AUTOTASK_MAX_INFLIGHT = '3';
+    const zoneSignals: AbortSignal[] = [];
+    const resolvers: Array<() => void> = [];
+    const fetchMock = jest.fn((url: string, init?: RequestInit) => {
+      if (!String(url).includes(ZONE_LOOKUP)) return Promise.resolve(jsonResponse(200, { fields: [{ name: 'y' }] }));
+      // The unsignalled caller's zone fetch has no signal at all.
+      const signal = init?.signal as AbortSignal | undefined;
+      zoneSignals.push(signal as AbortSignal);
+      return new Promise<Response>((resolve, reject) => {
+        signal?.addEventListener('abort', () => reject(signal.reason), { once: true });
+        resolvers.push(() => resolve(zoneOk() as any));
+      });
+    });
+    global.fetch = fetchMock as any;
+
+    const controller = new AbortController();
+    const first = makeZoneClient()
+      .fieldInfo('Companies', { signal: controller.signal })
+      .then(() => null, (e) => e);
+    const second = makeZoneClient().fieldInfo('Tickets');
+    await flush();
+    expect(zoneSignals).toHaveLength(2);
+
+    controller.abort();
+    expect(isAbortError(await first)).toBe(true);
+    expect(zoneSignals[1]?.aborted).not.toBe(true);
+
+    resolvers[1]!();
+    await expect(second).resolves.toEqual({ fields: [{ name: 'y' }] });
+  });
+});
