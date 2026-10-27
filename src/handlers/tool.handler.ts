@@ -229,6 +229,40 @@ export class AutotaskToolHandler {
   }
 
   /**
+   * Best-effort picklist labels for a Companies record. Uses the cached field
+   * info directly (not getPicklistValues) so inactive values still label an
+   * existing record. Never throws: failures yield no labels.
+   */
+  private async resolveCompanyPicklistLabels(company: Record<string, any>): Promise<Record<string, string>> {
+    const labels: Record<string, string> = {};
+    try {
+      const fields = await this.picklistCache.getFields('Companies');
+      for (const field of fields ?? []) {
+        if (!field?.isPickList || !field.name) continue;
+        const value = company[field.name];
+        if (value === undefined || value === null) continue;
+        const match = field.picklistValues?.find(v => String(v.value) === String(value));
+        if (match?.label) labels[field.name] = match.label;
+      }
+    } catch (error) {
+      this.logger.debug('Company picklist label lookup failed:', error);
+    }
+    return labels;
+  }
+
+  /** Best-effort cached resource name lookup; undefined on any failure. */
+  private async resolveResourceNameBestEffort(id: unknown): Promise<string | undefined> {
+    if (typeof id !== 'number') return undefined;
+    try {
+      const mappingService = await this.getMappingService();
+      return (await mappingService.getResourceName(id)) || undefined;
+    } catch (error) {
+      this.logger.debug('Resource name lookup failed:', error);
+      return undefined;
+    }
+  }
+
+  /**
    * Best-effort lookup of a ticket's linked configuration item, reduced to the
    * fields that identify it. Returns null (never throws) on any failure.
    */
@@ -963,6 +997,21 @@ export class AutotaskToolHandler {
       }],
 
       // Companies
+      ['autotask_get_company', async (a) => {
+        // companyID 0 is the root company: explicit checks, never truthy.
+        const id = a.companyID;
+        if (id === undefined || id === null || typeof id !== 'number' || !Number.isInteger(id) || id < 0) {
+          throw new Error('companyID is required and must be a non-negative integer');
+        }
+        const company = await s.getCompany(id);
+        if (company === null || company === undefined) return { result: null, message: '' };
+        const result: Record<string, any> = { ...company };
+        const picklistLabels = await this.resolveCompanyPicklistLabels(company as Record<string, any>);
+        if (Object.keys(picklistLabels).length > 0) result.picklistLabels = picklistLabels;
+        const ownerName = await this.resolveResourceNameBestEffort(result.ownerResourceID);
+        if (ownerName) result.ownerResourceName = ownerName;
+        return { result, message: `Company ${id} retrieved successfully` };
+      }],
       ['autotask_search_companies', async (a) => {
         const r = await s.searchCompanies(a); return { result: r, message: `Found ${r.length} companies` };
       }],
