@@ -33,12 +33,13 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | `autotask_search_tickets` | Search for tickets | `searchTerm`, `companyID`, `status`, `priority`, `queueID`, `assignedResourceID` |
 | `autotask_get_ticket_details` | Get one ticket: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs) and recent notes, then the full ticket record as JSON | `ticketID` (required), `fullDetails` (untruncated description/resolution and all UDFs) |
 | `autotask_create_ticket` | Create a new ticket | `title`, `companyID` (required), `priority`, `status`, `queueID`, `description` |
+| `autotask_update_ticket` | Update a ticket; only provided fields change. `resolution` replaces the whole Resolution field (max 32000 characters) | `ticketId` (required), `title`, `status`, `priority`, `resolution` |
 
 ## Time Entries
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `autotask_create_time_entry` | Log time against a ticket | `ticketID` (required), `hoursWorked` (required), `summaryNotes`, `internalNotes`, `dateWorked`, `resourceID` |
+| `autotask_create_time_entry` | Log time against a ticket | `ticketID` (required), `hoursWorked` (required), `summaryNotes`, `internalNotes`, `dateWorked`, `resourceID`, `appendToResolution` (ticket entries only: appends `summaryNotes` to the ticket's Resolution, like the Autotask UI checkbox; appends to one ticket are serialized within a single server process only, so a concurrent edit in the Autotask UI or another server instance between the reread and the PATCH can still be lost) |
 | `autotask_search_time_entries` | Search time entries. Each entry includes `summaryNotes` and `internalNotes` | `resourceId`, `ticketId`, `taskId`, `dateWorkedAfter`, `dateWorkedBefore`, `approvalStatus`, `billable` |
 
 ## Projects
