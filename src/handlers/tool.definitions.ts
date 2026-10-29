@@ -708,6 +708,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         subIssueType: {
           type: 'number',
           description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entityType "Tickets", fieldName "subIssueType") to discover valid values.'
+        },
+        resolution: {
+          type: 'string',
+          maxLength: 32000,
+          description: 'Ticket Resolution field (a ticket-level field, not a note). REPLACES the whole existing Resolution text — it does not append. To add to it, first read the current value with autotask_get_ticket_details (fullDetails: true) and send existing + new text, or use appendToResolution on autotask_create_time_entry. Max 32000 characters.'
         }
       },
       required: ['ticketId']
@@ -995,6 +1000,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         internalNotes: {
           type: 'string',
           description: 'Internal notes for the time entry'
+        },
+        appendToResolution: {
+          type: 'boolean',
+          description: 'Mirrors the "append to resolution" checkbox in the Autotask time entry form. Ticket time entries only (requires ticketID; rejected with taskID or Regular Time). After the entry is created, its summaryNotes (never internalNotes) are appended to the ticket\'s Resolution, separated by a blank line (\\r\\n\\r\\n) when the Resolution already has text. Fails before creating anything if the result would exceed the 32000-character Resolution limit. If the entry is created but the Resolution update fails, the result says so (resolutionAppended: false) and the entry must not be re-created.'
         }
       },
       required: ['dateWorked', 'hoursWorked', 'summaryNotes']

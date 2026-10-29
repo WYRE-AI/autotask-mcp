@@ -390,9 +390,10 @@ The server provides 101 tools for interacting with Autotask:
 - `autotask_search_tickets` - Search tickets with filters
 - `autotask_get_ticket_details` - Get a ticket by ID: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs)
 - `autotask_create_ticket` - Create new ticket
+- `autotask_update_ticket` - Update a ticket; `resolution` replaces the whole Resolution field (max 32000 characters)
 
 #### Time Entry Operations
-- `autotask_create_time_entry` - Log time entry
+- `autotask_create_time_entry` - Log time entry; `appendToResolution: true` (ticket entries only) also appends `summaryNotes` to the ticket's Resolution, like the Autotask UI checkbox
 - `autotask_search_time_entries` - Search time entries with filters (resource, ticket, task, date range); each entry includes `summaryNotes` and `internalNotes`
 
 #### Billing Items (Approve and Post Workflow)
