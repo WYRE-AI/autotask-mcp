@@ -262,3 +262,106 @@ describe('autotask_create_time_entry appendToResolution', () => {
     expect(data.reason).toMatch(/summaryNotes is empty/);
   });
 });
+
+/** Stateful ticket 100/101: GET returns the latest PATCHed/PUT value, every call is async-delayed. */
+function mockStatefulApi(opts: { patchStatus?: (n: number, id: number) => number; putStatus?: number } = {}) {
+  const state: Record<number, string> = { 100: 'A', 101: 'Z' };
+  const sent: Array<{ route: string; body?: any }> = [];
+  let patches = 0;
+  const delay = () => new Promise((r) => setTimeout(r, 5));
+  const spy = jest.spyOn(global, 'fetch' as any).mockImplementation((async (url: string, init: RequestInit) => {
+    const route = `${init.method} ${new URL(url).pathname.replace('/ATServicesRest/v1.0', '')}`;
+    if (route.endsWith('/query')) return res({ body: { items: [] } });
+    await delay();
+    const body = init.body ? JSON.parse(init.body as string) : undefined;
+    sent.push({ route, body });
+    const get = route.match(/^GET \/Tickets\/(\d+)$/);
+    if (get) return res({ body: { item: { id: Number(get[1]), resolution: state[Number(get[1])] } } });
+    if (route === 'POST /TimeEntries') return res({ body: { itemId: 4242 } });
+    if (route === 'PATCH /Tickets') {
+      const status = opts.patchStatus?.(++patches, body.id) ?? 200;
+      if (status === 200) state[body.id] = body.resolution;
+      return res({ status, body: { itemId: body.id } });
+    }
+    if (route.startsWith('PUT /Tickets/')) {
+      const status = opts.putStatus ?? 200;
+      if (status === 200) state[body.id] = body.resolution;
+      return res({ status, body: { itemId: body.id } });
+    }
+    throw new Error(`unexpected request ${route}`);
+  }) as any);
+  return { spy, state, sent };
+}
+
+describe('serialized appends and PATCH-only write (issue #354 review)', () => {
+  const patchBodies = (sent: Array<{ route: string; body?: any }>) =>
+    sent.filter((r) => r.route === 'PATCH /Tickets').map((r) => r.body);
+
+  test('(a) concurrent appends on one ticket both land, in call order', async () => {
+    const { state, sent } = mockStatefulApi();
+    const h = makeHandler();
+    const [r1, r2] = await Promise.all([
+      h.callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B1' }),
+      // started a moment later so B1 deterministically reaches the lock first
+      new Promise((r) => setTimeout(r, 2)).then(() => h.callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B2' })),
+    ]);
+    expect(payload(r1).data.resolutionAppended).toBe(true);
+    expect(payload(r2).data.resolutionAppended).toBe(true);
+    expect(patchBodies(sent).map((b) => b.resolution)).toEqual(['A\r\n\r\nB1', 'A\r\n\r\nB1\r\n\r\nB2']);
+    expect(state[100]).toBe('A\r\n\r\nB1\r\n\r\nB2');
+  });
+
+  test('(a) the lock is shared across handler instances (per-request servers)', async () => {
+    const { state } = mockStatefulApi();
+    await Promise.all([
+      makeHandler().callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B1' }),
+      makeHandler().callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B2' }),
+    ]);
+    expect(state[100]).toBe('A\r\n\r\nB1\r\n\r\nB2');
+  });
+
+  test('(b) PATCH 404 on the append: partial success, PUT never called', async () => {
+    const { sent } = mockStatefulApi({ patchStatus: () => 404 });
+    const result = await makeHandler().callTool('autotask_create_time_entry', { ...baseArgs });
+    expect(result.isError).toBeFalsy();
+    const data = payload(result).data;
+    expect(data).toMatchObject({ timeEntryId: 4242, timeEntryCreated: true, resolutionAppended: false });
+    expect(data.warning).toMatch(/WAS created/);
+    expect(sent.some((r) => r.route.startsWith('PUT '))).toBe(false);
+  });
+
+  test('(c) autotask_update_ticket still falls back to PUT on PATCH 404', async () => {
+    const { sent, state } = mockStatefulApi({ patchStatus: () => 404 });
+    const result = await makeHandler().callTool('autotask_update_ticket', { ticketId: 100, resolution: 'New' });
+    expect(result.isError).toBeFalsy();
+    expect(sent.map((r) => r.route)).toEqual(['PATCH /Tickets', 'PUT /Tickets/100']);
+    expect(state[100]).toBe('New');
+  });
+
+  test('(d) a failed holder does not block the next append on the same ticket', async () => {
+    const { state } = mockStatefulApi({ patchStatus: (n) => (n === 1 ? 500 : 200) });
+    const h = makeHandler();
+    const [r1, r2] = await Promise.all([
+      h.callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B1' }),
+      new Promise((r) => setTimeout(r, 2)).then(() => h.callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B2' })),
+    ]);
+    expect(payload(r1).data.resolutionAppended).toBe(false);
+    expect(payload(r2).data.resolutionAppended).toBe(true);
+    expect(state[100]).toBe('A\r\n\r\nB2');
+    // and a later call is not stuck behind a leaked lock entry
+    const r3 = await h.callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B3' });
+    expect(payload(r3).data.resolutionAppended).toBe(true);
+    expect(state[100]).toBe('A\r\n\r\nB2\r\n\r\nB3');
+  });
+
+  test('different tickets do not serialize', async () => {
+    const { state } = mockStatefulApi();
+    const h = makeHandler();
+    await Promise.all([
+      h.callTool('autotask_create_time_entry', { ...baseArgs, summaryNotes: 'B1' }),
+      h.callTool('autotask_create_time_entry', { ...baseArgs, ticketID: 101, summaryNotes: 'B2' }),
+    ]);
+    expect(state[100]).toBe('A\r\n\r\nB1');
+    expect(state[101]).toBe('Z\r\n\r\nB2');
+  });
+});

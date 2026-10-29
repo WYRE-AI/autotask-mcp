@@ -1003,7 +1003,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         appendToResolution: {
           type: 'boolean',
-          description: 'Mirrors the "append to resolution" checkbox in the Autotask time entry form. Ticket time entries only (requires ticketID; rejected with taskID or Regular Time). After the entry is created, its summaryNotes (never internalNotes) are appended to the ticket\'s Resolution, separated by a blank line (\\r\\n\\r\\n) when the Resolution already has text. Fails before creating anything if the result would exceed the 32000-character Resolution limit. If the entry is created but the Resolution update fails, the result says so (resolutionAppended: false) and the entry must not be re-created.'
+          description: 'Mirrors the "append to resolution" checkbox in the Autotask time entry form. Ticket time entries only (requires ticketID; rejected with taskID or Regular Time). After the entry is created, its summaryNotes (never internalNotes) are appended to the ticket\'s Resolution, separated by a blank line (\\r\\n\\r\\n) when the Resolution already has text. Fails before creating anything if the result would exceed the 32000-character Resolution limit. Appends to the same ticket are serialized within this server process only; a concurrent edit in the Autotask UI or by another server instance between the read and the write can still be lost. If the entry is created but the Resolution update fails, the result says so (resolutionAppended: false) and the entry must not be re-created.'
         }
       },
       required: ['dateWorked', 'hoursWorked', 'summaryNotes']

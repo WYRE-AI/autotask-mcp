@@ -567,11 +567,11 @@ export class AutotaskService {
     }
   }
 
-  async updateTicket(id: number, updates: Partial<AutotaskTicket>): Promise<void> {
+  async updateTicket(id: number, updates: Partial<AutotaskTicket>, options: { putFallback?: boolean } = {}): Promise<void> {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Updating ticket ${id}:`, updates);
-      await http.update('Tickets', id, updates as Record<string, any>);
+      await http.update('Tickets', id, updates as Record<string, any>, options);
       this.logger.info(`Ticket ${id} updated successfully`);
     } catch (error) {
       this.logger.error(`Failed to update ticket ${id}:`, error);

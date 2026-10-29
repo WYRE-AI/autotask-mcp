@@ -39,7 +39,7 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
-| `autotask_create_time_entry` | Log time against a ticket | `ticketID` (required), `hoursWorked` (required), `summaryNotes`, `internalNotes`, `dateWorked`, `resourceID`, `appendToResolution` (ticket entries only: appends `summaryNotes` to the ticket's Resolution, like the Autotask UI checkbox) |
+| `autotask_create_time_entry` | Log time against a ticket | `ticketID` (required), `hoursWorked` (required), `summaryNotes`, `internalNotes`, `dateWorked`, `resourceID`, `appendToResolution` (ticket entries only: appends `summaryNotes` to the ticket's Resolution, like the Autotask UI checkbox; appends to one ticket are serialized within a single server process only, so a concurrent edit in the Autotask UI or another server instance between the reread and the PATCH can still be lost) |
 | `autotask_search_time_entries` | Search time entries. Each entry includes `summaryNotes` and `internalNotes` | `resourceId`, `ticketId`, `taskId`, `dateWorkedAfter`, `dateWorkedBefore`, `approvalStatus`, `billable` |
 
 ## Projects

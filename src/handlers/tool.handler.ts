@@ -108,6 +108,31 @@ function joinResolution(existing: string, addition: string): string {
   return existing.length > 0 ? `${existing}\r\n\r\n${addition}` : addition;
 }
 
+/**
+ * Per-ticket in-process lock for the Resolution read-modify-write. Module-level
+ * on purpose: the HTTP gateway / Worker builds a new server and tool handler per
+ * request, so an instance-level map would never see a concurrent request.
+ * Keyed by tenant + ticket id. Each entry is the tail of that key's chain; it
+ * is deleted once the tail settles and nobody queued behind it.
+ */
+const resolutionLocks = new Map<string, Promise<void>>();
+
+async function withResolutionLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = resolutionLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => { release = resolve; });
+  // The tail only ever resolves, so a failing holder cannot poison the chain.
+  const chained = previous.then(() => tail);
+  resolutionLocks.set(key, chained);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (resolutionLocks.get(key) === chained) resolutionLocks.delete(key);
+  }
+}
+
 function describeFailure(error: unknown): string {
   const status = (error as { status?: number })?.status;
   const msg = error instanceof Error ? error.message : String(error);
@@ -1858,24 +1883,33 @@ export class AutotaskToolHandler {
       message: `${created}. WARNING: Resolution NOT updated (${reason}).`,
     });
 
-    let fresh: { resolution?: string | null } | null;
-    try {
-      // Fresh read right before the write keeps the lost-update window small.
-      fresh = await s.getTicket(ticketId, true);
-    } catch (error) {
-      return partial(`re-reading the ticket failed: ${describeFailure(error)}`);
-    }
-    if (!fresh) return partial(`ticket ${ticketId} could not be re-read (not found)`);
-    const current = fresh.resolution ?? '';
-    const next = joinResolution(current, notes);
-    if (next.length > RESOLUTION_MAX_LENGTH) {
-      return partial(`the Resolution changed since the check and appending would now exceed the ${RESOLUTION_MAX_LENGTH}-character limit (current length ${current.length}, added ${next.length - current.length}); nothing was truncated`);
-    }
-    try {
-      await s.updateTicket(ticketId, { resolution: next });
-    } catch (error) {
-      return partial(`updating the ticket failed: ${describeFailure(error)}`);
-    }
+    // Serialized per tenant+ticket within this process only: the reread and the
+    // PATCH must not interleave with another append on the same ticket.
+    const lockKey = `${s.getTenantKey() ?? ''}:${ticketId}`;
+    const outcome = await withResolutionLock(lockKey, async () => {
+      let fresh: { resolution?: string | null } | null;
+      try {
+        // Fresh read right before the write keeps the lost-update window small.
+        fresh = await s.getTicket(ticketId, true);
+      } catch (error) {
+        return { failure: partial(`re-reading the ticket failed: ${describeFailure(error)}`) };
+      }
+      if (!fresh) return { failure: partial(`ticket ${ticketId} could not be re-read (not found)`) };
+      const current = fresh.resolution ?? '';
+      const next = joinResolution(current, notes);
+      if (next.length > RESOLUTION_MAX_LENGTH) {
+        return { failure: partial(`the Resolution changed since the check and appending would now exceed the ${RESOLUTION_MAX_LENGTH}-character limit (current length ${current.length}, added ${next.length - current.length}); nothing was truncated`) };
+      }
+      try {
+        // A PUT fallback with only { id, resolution } could replace the whole ticket.
+        await s.updateTicket(ticketId, { resolution: next }, { putFallback: false });
+      } catch (error) {
+        return { failure: partial(`updating the ticket failed: ${describeFailure(error)}`) };
+      }
+      return { next };
+    });
+    if ('failure' in outcome) return outcome.failure;
+    const next = outcome.next;
     return {
       result: { timeEntryId: id, resolutionAppended: true, resolutionLength: next.length },
       message: `${created}. Appended summaryNotes to the Resolution of ticket ${ticketId} (now ${next.length} characters).`,

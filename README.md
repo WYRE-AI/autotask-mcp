@@ -393,7 +393,7 @@ The server provides 101 tools for interacting with Autotask:
 - `autotask_update_ticket` - Update a ticket; `resolution` replaces the whole Resolution field (max 32000 characters)
 
 #### Time Entry Operations
-- `autotask_create_time_entry` - Log time entry; `appendToResolution: true` (ticket entries only) also appends `summaryNotes` to the ticket's Resolution, like the Autotask UI checkbox
+- `autotask_create_time_entry` - Log time entry; `appendToResolution: true` (ticket entries only) also appends `summaryNotes` to the ticket's Resolution, like the Autotask UI checkbox. Appends to one ticket are serialized within a single server process only; a concurrent edit in the Autotask UI or another server instance between the reread and the PATCH can still be lost
 - `autotask_search_time_entries` - Search time entries with filters (resource, ticket, task, date range); each entry includes `summaryNotes` and `internalNotes`
 
 #### Billing Items (Approve and Post Workflow)
