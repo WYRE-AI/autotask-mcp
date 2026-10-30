@@ -7,7 +7,7 @@
 // deps — only Node 18+ built-in `fetch` via AutotaskHttpClient.
 
 import { resolveAutotaskApiUrl } from '../utils/config';
-import { AutotaskHttpClient, QueryFilter } from './autotask-http';
+import { AutotaskHttpClient, QueryFilter, isAbortError } from './autotask-http';
 import {
   AutotaskContractService,
   AutotaskContractServiceUnit,
@@ -3174,11 +3174,16 @@ export class AutotaskService {
   // Field info / picklists
   // =====================================================
 
-  async getFieldInfo(entityType: string): Promise<FieldInfo[]> {
+  /**
+   * Field metadata (incl. picklist values) for an entity. `opts.signal` is
+   * optional; aborting it cancels the lookup (rejects with an AbortError,
+   * nothing is cached).
+   */
+  async getFieldInfo(entityType: string, opts?: { signal?: AbortSignal }): Promise<FieldInfo[]> {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Getting field info for entity: ${entityType}`);
-      const { fields: rawFields } = await http.fieldInfo(entityType);
+      const { fields: rawFields } = await http.fieldInfo(entityType, opts);
       return rawFields.map((field: any): FieldInfo => ({
         name: field.name,
         dataType: field.dataType,
@@ -3204,7 +3209,11 @@ export class AutotaskService {
         picklistParentValueField: field.picklistParentValueField,
       }));
     } catch (error) {
-      this.logger.error(`Failed to get field info for ${entityType}:`, error);
+      if (isAbortError(error)) {
+        this.logger.debug(`Field info lookup for ${entityType} was cancelled`);
+      } else {
+        this.logger.error(`Failed to get field info for ${entityType}:`, error);
+      }
       throw error;
     }
   }

@@ -26,15 +26,17 @@ export interface FieldInfo {
   picklistParentValueField?: string;
 }
 
+type FieldInfoFn = (entityType: string, opts?: { signal?: AbortSignal }) => Promise<FieldInfo[]>;
+
 export class PicklistCache {
   private cache: Map<string, FieldInfo[]> = new Map();
   private loading: Map<string, Promise<FieldInfo[]>> = new Map();
   private logger: Logger;
-  private getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>;
+  private getFieldInfoFn: FieldInfoFn;
 
   constructor(
     logger: Logger,
-    getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>
+    getFieldInfoFn: FieldInfoFn
   ) {
     this.logger = logger;
     this.getFieldInfoFn = getFieldInfoFn;
@@ -43,7 +45,7 @@ export class PicklistCache {
   /**
    * Get field info for an entity type (lazy-loaded, cached)
    */
-  async getFields(entityType: string): Promise<FieldInfo[]> {
+  async getFields(entityType: string, opts?: { signal?: AbortSignal }): Promise<FieldInfo[]> {
     // Return cached if available
     if (this.cache.has(entityType)) {
       return this.cache.get(entityType)!;
@@ -52,6 +54,14 @@ export class PicklistCache {
     // If already loading, wait for that promise
     if (this.loading.has(entityType)) {
       return this.loading.get(entityType)!;
+    }
+
+    // Cancellable load: kept out of `loading` so an abort cannot reject a
+    // promise other callers are sharing, and cached only on success.
+    if (opts?.signal) {
+      const fields = await this.loadFields(entityType, opts.signal);
+      this.cache.set(entityType, fields);
+      return fields;
     }
 
     // Start loading
@@ -113,13 +123,17 @@ export class PicklistCache {
     }
   }
 
-  private async loadFields(entityType: string): Promise<FieldInfo[]> {
+  private async loadFields(entityType: string, signal?: AbortSignal): Promise<FieldInfo[]> {
     this.logger.debug(`Loading field info for entity: ${entityType}`);
     try {
-      const fields = await this.getFieldInfoFn(entityType);
+      const fields = signal
+        ? await this.getFieldInfoFn(entityType, { signal })
+        : await this.getFieldInfoFn(entityType);
       this.logger.debug(`Loaded ${fields.length} fields for ${entityType}`);
       return fields;
     } catch (error) {
+      // An abort is not a vendor failure: never turn it into a cached [].
+      if (error instanceof Error && error.name === 'AbortError') throw error;
       this.logger.error(`Failed to load field info for ${entityType}:`, error);
       return [];
     }

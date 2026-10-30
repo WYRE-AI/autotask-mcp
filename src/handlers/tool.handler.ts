@@ -33,6 +33,11 @@ function resolveEnhanceConcurrency(raw: string | undefined): number {
 // `0` — WYRE Technology's own Autotask company id is 0, and a value check
 // here (rather than a `||`/truthy merge) is exactly the class of bug
 // WYREAI-373 is about.
+// Upper bound on the optional company picklist-label lookup in
+// autotask_get_company, so a stalled field-info request never holds back the
+// already-fetched company record.
+const COMPANY_LABEL_DEADLINE_MS = 5000;
+
 function normalizeCompanyIdAlias(args: Record<string, any>): Record<string, any> {
   const provided = [args.companyID, args.companyId, args.CompanyID].find(v => v !== undefined);
   if (provided === undefined) return args;
@@ -161,7 +166,7 @@ export class AutotaskToolHandler {
     this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
     this.picklistCache = new PicklistCache(
       logger,
-      (entityType) => this.autotaskService.getFieldInfo(entityType)
+      (entityType, opts) => this.autotaskService.getFieldInfo(entityType, opts)
     );
   }
 
@@ -226,6 +231,56 @@ export class AutotaskToolHandler {
       this.logger.debug('Enhancement failed, returning original items:', error);
       return items;
     }
+  }
+
+  /**
+   * Best-effort picklist labels for a Companies record. Uses the cached field
+   * info directly (not getPicklistValues) so inactive values still label an
+   * existing record. Never throws and never waits longer than
+   * COMPANY_LABEL_DEADLINE_MS: on failure or timeout the caller gets no labels
+   * and still returns the raw record.
+   */
+  private async resolveCompanyPicklistLabels(company: Record<string, any>): Promise<Record<string, string>> {
+    const labels: Record<string, string> = {};
+    let timer: NodeJS.Timeout | undefined;
+    const controller = new AbortController();
+    try {
+      const lookup = this.picklistCache.getFields('Companies', { signal: controller.signal });
+      lookup.catch(() => undefined); // the abort rejection after the deadline must not go unhandled
+      const fields = await Promise.race([
+        lookup,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
+            // Cancel the HTTP request so it frees its tenant concurrency slot.
+            controller.abort();
+            resolve(null);
+          }, COMPANY_LABEL_DEADLINE_MS);
+          timer.unref?.();
+        }),
+      ]);
+      if (fields === null) {
+        this.logger.debug(`Company picklist label lookup exceeded ${COMPANY_LABEL_DEADLINE_MS}ms; returning the record without labels`);
+        return labels;
+      }
+      if (!fields || fields.length === 0) {
+        // PicklistCache turns a vendor failure into [] and caches it forever;
+        // drop that so the next call retries instead of never labelling again.
+        this.picklistCache.clearCache('Companies');
+        return labels;
+      }
+      for (const field of fields) {
+        if (!field?.isPickList || !field.name) continue;
+        const value = company[field.name];
+        if (value === undefined || value === null) continue;
+        const match = field.picklistValues?.find(v => String(v.value) === String(value));
+        if (match?.label) labels[field.name] = match.label;
+      }
+    } catch (error) {
+      this.logger.debug('Company picklist label lookup failed:', error);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+    return labels;
   }
 
   /**
@@ -963,6 +1018,19 @@ export class AutotaskToolHandler {
       }],
 
       // Companies
+      ['autotask_get_company', async (a) => {
+        // companyID 0 is the root company: explicit checks, never truthy.
+        const id = a.companyID;
+        if (id === undefined || id === null || typeof id !== 'number' || !Number.isInteger(id) || id < 0) {
+          throw new Error('companyID is required and must be a non-negative integer');
+        }
+        const company = await s.getCompany(id);
+        if (company === null || company === undefined) return { result: null, message: '' };
+        const result: Record<string, any> = { ...company };
+        const picklistLabels = await this.resolveCompanyPicklistLabels(company as Record<string, any>);
+        if (Object.keys(picklistLabels).length > 0) result.picklistLabels = picklistLabels;
+        return { result, message: `Company ${id} retrieved successfully` };
+      }],
       ['autotask_search_companies', async (a) => {
         const r = await s.searchCompanies(a); return { result: r, message: `Found ${r.length} companies` };
       }],
@@ -1731,7 +1799,13 @@ export class AutotaskToolHandler {
         if (!handler) throw new Error(`Unknown tool: ${toolName}`);
         // Prevent recursive meta-tool calls
         if (toolName === 'autotask_execute_tool') throw new Error('Cannot recursively execute autotask_execute_tool');
-        return handler(toolArgs);
+        // Nested calls get the same companyID alias normalization and
+        // not-found handling as direct calls.
+        const nestedArgs = normalizeCompanyIdAlias(toolArgs);
+        const nested = await handler(nestedArgs);
+        const notFoundMsg = this.buildNotFoundMessage(toolName, nestedArgs, nested.result);
+        if (notFoundMsg) throw new Error(notFoundMsg);
+        return nested;
       }],
 
       // Intent-based router
