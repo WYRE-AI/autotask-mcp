@@ -2,9 +2,23 @@
 # reaches the 06:47 NZ digest. A failed scheduled run emails the repo admins by GitHub's default
 # notification behaviour; no other notification is wired up on purpose.
 #
+# Two jobs, no dependency between them:
+#   scheduled-audit  npm dependency gate (npm audit + signatures).
+#   image-scan       builds the Docker image the same way itsl-docker-build.yml does (never pushed)
+#                    and scans its base OS packages with Trivy: HIGH and CRITICAL, fixable only.
+#                    --pkg-types os is deliberate: npm deps are gated by scheduled-audit, which has
+#                    its reviewed exceptions. If a .trivyignore exists at the repo root it is applied.
+#
+# Trivy v0.76.0 runs as a container pinned by digest:
+#   ghcr.io/aquasecurity/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222
+# It is not run through aquasecurity/trivy-action: that action's tags were hijacked in the March 2026
+# supply-chain attack (Trivy v0.69.4 was a malicious release). A digest cannot be moved.
+#
 # Actions pinned by full commit SHA:
-#   actions/checkout    v7.0.1  3d3c42e5aac5ba805825da76410c181273ba90b1
-#   actions/setup-node  v7.0.0  820762786026740c76f36085b0efc47a31fe5020
+#   actions/checkout              v7.0.1  3d3c42e5aac5ba805825da76410c181273ba90b1
+#   actions/setup-node            v7.0.0  820762786026740c76f36085b0efc47a31fe5020
+#   docker/setup-buildx-action    v4.3.0  37fe631027851001ddb9b187196cc803df7f5f0e
+#   docker/build-push-action      v7.3.0  53b7df96c91f9c12dcc8a07bcb9ccacbed38856a
 
 name: ITSL scheduled audit
 
@@ -46,3 +60,44 @@ jobs:
         run: npm audit signatures
         env:
           NODE_AUTH_TOKEN: ${{ secrets.WYRE_PACKAGES_TOKEN }}
+
+  image-scan:
+    name: image-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@37fe631027851001ddb9b187196cc803df7f5f0e # v4.3.0
+      - name: Build image (not pushed)
+        uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7.3.0
+        with:
+          context: .
+          push: false
+          load: true
+          provenance: false
+          tags: itsl-image-scan:daily
+          # The Dockerfile reads ARG GITHUB_TOKEN to write its own .npmrc, so a build-arg is the
+          # only way in. Same arrangement as itsl-docker-build.yml: Actions masks the value, and the
+          # image is never pushed or exported (load: true keeps it in the runner local daemon).
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.WYRE_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Trivy scan (base OS packages, HIGH and CRITICAL, fixable only)
+        run: |
+          set -euo pipefail
+          mount=()
+          ignorefile=()
+          if [ -f .trivyignore ]; then
+            mount=(-v "$PWD/.trivyignore:/work/.trivyignore:ro")
+            ignorefile=(--ignorefile /work/.trivyignore)
+          fi
+          docker run --rm \
+            -v /var/run/docker.sock:/var/run/docker.sock \
+            "${mount[@]}" \
+            ghcr.io/aquasecurity/trivy@sha256:2416d1f74045b57274df1a340eee6b510cacd73c66a6ccb8da092b117eb7d222 \
+            image --scanners vuln --pkg-types os --severity HIGH,CRITICAL --ignore-unfixed \
+            --exit-code 1 --no-progress "${ignorefile[@]}" itsl-image-scan:daily
