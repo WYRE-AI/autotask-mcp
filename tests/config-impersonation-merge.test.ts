@@ -4,6 +4,7 @@ import { loadEnvironmentConfig, mergeWithMcpConfig } from '../src/utils/config';
 
 describe('mergeWithMcpConfig: impersonationResourceId', () => {
   const KEYS = [
+    'AUTH_MODE',
     'AUTOTASK_USERNAME',
     'AUTOTASK_SECRET',
     'AUTOTASK_INTEGRATION_CODE',
@@ -13,6 +14,7 @@ describe('mergeWithMcpConfig: impersonationResourceId', () => {
 
   beforeEach(() => {
     KEYS.forEach((k) => (saved[k] = process.env[k]));
+    process.env.AUTH_MODE = 'env';
     process.env.AUTOTASK_USERNAME = 'api@example.com';
     process.env.AUTOTASK_SECRET = 'secret';
     process.env.AUTOTASK_INTEGRATION_CODE = 'code';
