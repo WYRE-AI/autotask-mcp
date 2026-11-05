@@ -199,6 +199,9 @@ export function mergeWithMcpConfig(envConfig: EnvironmentConfig, mcpArgs?: Recor
     name: mcpArgs?.name || envConfig.server.name,
     version: mcpArgs?.version || envConfig.server.version,
     autotask: {
+      // Carry through env-only fields (e.g. impersonationResourceId) that the
+      // overrides below don't know about; otherwise they are silently dropped.
+      ...envConfig.autotask,
       username: mcpArgs?.autotask?.username || envConfig.autotask.username,
       secret: mcpArgs?.autotask?.secret || envConfig.autotask.secret,
       integrationCode: mcpArgs?.autotask?.integrationCode || envConfig.autotask.integrationCode,
