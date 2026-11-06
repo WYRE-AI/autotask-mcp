@@ -100,6 +100,45 @@ const OPPORTUNITY_WRITABLE_FIELDS = [
   'userDefinedFields'
 ] as const;
 
+// Tickets.resolution max length (Autotask entity docs).
+const RESOLUTION_MAX_LENGTH = 32000;
+
+/** Autotask UI behaviour: blank line between old and new text, none when the field is empty. */
+function joinResolution(existing: string, addition: string): string {
+  return existing.length > 0 ? `${existing}\r\n\r\n${addition}` : addition;
+}
+
+/**
+ * Per-ticket in-process lock for the Resolution read-modify-write. Module-level
+ * on purpose: the HTTP gateway / Worker builds a new server and tool handler per
+ * request, so an instance-level map would never see a concurrent request.
+ * Keyed by tenant + ticket id. Each entry is the tail of that key's chain; it
+ * is deleted once the tail settles and nobody queued behind it.
+ */
+const resolutionLocks = new Map<string, Promise<void>>();
+
+async function withResolutionLock<T>(key: string, fn: () => Promise<T>): Promise<T> {
+  const previous = resolutionLocks.get(key) ?? Promise.resolve();
+  let release!: () => void;
+  const tail = new Promise<void>((resolve) => { release = resolve; });
+  // The tail only ever resolves, so a failing holder cannot poison the chain.
+  const chained = previous.then(() => tail);
+  resolutionLocks.set(key, chained);
+  await previous;
+  try {
+    return await fn();
+  } finally {
+    release();
+    if (resolutionLocks.get(key) === chained) resolutionLocks.delete(key);
+  }
+}
+
+function describeFailure(error: unknown): string {
+  const status = (error as { status?: number })?.status;
+  const msg = error instanceof Error ? error.message : String(error);
+  return status !== undefined && !msg.includes(`HTTP ${status}`) ? `HTTP ${status}: ${msg}` : msg;
+}
+
 function buildTicketPayload(args: Record<string, any>): Record<string, any> {
   const payload: Record<string, any> = {};
   for (const field of TICKET_WRITABLE_FIELDS) {
@@ -1139,6 +1178,13 @@ export class AutotaskToolHandler {
         if (a.projectID !== undefined) {
           throw new Error(`Autotask time entries cannot be logged against a project. Log the time against a task within project ${a.projectID} (taskID), against a ticket (ticketID), or omit both for Regular Time.`);
         }
+        // appendToResolution is not a TimeEntries field: strip it so it never
+        // reaches the POST body (Autotask rejects unknown fields).
+        const appendToResolution = a.appendToResolution === true;
+        delete a.appendToResolution;
+        if (appendToResolution && (!a.ticketID || a.taskID)) {
+          throw new Error('appendToResolution only applies to ticket time entries: provide ticketID and omit taskID. It is not supported for task time entries or Regular Time. Nothing was created.');
+        }
         // If no resource specified at all, prompt the user
         if (!a.resourceID && !a.resourceName) {
           return { result: null, message: 'Please specify who is logging this time. Provide a resourceName (e.g., "Will Spence") or resourceID.' };
@@ -1182,7 +1228,10 @@ export class AutotaskToolHandler {
           }
         }
         delete a.roleName;
-        const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
+        if (!appendToResolution) {
+          const id = await s.createTimeEntry(a); return { result: id, message: `Successfully created time entry with ID: ${id}` };
+        }
+        return this.createTimeEntryAppendingResolution(s, a);
       }],
 
       // Projects
@@ -1778,6 +1827,93 @@ export class AutotaskToolHandler {
     }
 
     return null;
+  }
+
+  /**
+   * autotask_create_time_entry with appendToResolution: true (issue #354).
+   * Autotask has no TimeEntries field for the UI's "append to resolution"
+   * checkbox, so it is a second write to Tickets.resolution.
+   *
+   * Failure policy: anything that fails BEFORE the entry exists (ticket
+   * pre-read, overflow) throws, because nothing was written and a retry is
+   * safe. Anything that fails AFTER it exists returns a NON-error result with
+   * resolutionAppended: false and a warning, so the caller does not treat the
+   * call as failed and re-create (double-bill) the time entry.
+   */
+  private async createTimeEntryAppendingResolution(
+    s: AutotaskService,
+    entry: Record<string, any>
+  ): Promise<{ result: Record<string, unknown>; message: string }> {
+    const ticketId = entry.ticketID as number;
+    const notes = typeof entry.summaryNotes === 'string' ? entry.summaryNotes : '';
+    const hasNotes = notes.trim().length > 0;
+
+    if (hasNotes) {
+      let before: { resolution?: string | null } | null;
+      try {
+        before = await s.getTicket(ticketId, true);
+      } catch (error) {
+        throw new Error(`Could not read ticket ${ticketId} to check the Resolution limit (${describeFailure(error)}). The time entry was NOT created; it is safe to retry.`, { cause: error });
+      }
+      if (!before) throw new Error(`Ticket ${ticketId} not found. The time entry was NOT created.`);
+      const current = before.resolution ?? '';
+      const next = joinResolution(current, notes);
+      if (next.length > RESOLUTION_MAX_LENGTH) {
+        throw new Error(`Appending to the Resolution of ticket ${ticketId} would exceed the ${RESOLUTION_MAX_LENGTH}-character limit (current length ${current.length}, added ${next.length - current.length}). The time entry was NOT created. Shorten summaryNotes, or create the entry without appendToResolution.`);
+      }
+    }
+
+    const id = await s.createTimeEntry(entry);
+    const created = `Successfully created time entry with ID: ${id}`;
+
+    if (!hasNotes) {
+      return {
+        result: { timeEntryId: id, resolutionAppended: false, reason: 'summaryNotes is empty, so there was nothing to append to the Resolution.' },
+        message: `${created}. Resolution not updated: summaryNotes is empty.`,
+      };
+    }
+
+    const partial = (reason: string) => ({
+      result: {
+        timeEntryId: id,
+        timeEntryCreated: true,
+        resolutionAppended: false,
+        warning: `PARTIAL SUCCESS: time entry ${id} WAS created — do NOT create it again or retry this call. The Resolution of ticket ${ticketId} was NOT updated: ${reason}. To finish, read the current Resolution with autotask_get_ticket_details (fullDetails: true) and call autotask_update_ticket with ticketId ${ticketId} and resolution set to the existing text + "\\r\\n\\r\\n" + the summaryNotes (omit the separator if it was empty).`,
+      },
+      message: `${created}. WARNING: Resolution NOT updated (${reason}).`,
+    });
+
+    // Serialized per tenant+ticket within this process only: the reread and the
+    // PATCH must not interleave with another append on the same ticket.
+    const lockKey = `${s.getTenantKey() ?? ''}:${ticketId}`;
+    const outcome = await withResolutionLock(lockKey, async () => {
+      let fresh: { resolution?: string | null } | null;
+      try {
+        // Fresh read right before the write keeps the lost-update window small.
+        fresh = await s.getTicket(ticketId, true);
+      } catch (error) {
+        return { failure: partial(`re-reading the ticket failed: ${describeFailure(error)}`) };
+      }
+      if (!fresh) return { failure: partial(`ticket ${ticketId} could not be re-read (not found)`) };
+      const current = fresh.resolution ?? '';
+      const next = joinResolution(current, notes);
+      if (next.length > RESOLUTION_MAX_LENGTH) {
+        return { failure: partial(`the Resolution changed since the check and appending would now exceed the ${RESOLUTION_MAX_LENGTH}-character limit (current length ${current.length}, added ${next.length - current.length}); nothing was truncated`) };
+      }
+      try {
+        // A PUT fallback with only { id, resolution } could replace the whole ticket.
+        await s.updateTicket(ticketId, { resolution: next }, { putFallback: false });
+      } catch (error) {
+        return { failure: partial(`updating the ticket failed: ${describeFailure(error)}`) };
+      }
+      return { next };
+    });
+    if ('failure' in outcome) return outcome.failure;
+    const next = outcome.next;
+    return {
+      result: { timeEntryId: id, resolutionAppended: true, resolutionLength: next.length },
+      message: `${created}. Appended summaryNotes to the Resolution of ticket ${ticketId} (now ${next.length} characters).`,
+    };
   }
 
   /**
