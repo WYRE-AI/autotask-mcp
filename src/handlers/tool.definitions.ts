@@ -86,6 +86,22 @@ export const TOOL_DEFINITIONS: McpTool[] = [
     }
   },
   {
+    name: 'autotask_get_company',
+    description: 'Get one company by ID with all fields (classification, type, owner, address, UDFs) and picklist labels. Use autotask_search_companies to find the ID.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        companyID: {
+          type: 'number',
+          description: 'Company ID (0 is the root company)',
+          minimum: 0
+        }
+      },
+      required: ['companyID']
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
     name: 'autotask_create_company',
     description: 'Create new company record',
     inputSchema: {
@@ -3422,7 +3438,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   companies: {
     description: 'Search, create, and update companies',
-    tools: ['autotask_search_companies', 'autotask_create_company', 'autotask_update_company', 'autotask_get_company_site_configuration', 'autotask_update_company_site_configuration']
+    tools: ['autotask_search_companies', 'autotask_get_company', 'autotask_create_company', 'autotask_update_company', 'autotask_get_company_site_configuration', 'autotask_update_company_site_configuration']
   },
   contacts: {
     description: 'Search and create contacts',

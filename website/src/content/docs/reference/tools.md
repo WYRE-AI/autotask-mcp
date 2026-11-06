@@ -16,6 +16,7 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `autotask_search_companies` | Search for companies | `searchTerm`, `isActive`, `page`, `pageSize` |
+| `autotask_get_company` | Get one company by ID with all fields and picklist labels (classification, type) | `companyID` |
 | `autotask_create_company` | Create a new company | `companyName` (required), `phone`, `companyType` |
 | `autotask_update_company` | Update a company | `id` (required), any updatable field |
 
