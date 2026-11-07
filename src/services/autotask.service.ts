@@ -446,7 +446,15 @@ export class AutotaskService {
       const filters: QueryFilter[] = [];
 
       if (options.searchTerm) {
-        filters.push({ op: 'beginsWith', field: 'ticketNumber', value: options.searchTerm });
+        // Ticket-number prefix OR title substring, so a title phrase does not
+        // read as "no such ticket".
+        filters.push({
+          op: 'or',
+          items: [
+            { op: 'beginsWith', field: 'ticketNumber', value: options.searchTerm },
+            { op: 'contains', field: 'title', value: options.searchTerm },
+          ],
+        });
       }
 
       if (options.status !== undefined) {

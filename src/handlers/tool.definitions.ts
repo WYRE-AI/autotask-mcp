@@ -497,7 +497,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       properties: {
         searchTerm: {
           type: 'string',
-          description: 'Search by ticket number prefix'
+          description: 'Matches tickets whose ticket number starts with this text OR whose title contains it (e.g. "T20260414" or "printer offline")'
         },
         companyID: {
           type: 'number',

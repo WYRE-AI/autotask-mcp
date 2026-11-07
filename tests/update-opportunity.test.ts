@@ -111,15 +111,17 @@ describe('autotask_update_opportunity handler', () => {
     expect(spy).toHaveBeenCalledWith(42, { ownerResourceID: 2002, contactID: 55 });
   });
 
-  test('does not forward fields outside the writable set', async () => {
+  test('rejects fields outside the writable set instead of silently dropping them', async () => {
     const { spy, handler } = setup();
-    await handler.callTool('autotask_update_opportunity', {
+    const result = await handler.callTool('autotask_update_opportunity', {
       opportunityId: 42,
       title: 'Laptop refresh',
       companyID: 99,
       creatorResourceID: 1,
     });
-    expect(spy).toHaveBeenCalledWith(42, { title: 'Laptop refresh' });
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('companyID');
+    expect(spy).not.toHaveBeenCalled();
   });
 
   test('errors without calling Autotask when no updatable field is given', async () => {

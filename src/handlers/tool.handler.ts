@@ -13,6 +13,32 @@ import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
 import { buildTicketCard, type TicketCard } from './card.builder.js';
 import { buildTicketSearchParams } from './intent-router.js';
 import { markUntrustedContent } from '../utils/untrusted-content.js';
+import { validateToolArguments } from '../utils/arg-validation.js';
+
+// Deprecated arguments that a handler rejects with its own, more helpful
+// message (see the guards in autotask_create_time_entry and
+// autotask_search_time_entries). Argument validation must let them through so
+// that message is still the one the caller sees.
+const TOLERATED_DEPRECATED_ARGS: Record<string, readonly string[]> = {
+  autotask_create_time_entry: ['projectID'],
+  autotask_search_time_entries: ['projectId'],
+};
+
+// Undocumented argument spellings that handlers have always read. Kept working
+// so strict validation does not break existing callers.
+const TOLERATED_UNDOCUMENTED_ARGS: Record<string, readonly string[]> = {
+  autotask_create_time_entry: ['internalBillingCodeID'],
+};
+const ARG_ALIASES: Record<string, Record<string, string>> = {
+  autotask_get_field_info: { entity: 'entityType', field: 'fieldName' },
+  autotask_update_opportunity: { ownerResourceId: 'ownerResourceID', contactId: 'contactID' },
+  autotask_create_expense_report: { weekEnding: 'weekEndingDate' },
+};
+// Required parameters whose handler gives a better error than the generic one
+// (e.g. a pointer to autotask_get_field_info for picklist values).
+const HANDLER_CHECKED_REQUIRED: Record<string, readonly string[]> = {
+  autotask_create_ticket_note: ['noteType', 'publish'],
+};
 
 // Default concurrency for company/resource name enrichment. Autotask allows
 // only a handful of concurrent API threads per integration, so enrichment is
@@ -119,6 +145,7 @@ export interface McpTool {
     type: 'object';
     properties: Record<string, any>;
     required?: string[];
+    additionalProperties?: boolean;
   };
   annotations?: {
     title?: string;
@@ -1757,6 +1784,9 @@ export class AutotaskToolHandler {
         if (!handler) throw new Error(`Unknown tool: ${toolName}`);
         // Prevent recursive meta-tool calls
         if (toolName === 'autotask_execute_tool') throw new Error('Cannot recursively execute autotask_execute_tool');
+        // callTool only validated execute_tool's own arguments; the target
+        // tool's arguments must be checked here, before its handler runs.
+        this.assertValidArguments(toolName, toolArgs);
         return handler(toolArgs);
       }],
 
@@ -1807,6 +1837,30 @@ export class AutotaskToolHandler {
   }
 
   /**
+   * Throw if `args` do not satisfy the tool's inputSchema (missing required
+   * parameters, unknown parameter names). Tools without a definition are left
+   * to the caller's own unknown-tool error.
+   */
+  private assertValidArguments(name: string, args: Record<string, any>): void {
+    const def = TOOL_DEFINITIONS.find(t => t.name === name);
+    if (!def) return;
+    const tolerated = [...(TOLERATED_DEPRECATED_ARGS[name] ?? []), ...(TOLERATED_UNDOCUMENTED_ARGS[name] ?? [])];
+    let checked = args;
+    if ('companyID' in def.inputSchema.properties) {
+      // companyID / companyId / CompanyID are interchangeable on input
+      // (normalizeCompanyIdAlias), so any of them satisfies a required companyID.
+      tolerated.push('companyId', 'CompanyID');
+      checked = normalizeCompanyIdAlias(args);
+    }
+    const message = validateToolArguments(name, def.inputSchema, checked, {
+      tolerated,
+      aliases: ARG_ALIASES[name] ?? {},
+      handlerChecked: HANDLER_CHECKED_REQUIRED[name] ?? [],
+    });
+    if (message) throw new Error(message);
+  }
+
+  /**
    * Call a tool with the given arguments
    */
   async callTool(name: string, rawArgs: Record<string, any>): Promise<McpToolResult> {
@@ -1821,6 +1875,7 @@ export class AutotaskToolHandler {
     try {
       const handler = this.getDispatchTable().get(name);
       if (!handler) throw new Error(`Unknown tool: ${name}`);
+      this.assertValidArguments(name, rawArgs);
 
       const { result, message } = await handler(args);
 

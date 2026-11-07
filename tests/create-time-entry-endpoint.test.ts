@@ -98,6 +98,8 @@ describe('autotask_create_time_entry tool surface (issue #277)', () => {
       projectID: 55,
       resourceID: 12,
       hoursWorked: 1,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBe(true);
@@ -146,6 +148,8 @@ describe('autotask_create_time_entry tool surface (issue #277)', () => {
     const result = await handler.callTool('autotask_create_time_entry', {
       resourceID: 12,
       hoursWorked: 1,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBeFalsy();

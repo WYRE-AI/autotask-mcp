@@ -54,6 +54,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       ticketID: 48231,
       resourceID: 12,
       hoursWorked: 1.5,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBeFalsy();
@@ -70,6 +72,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       taskID: 777,
       resourceID: 12,
       hoursWorked: 2,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBeFalsy();
@@ -85,6 +89,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       ticketID: 48231,
       resourceID: 12,
       hoursWorked: 1.5,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
       roleID: 3,
     });
 
@@ -103,6 +109,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       ticketID: 48231,
       resourceID: 12,
       hoursWorked: 1.5,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBeFalsy();
@@ -118,6 +126,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       ticketID: 48231,
       resourceID: 12,
       hoursWorked: 1.5,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBe(true);
@@ -135,6 +145,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       taskID: 777,
       resourceID: 12,
       hoursWorked: 2,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBe(true);
@@ -151,6 +163,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       ticketID: 99999,
       resourceID: 12,
       hoursWorked: 1,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBe(true);
@@ -167,6 +181,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
       taskID: 99999,
       resourceID: 12,
       hoursWorked: 1,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
     });
 
     expect(result.isError).toBe(true);
@@ -181,6 +197,8 @@ describe('autotask_create_time_entry roleID defaulting', () => {
     const result = await handler.callTool('autotask_create_time_entry', {
       resourceID: 12,
       hoursWorked: 1,
+      dateWorked: '2026-11-02',
+      summaryNotes: 'test',
       internalBillingCodeID: 3,
     });
 
