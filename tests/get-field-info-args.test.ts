@@ -41,7 +41,7 @@ describe('autotask_get_field_info argument handling', () => {
     const res = await callTool(handler, {});
     expect(res.isError).toBe(true);
     const text = res.content[0].text as string;
-    expect(text).toContain('entityType is required');
+    expect(text).toContain('entityType');
     expect(text).not.toContain('toLowerCase');
   });
 

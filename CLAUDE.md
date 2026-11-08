@@ -27,3 +27,8 @@ Workflow defaults (commits, changelog, memory) come from the global `~/.claude/C
   - **Bad field name → hard error.** `{ op: 'eq', field: 'projectID' }` against `TimeEntries` returns `HTTP 500: Unable to find projectID in the TimeEntry Entity`. That's #277 — loud, and comparatively safe.
 
   Verified live against production on 2026-09-07, correcting an earlier version of this entry that generalized #193's silent-drop behaviour to unknown field names too. Either way the filter is broken, so when touching one, assert on the **query body actually sent** rather than on the return value — a test that only checks results passes against both failure modes.
+
+## Learnings - 2026-11-08
+
+- Tool arguments are now validated against `inputSchema` in `callTool()` and on the `autotask_execute_tool` path (`src/utils/arg-validation.ts`): missing `required` and unknown names are errors, with a "did you mean" hint. The SDK does not do this - `tools/call` is a raw `setRequestHandler`. This supersedes the 2026-09-07 note that there is no validation layer. Handlers that read an undocumented spelling must be listed in `ARG_ALIASES` / `TOLERATED_*` in `tool.handler.ts`, or callers get "unknown parameter".
+- `AutotaskHttp.update/delete/childUpdate` refuse a non-positive-integer record id before any fetch (parent id 0 is allowed: root company). The impersonation hint is only appended to permission-shaped failures (ticket 153715).

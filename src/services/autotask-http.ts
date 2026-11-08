@@ -9,6 +9,31 @@
 import { resolveAutotaskApiUrl, invalidateZoneUrlCache } from '../utils/config';
 import { Logger } from '../utils/logger';
 
+/**
+ * Refuse to send a write whose record id is missing or not a positive integer.
+ * A PATCH body with `id: undefined` loses the id in JSON.stringify and Autotask
+ * answers HTTP 500 "No matching records found", which reads as a server fault
+ * rather than a bad call.
+ */
+function assertValidId(action: string, id: unknown, { allowZero = false }: { allowZero?: boolean } = {}): asserts id is number {
+  if (typeof id !== 'number' || !Number.isInteger(id) || id < (allowZero ? 0 : 1)) {
+    throw new Error(
+      `Cannot ${action}: record id must be ${allowZero ? 'a non-negative' : 'a positive'} integer, got ${id === undefined ? 'undefined' : JSON.stringify(id)}. No request was sent.`
+    );
+  }
+}
+
+/**
+ * Whether a failed response looks like a permissions problem. Autotask has no
+ * distinct status for "impersonation not permitted", so this is a heuristic:
+ * 401/403, or a body that talks about permissions. A 500 such as "No matching
+ * records found" is the request's own fault and must not get the hint.
+ */
+function looksLikePermissionFailure(status: number, detail: string): boolean {
+  if (status === 401 || status === 403) return true;
+  return /permission|not authori[sz]ed|unauthori[sz]ed|access denied|forbidden|security level|impersonat/i.test(detail);
+}
+
 export interface QueryFilter {
   op: string;
   field?: string;
@@ -309,8 +334,8 @@ export class AutotaskHttpClient {
       // not permitted" specifically, so this can't reliably tell that case
       // apart from any other failure on the same request.
       const impersonationHint =
-        this.impersonationResourceId !== undefined
-          ? ` (impersonating resource ${this.impersonationResourceId} - if this is a permissions error, verify that resource's Autotask security level has "Allow impersonation of resources with this security level" enabled, and that its security level permits this specific action)`
+        this.impersonationResourceId !== undefined && looksLikePermissionFailure(response.status, detail)
+          ? ` (this request was sent impersonating resource ${this.impersonationResourceId}; one possible cause is that resource's Autotask security level - check that it permits this action and has "Allow impersonation of resources with this security level" enabled)`
           : '';
       const httpError = new Error(
         `Autotask ${method} ${path} failed: HTTP ${response.status}: ${detail}${impersonationHint}`
@@ -478,6 +503,7 @@ export class AutotaskHttpClient {
     body: Record<string, any>,
     { putFallback = true }: { putFallback?: boolean } = {}
   ): Promise<void> {
+    assertValidId(`update ${entity}`, id);
     try {
       await this.request<void>('PATCH', `/${entity}`, { ...body, id });
     } catch (err) {
@@ -496,6 +522,7 @@ export class AutotaskHttpClient {
    * DELETE /{Entity}/{id}
    */
   async delete(entity: string, id: number): Promise<void> {
+    assertValidId(`delete ${entity}`, id);
     await this.request<void>('DELETE', `/${entity}/${id}`);
   }
 
@@ -621,6 +648,9 @@ export class AutotaskHttpClient {
     id: number,
     body: Record<string, any>
   ): Promise<void> {
+    assertValidId(`update ${parentEntity}/${childEntity}`, id);
+    // Parent id 0 is real: the root (MSP) company is Companies/0.
+    assertValidId(`update ${parentEntity}/${childEntity} (parent)`, parentId, { allowZero: true });
     await this.request<void>(
       'PATCH',
       `/${parentEntity}/${parentId}/${childEntity}`,
