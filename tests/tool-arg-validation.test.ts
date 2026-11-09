@@ -285,3 +285,35 @@ describe('autotask_search_tickets searchTerm', () => {
     expect(filter.some((f: any) => f.op === 'or')).toBe(false);
   });
 });
+
+describe('createContact uses the Companies/{id}/Contacts child route', () => {
+  // POST /Contacts returns an HTML 404 on webservices29 (seen 2026-11-08);
+  // contacts are a child entity, so create goes through the parent company.
+  const service = () => {
+    const s = new AutotaskService(config, logger);
+    const http = new AutotaskHttpClient('user@example.com', 'secret', 'CODE', API_URL, logger);
+    jest.spyOn(s as any, 'ensureClient').mockResolvedValue(http);
+    return s;
+  };
+
+  it('POSTs to /Companies/{companyID}/Contacts', async () => {
+    const fetchMock = mockFetch(200, { itemId: 4242 });
+    const id = await service().createContact({ companyID: 614, firstName: 'A', lastName: 'B' } as any);
+    expect(id).toBe(4242);
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toMatch(/\/Companies\/614\/Contacts$/);
+    expect(init.method).toBe('POST');
+  });
+
+  it('accepts companyID 0 (the root company)', async () => {
+    const fetchMock = mockFetch(200, { itemId: 7 });
+    await service().createContact({ companyID: 0, firstName: 'A', lastName: 'B' } as any);
+    expect((fetchMock.mock.calls[0] as [string])[0]).toMatch(/\/Companies\/0\/Contacts$/);
+  });
+
+  it('refuses without a companyID and never calls Autotask', async () => {
+    const fetchMock = mockFetch();
+    await expect(service().createContact({ firstName: 'A', lastName: 'B' } as any)).rejects.toThrow(/companyID is required/);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});

@@ -369,7 +369,16 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating contact:', contact);
-      const id = await http.create('Contacts', contact);
+      // Contacts are a child entity of Companies: the documented create route
+      // is POST /Companies/{companyID}/Contacts. The collection-level
+      // POST /Contacts returns an HTML 404 on our zone (webservices29), the
+      // same behaviour updateContact() works around below. companyID 0 is the
+      // root company and is valid, so test for null/undefined, not falsiness.
+      const companyID = (contact as Record<string, any>).companyID;
+      if (companyID === undefined || companyID === null) {
+        throw new Error('Cannot create contact: companyID is required (contacts are created under their company)');
+      }
+      const id = await http.childCreate('Companies', companyID, 'Contacts', contact);
       this.logger.info(`Contact created with ID: ${id}`);
       return id;
     } catch (error) {
