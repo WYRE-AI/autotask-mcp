@@ -233,10 +233,16 @@ CONDUIT_S2S_SECRET=
 # Local HTTP only. Exactly "1" skips X-Gateway-S2S and forces 127.0.0.1.
 # MCP_ALLOW_INSECURE_DEV=1
 
+# Single-tenant AUTH_MODE=env on a trusted private network only. Exactly "1"
+# skips X-Gateway-S2S and binds MCP_HTTP_HOST (127.0.0.1 when unset).
+# Restrict access with firewall or network policy; never expose it publicly.
+# MCP_ALLOW_UNAUTHENTICATED_HTTP=1
+
 # Transport (stdio for local/desktop, http for remote/Docker)
 MCP_TRANSPORT=stdio          # stdio, http
 MCP_HTTP_PORT=8080           # HTTP transport port (only used when MCP_TRANSPORT=http)
-# Honored when CONDUIT_S2S_SECRET is set. Without a usable secret the bind is 127.0.0.1.
+# Honored when CONDUIT_S2S_SECRET is set or MCP_ALLOW_UNAUTHENTICATED_HTTP=1.
+# Otherwise, without a usable secret, the bind is 127.0.0.1.
 MCP_HTTP_HOST=0.0.0.0        # HTTP transport bind address
 
 # Logging
@@ -288,7 +294,7 @@ Every `/mcp` request must include a valid `X-Gateway-S2S` header and the three A
 
 `MCP_ALLOW_INSECURE_DEV=1` is the local-only escape hatch. The process logs a warning, does not check `X-Gateway-S2S`, and listens on `127.0.0.1` only. A non-loopback `MCP_HTTP_HOST` (including `0.0.0.0`, `localhost`, and `::1`) is ignored in that mode and the override is logged.
 
-Without a usable secret the bind address defaults to `127.0.0.1`. A configured secret honors `MCP_HTTP_HOST` (default `0.0.0.0` when that variable is unset, which is what the container image sets). Publish the host port on loopback unless a proxy sits in front.
+Without a usable secret the bind address defaults to `127.0.0.1`. A configured secret honors `MCP_HTTP_HOST` (default `0.0.0.0` when that variable is unset, so the container image listens on all in-container interfaces). Publish the host port on loopback unless a proxy sits in front.
 
 `/health` stays unauthenticated and does not read credentials. The stdio transport does not use `CONDUIT_S2S_SECRET`.
 
@@ -314,7 +320,33 @@ curl -sS http://127.0.0.1:8080/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-In `AUTH_MODE=env`, `/mcp` still requires a valid `X-Gateway-S2S` header. Autotask credentials then come from `AUTOTASK_*`. In `AUTH_MODE=gateway`, the three `X-API-*` headers above are required as well and are the only credential source for that request.
+In `AUTH_MODE=env`, `/mcp` still requires a valid `X-Gateway-S2S` header (except in the explicit direct mode below). Autotask credentials then come from `AUTOTASK_*`. In `AUTH_MODE=gateway`, the three `X-API-*` headers above are required as well and are the only credential source for that request.
+
+#### Direct deployments on a private network
+
+Some single-tenant deployments run the container directly, on a private container network or behind a self-hosted orchestrator, with an MCP client that cannot sign per-request `X-Gateway-S2S` headers. For those, `MCP_ALLOW_UNAUTHENTICATED_HTTP=1` starts HTTP without service-to-service authentication. It is an explicit opt-in with these rules:
+
+- It requires `AUTH_MODE=env`. Startup refuses it with `AUTH_MODE=gateway` or any other value, because gateway and multi-tenant deployments must authenticate every request.
+- In `AUTH_MODE=env`, a usable `CONDUIT_S2S_SECRET` takes precedence: the flag is ignored, the override is logged, and `X-Gateway-S2S` is enforced. (In gateway mode the flag is refused at startup whether or not a secret is set.) A placeholder secret together with the flag is refused, so remove `CONDUIT_S2S_SECRET` entirely to use this mode.
+- It cannot be combined with `MCP_ALLOW_INSECURE_DEV=1`.
+- It binds `MCP_HTTP_HOST` only when that variable is set explicitly. The container image does not set it, so a container needs `MCP_HTTP_HOST=0.0.0.0` as a second deliberate setting; without it, the listener stays on `127.0.0.1`.
+- Requests that carry a browser `Origin` header are rejected with HTTP 403, so web pages cannot call the server through the permissive CORS policy. Server-side MCP clients and gateways are unaffected.
+- Startup logs a security warning with the bound address.
+
+**Anyone who can reach the listener can call every tool with the permissions of the configured Autotask API user.** Use this mode only when firewall rules or network policy (for example a Kubernetes `NetworkPolicy` or an internal-only Docker network) limit access to the trusted MCP client, never publish the port on a public interface, and prefer an Autotask API user with the least privilege your workflows need.
+
+```bash
+docker run -d \
+  --name autotask-mcp \
+  --network internal-mcp \
+  -e AUTH_MODE=env \
+  -e MCP_ALLOW_UNAUTHENTICATED_HTTP=1 \
+  -e MCP_HTTP_HOST=0.0.0.0 \
+  -e AUTOTASK_USERNAME="api-user@example.com" \
+  -e AUTOTASK_SECRET="your-secret" \
+  -e AUTOTASK_INTEGRATION_CODE="your-code" \
+  ghcr.io/wyre-ai/autotask-mcp:latest
+```
 
 **Health Check Response (Gateway Mode):**
 
@@ -683,9 +715,10 @@ npm test -- tests/autotask-service.test.ts
 | `MCP_SERVER_NAME` | ❌ | `autotask-mcp` | MCP server name |
 | `MCP_TRANSPORT` | ❌ | `stdio` | Transport type (`stdio` or `http`) |
 | `MCP_HTTP_PORT` | ❌ | `8080` | HTTP transport port |
-| `MCP_HTTP_HOST` | ❌ | `0.0.0.0` when a secret is set; `127.0.0.1` without one | HTTP bind address. A configured `CONDUIT_S2S_SECRET` honors this variable. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
+| `MCP_HTTP_HOST` | ❌ | `0.0.0.0` when a secret is set; `127.0.0.1` without one | HTTP bind address. A configured `CONDUIT_S2S_SECRET` honors this variable, and so does `MCP_ALLOW_UNAUTHENTICATED_HTTP=1` when the variable is set explicitly. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
 | `CONDUIT_S2S_SECRET` | Yes for HTTP | — | Service-to-service secret for `X-Gateway-S2S`. HTTP exits if this is empty or a known placeholder. Never commit a real value. |
 | `MCP_ALLOW_INSECURE_DEV` | ❌ | unset | Set to exactly `1` for local HTTP without a usable secret. Logs a warning, skips `X-Gateway-S2S`, and listens on `127.0.0.1` only. |
+| `MCP_ALLOW_UNAUTHENTICATED_HTTP` | ❌ | unset | Set to exactly `1` for a single-tenant `AUTH_MODE=env` deployment on a trusted private network. Skips `X-Gateway-S2S`, binds an explicitly set `MCP_HTTP_HOST`, rejects browser `Origin` requests, and logs a security warning. Refused in gateway mode, with a placeholder secret, or with `MCP_ALLOW_INSECURE_DEV=1`. See [Direct deployments on a private network](#direct-deployments-on-a-private-network). |
 | `LOG_LEVEL` | ❌ | `info` | Logging level |
 | `LOG_FORMAT` | ❌ | `simple` | Log output format |
 | `AUTOTASK_ENHANCE_CONCURRENCY` | ❌ | `3` | Max concurrent Autotask API calls used to resolve company/resource names on search results. Kept low to stay under Autotask's concurrent-thread limit. |
