@@ -1642,13 +1642,19 @@ export class AutotaskToolHandler {
           'companynotes': 'CompanyNotes',
         };
         const entityType = entityAliases[rawEntityType.toLowerCase()] || rawEntityType;
-        const fields = await this.picklistCache.getFields(entityType);
+        const { fields, unavailable } = await this.picklistCache.lookupFields(entityType);
+        const httpStatus = unavailable?.status !== undefined ? ` (HTTP ${unavailable.status})` : '';
+        if (unavailable && fields.length === 0) {
+          throw new Error(`Could not load field info for ${rawEntityType} from Autotask${httpStatus}. Try again shortly.`);
+        }
+        // A failed refresh serves the last good copy; say so rather than report a clean read.
+        const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
         if (typeof rawFieldName === 'string' && rawFieldName.length > 0) {
           const field = fields.find(f => f.name?.toLowerCase() === rawFieldName.toLowerCase());
-          return { result: field || null, message: field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}` };
+          return { result: field || null, message: (field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}`) + staleNote };
         }
         const summary = fields.map(f => ({ name: f.name, dataType: f.dataType, isRequired: f.isRequired, isPickList: f.isPickList, isQueryable: f.isQueryable, picklistValueCount: f.picklistValues?.length || 0 }));
-        return { result: summary, message: `Found ${fields.length} fields for ${rawEntityType}` };
+        return { result: summary, message: `Found ${fields.length} fields for ${rawEntityType}${staleNote}` };
       }],
 
       // Billing Items (Approve and Post workflow)

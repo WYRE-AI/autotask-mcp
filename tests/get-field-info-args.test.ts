@@ -69,3 +69,25 @@ describe('autotask_get_field_info argument handling', () => {
     expect(res.content[0].text).toContain('Found 2 fields');
   });
 });
+
+describe('autotask_get_field_info when Autotask fails', () => {
+  const failingHandler = (lookup: { fields: unknown[]; unavailable?: { status?: number } }) => {
+    const handler = makeHandler();
+    (handler as unknown as { picklistCache: { lookupFields: jest.Mock } }).picklistCache.lookupFields =
+      jest.fn().mockResolvedValue(lookup);
+    return handler;
+  };
+
+  it('returns an error with the vendor status when nothing is cached', async () => {
+    const res = await callTool(failingHandler({ fields: [], unavailable: { status: 429 } }), { entityType: 'Tickets' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('Could not load field info for Tickets from Autotask (HTTP 429)');
+  });
+
+  it('says a cached copy was served when a refresh failed', async () => {
+    const res = await callTool(failingHandler({ fields: FIELDS, unavailable: { status: 503 } }), { entityType: 'TicketNotes', fieldName: 'noteType' });
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('noteType');
+    expect(res.content[0].text).toContain('cached copy: refreshing from Autotask failed (HTTP 503)');
+  });
+});

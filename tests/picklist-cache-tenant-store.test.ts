@@ -24,6 +24,7 @@ const fields = (label: string): FieldInfo[] => [
   },
 ];
 const labelOf = (f: FieldInfo[]) => f[0]?.picklistValues?.[0]?.label;
+const flush = () => new Promise((r) => setImmediate(r));
 
 beforeEach(() => _resetSharedPicklistStore());
 
@@ -95,19 +96,84 @@ describe('PicklistCache shared store', () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it('refetches after the TTL, and serves the last good copy if that refetch fails', async () => {
+  it('serves an expired entry at once and refreshes it once in the background', async () => {
+    let resolve!: (f: FieldInfo[]) => void;
     const load = jest
       .fn()
       .mockResolvedValueOnce(fields('Old'))
-      .mockRejectedValueOnce(new Error('HTTP 429'))
-      .mockResolvedValueOnce(fields('New'));
+      .mockReturnValueOnce(new Promise<FieldInfo[]>((r) => (resolve = r)));
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
     try {
       await new PicklistCache(logger, load, 'k').getFields('Tickets');
       now.mockReturnValue(1_000 + TTL_MS + 1);
+      // Both callers get the old copy without waiting; one refresh starts.
       expect(labelOf(await new PicklistCache(logger, load, 'k').getFields('Tickets'))).toBe('Old');
+      expect(labelOf(await new PicklistCache(logger, load, 'k').getFields('Tickets'))).toBe('Old');
+      expect(load).toHaveBeenCalledTimes(2);
+      resolve(fields('New'));
+      await flush();
       expect(labelOf(await new PicklistCache(logger, load, 'k').getFields('Tickets'))).toBe('New');
+      expect(load).toHaveBeenCalledTimes(2);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('after a failed refresh, serves the last good copy with the status and backs off', async () => {
+    const load = jest
+      .fn()
+      .mockResolvedValueOnce(fields('Old'))
+      .mockRejectedValueOnce(Object.assign(new Error('HTTP 429'), { status: 429 }))
+      .mockResolvedValueOnce(fields('New'));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      const cache = () => new PicklistCache(logger, load, 'k');
+      await cache().getFields('Tickets');
+      now.mockReturnValue(1_000 + TTL_MS + 1);
+      await cache().lookupFields('Tickets'); // starts the refresh, which fails
+      await flush();
+
+      // Within the backoff: no new request, old copy plus the failure.
+      now.mockReturnValue(1_000 + TTL_MS + 10_000);
+      const during = await cache().lookupFields('Tickets');
+      expect(labelOf(during.fields)).toBe('Old');
+      expect(during.unavailable).toEqual({ status: 429 });
+      expect(load).toHaveBeenCalledTimes(2);
+
+      // After it: one retry, which succeeds and clears the failure.
+      now.mockReturnValue(1_000 + TTL_MS + 31_000);
+      await cache().lookupFields('Tickets');
+      await flush();
+      const after = await cache().lookupFields('Tickets');
+      expect(labelOf(after.fields)).toBe('New');
+      expect(after.unavailable).toBeUndefined();
       expect(load).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('with nothing cached, a failure returns [] with the status', async () => {
+    const load = jest.fn().mockRejectedValue(Object.assign(new Error('HTTP 500'), { status: 500 }));
+    expect(await new PicklistCache(logger, load, 'k').lookupFields('Tickets')).toEqual({ fields: [], unavailable: { status: 500 } });
+  });
+
+  it('a caller joining a failed refresh after its entry was evicted still gets the last good copy', async () => {
+    let reject!: (e: Error) => void;
+    const load = jest.fn().mockImplementation(async (entity: string) => fields(entity));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      await new PicklistCache(logger, jest.fn().mockResolvedValue(fields('Old')), 'k').getFields('Tickets');
+      now.mockReturnValue(1_000 + TTL_MS + 1);
+      const failing = jest.fn().mockReturnValue(new Promise<FieldInfo[]>((_, r) => (reject = r)));
+      await new PicklistCache(logger, failing, 'k').lookupFields('Tickets'); // refresh in flight
+      for (let i = 0; i < 1000; i++) await new PicklistCache(logger, load, `k${i}`).getFields('Tickets'); // evicts 'k'
+      const joined = new PicklistCache(logger, failing, 'k').lookupFields('Tickets');
+      reject(new Error('HTTP 503'));
+      const got = await joined;
+      expect(labelOf(got.fields)).toBe('Old');
+      expect(got.unavailable).toEqual({});
+      expect(failing).toHaveBeenCalledTimes(1);
     } finally {
       now.mockRestore();
     }
