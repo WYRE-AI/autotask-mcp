@@ -193,17 +193,20 @@ export class PicklistCache {
    */
   private refresh(key: string, entityType: string, stale: FieldInfo[] | undefined, now: number): Promise<FieldsLookup> {
     const live = this.liveLoad(key, now);
-    if (live) return live.promise;
+    if (live) return this.join(live, key, entityType, stale);
 
     const inFlight: InFlight = { startedAt: now, promise: Promise.resolve({ fields: [] }) };
     inFlight.promise = this.loadFields(entityType)
       .then((loaded): FieldsLookup => {
+        // A load replaced as dead may still settle; it must not touch the
+        // newer entry, only answer the callers that awaited it.
+        const current = this.loading.get(key) === inFlight;
         if (!loaded.unavailable) {
-          this.store(key, loaded.fields);
+          if (current) this.store(key, loaded.fields);
           return { fields: loaded.fields };
         }
         const entry = this.cache.get(key);
-        if (entry) {
+        if (entry && current) {
           entry.retryAfter = Date.now() + RETRY_BACKOFF_MS;
           entry.failure = loaded.unavailable;
         }
@@ -215,6 +218,26 @@ export class PicklistCache {
       });
     this.loading.set(key, inFlight);
     return inFlight.promise;
+  }
+
+  /**
+   * Wait on a load another caller started, but only for the time it has left
+   * before it counts as dead: it may belong to a request whose I/O was
+   * cancelled and never settle. Past that, start a fresh load.
+   */
+  private async join(live: InFlight, key: string, entityType: string, stale: FieldInfo[] | undefined): Promise<FieldsLookup> {
+    const remaining = Math.max(0, LOAD_DEAD_AFTER_MS - (Date.now() - live.startedAt));
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const expired = new Promise<null>((resolve) => {
+      timer = setTimeout(() => resolve(null), remaining);
+    });
+    try {
+      const result = await Promise.race([live.promise, expired]);
+      if (result) return result;
+    } finally {
+      clearTimeout(timer);
+    }
+    return this.refresh(key, entityType, stale, live.startedAt + LOAD_DEAD_AFTER_MS);
   }
 
   private store(key: string, fields: FieldInfo[]): void {

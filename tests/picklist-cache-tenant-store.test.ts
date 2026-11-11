@@ -129,6 +129,47 @@ describe('PicklistCache shared store', () => {
     }
   });
 
+  it('a caller that joined a load that never settles gives up when it counts as dead, and loads afresh', async () => {
+    jest.useFakeTimers({ doNotFake: ['Date'] });
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      void new PicklistCache(logger, jest.fn().mockReturnValue(new Promise<FieldInfo[]>(() => {})), 'k').getFields('Tickets');
+      const fresh = jest.fn().mockResolvedValue(fields('New'));
+      const joined = new PicklistCache(logger, fresh, 'k').getFields('Tickets');
+      await jest.advanceTimersByTimeAsync(89_000);
+      expect(fresh).not.toHaveBeenCalled();
+      await jest.advanceTimersByTimeAsync(1_000);
+      expect(labelOf(await joined)).toBe('New');
+      expect(fresh).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('a load replaced as dead neither overwrites nor marks the newer entry when it settles', async () => {
+    let settleOld!: { resolve: (f: FieldInfo[]) => void; reject: (e: Error) => void };
+    const slow = () => new Promise<FieldInfo[]>((resolve, reject) => (settleOld = { resolve, reject }));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      for (const outcome of ['fail', 'succeed'] as const) {
+        _resetSharedPicklistStore();
+        now.mockReturnValue(1_000);
+        const old = new PicklistCache(logger, jest.fn().mockImplementation(slow), 'k').getFields('Tickets');
+        now.mockReturnValue(1_000 + 91_000);
+        await new PicklistCache(logger, jest.fn().mockResolvedValue(fields('New')), 'k').getFields('Tickets');
+        if (outcome === 'fail') settleOld.reject(new Error('HTTP 500'));
+        else settleOld.resolve(fields('Old'));
+        await old;
+        const after = await new PicklistCache(logger, jest.fn(), 'k').lookupFields('Tickets');
+        expect(labelOf(after.fields)).toBe('New');
+        expect(after.unavailable).toBeUndefined();
+      }
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('remembers a cold failure for the instance, so one request makes one failing call', async () => {
     const load = jest.fn().mockRejectedValue(Object.assign(new Error('HTTP 429'), { status: 429 }));
     const cache = new PicklistCache(logger, load, 'k');
