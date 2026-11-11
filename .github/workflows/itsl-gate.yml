@@ -1,9 +1,13 @@
-# IT Simply push gate: every push to main and every pull request runs the
-# registry signature check, the runtime audit, the build and the tests on a
-# clean GitHub-hosted runner. Added 2026-10-13. Separate from upstream's CI files.
-# Actions pinned by full commit SHA (2 Oct 2026):
-#   actions/checkout    v7.0.1  3d3c42e5aac5ba805825da76410c181273ba90b1
-#   actions/setup-node  v7.0.0  820762786026740c76f36085b0efc47a31fe5020
+# IT Simply gate (the IT Simply CI standard, 2026-11-12): one workflow, and its
+# final job `gate` is the only required status check. `gate` passes only if every
+# job below succeeded: checks (registry signatures, runtime audit, build, tests),
+# gitleaks (full-history secret scan) and docker-build (image builds and boots).
+# Separate from upstream's CI files, which are not touched.
+# Actions pinned by full commit SHA:
+#   actions/checkout              v7.0.1  3d3c42e5aac5ba805825da76410c181273ba90b1
+#   actions/setup-node            v7.1.0  949feb2413d6458794dcd2491c4babbbce0c15c1
+#   docker/setup-buildx-action    v4.4.1  f87e5991a6d7451dcb8d9637bfbc97413f497069
+#   docker/build-push-action      v7.4.0  c3c9e263c25d99ce0380d002d59b67737d91b0dc
 #
 # @wyre-* dependencies live on WYRE-AI's GitHub Packages registry, which needs
 # a token even to read. secrets.WYRE_PACKAGES_TOKEN is a classic PAT with
@@ -22,12 +26,21 @@ on:
 permissions:
   contents: read
 
+concurrency:
+  group: itsl-gate-${{ github.ref }}
+  # Cancel superseded runs on PRs only: on main, cancelling would leave an
+  # intermediate merge commit unverified (a cancelled check reads as never ran).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
-  gate:
+  checks:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: '26'
       - name: Configure npm for GitHub Packages
@@ -48,5 +61,97 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.WYRE_PACKAGES_TOKEN }}
       - name: Build
         run: npm run build
+      - name: Lint
+        run: npm run lint
       - name: Test
         run: npm test
+
+  # GitHub secret scanning is a paid add-on on private repos and gitleaks-action
+  # needs a licence for organisations, so the open-source binary is used, pinned
+  # by SHA-256.
+  gitleaks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      GITLEAKS_VERSION: '8.30.1'
+      GITLEAKS_SHA256: '551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Download gitleaks and verify its SHA-256
+        run: |
+          set -euo pipefail
+          tarball="gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz"
+          curl -fsSL -o "$RUNNER_TEMP/$tarball" \
+            "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/${tarball}"
+          echo "${GITLEAKS_SHA256}  $RUNNER_TEMP/$tarball" | sha256sum --check --strict -
+          mkdir "$RUNNER_TEMP/gitleaks"
+          tar -xzf "$RUNNER_TEMP/$tarball" -C "$RUNNER_TEMP/gitleaks" gitleaks
+      - name: gitleaks (full history)
+        run: '"$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --exit-code 1'
+
+  # Build only, never pushed: push: false, no registry login, no publish credentials.
+  # AUTH_MODE=gateway means the server takes credentials per request, so it boots with no secrets at all.
+  docker-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build image (not pushed)
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          load: true
+          provenance: false
+          tags: itsl-docker-build:pr
+          # The Dockerfile reads ARG GITHUB_TOKEN to write its own .npmrc, so a build-arg is the
+          # only way in. Actions masks the value in logs, and the image is never pushed or exported
+          # (load: true keeps it in the runner local daemon), so the token cannot leave this job.
+          # WYRE_PACKAGES_TOKEN is the org secret the checks job uses; the GITHUB_TOKEN fallback is for
+          # Dependabot and fork PRs, which get no org secrets (the upstream release workflow also
+          # uses GITHUB_TOKEN here).
+          build-args: |
+            GITHUB_TOKEN=${{ secrets.WYRE_PACKAGES_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Smoke test (container stays up and /health answers)
+        run: |
+          set -euo pipefail
+          docker run -d --name smoke -p 8080:8080 \
+            -e MCP_TRANSPORT=http \
+            -e AUTH_MODE=gateway \
+            itsl-docker-build:pr
+          ok=0
+          for i in $(seq 1 30); do
+            if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != "true" ]; then
+              echo "::error::container exited during startup"; docker logs smoke; exit 1
+            fi
+            if curl -fsS "http://127.0.0.1:8080/health"; then ok=1; break; fi
+            sleep 1
+          done
+          if [ "$ok" != 1 ]; then echo "::error::/health never answered"; docker logs smoke; exit 1; fi
+          sleep 5
+          if [ "$(docker inspect -f '{{.State.Running}}' smoke)" != "true" ]; then
+            echo "::error::container died after starting"; docker logs smoke; exit 1
+          fi
+          docker logs smoke
+
+  gate:
+    if: always()
+    needs: [checks, gitleaks, docker-build]
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: All gate jobs succeeded
+        env:
+          RESULTS: ${{ toJSON(needs.*.result) }}
+        run: |
+          echo "$RESULTS"
+          [ "$(echo "$RESULTS" | jq -r 'length > 0 and all(. == "success")')" = "true" ]
