@@ -29,105 +29,109 @@ export interface FieldInfo {
 /** How long loaded field info is reused before it is fetched again. */
 const PICKLIST_TTL_MS = 30 * 60 * 1000;
 
+/** Upper bound on shared entries (credential set x entity type). */
+const SHARED_MAX_ENTRIES = 1000;
+
 interface CachedFields {
   fields: FieldInfo[];
   loadedAt: number;
 }
 
-interface PicklistStore {
-  cache: Map<string, CachedFields>;
-  loading: Map<string, Promise<FieldInfo[] | null>>;
-}
-
 /**
- * Cross-request store, keyed by tenant (and by impersonated resource, when
- * there is one).
+ * Cross-request store for field info, keyed by credential fingerprint (see
+ * AutotaskService.getPicklistStoreKey) plus entity type.
  *
  * In gateway mode a new tool handler, and so a new PicklistCache, is built for
  * every request. With instance-local data every request refetched the field
  * definitions it needed: get_ticket_details alone pulls Tickets and
- * TicketNotes field info on each call. Same pattern and isolation argument as
- * tenantCacheStore in mapping.service.ts: the key is the tenant identity, so
- * two tenants never share an entry. Impersonated calls get their own key
- * because Autotask limits them to the impersonated resource's security level,
- * and that narrower view must not be served to anyone else.
+ * TicketNotes field info on each call.
+ *
+ * A hit returns data without calling Autotask, so the key has to prove the
+ * caller holds the same credentials that loaded it, not just name the same
+ * tenant: it is a hash of username, secret, integration code and API URL, and
+ * an impersonated resource gets its own key because Autotask narrows its
+ * view. Only successful loads are stored, so credentials Autotask rejects
+ * never create an entry. Least recently used entries are evicted past
+ * SHARED_MAX_ENTRIES.
  */
-const tenantPicklistStore = new Map<string, PicklistStore>();
+const sharedFields = new Map<string, CachedFields>();
+const sharedLoading = new Map<string, Promise<FieldInfo[] | null>>();
 
-/** Reset the tenant picklist store. Intended for tests only. */
+/** Reset the shared picklist store. Intended for tests only. */
 export function _resetTenantPicklistStore(): void {
-  tenantPicklistStore.clear();
-}
-
-/** Store key for a tenant, or undefined to keep the cache instance-local. */
-export function picklistStoreKey(
-  tenantKey: string | null | undefined,
-  impersonationResourceId?: number
-): string | undefined {
-  if (!tenantKey) return undefined;
-  const tenant = tenantKey.toLowerCase();
-  return impersonationResourceId === undefined ? tenant : `${tenant}#as:${impersonationResourceId}`;
-}
-
-function newStore(): PicklistStore {
-  return { cache: new Map(), loading: new Map() };
+  sharedFields.clear();
+  sharedLoading.clear();
 }
 
 export class PicklistCache {
   private cache: Map<string, CachedFields>;
   private loading: Map<string, Promise<FieldInfo[] | null>>;
+  private keyPrefix: string;
+  private maxEntries: number;
   private logger: Logger;
   private getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>;
-  private ttlMs: number;
 
   /**
-   * With a `storeKey` (see picklistStoreKey) the loaded data is shared with
-   * every PicklistCache for the same key; without one it is instance-local.
+   * With a `storeKey` the loaded data is shared with every PicklistCache for
+   * the same key; without one it is instance-local.
    */
   constructor(
     logger: Logger,
     getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>,
-    storeKey?: string,
-    ttlMs: number = PICKLIST_TTL_MS
+    storeKey?: string
   ) {
     this.logger = logger;
     this.getFieldInfoFn = getFieldInfoFn;
-    this.ttlMs = ttlMs;
-    let store: PicklistStore;
     if (storeKey) {
-      store = tenantPicklistStore.get(storeKey) ?? newStore();
-      tenantPicklistStore.set(storeKey, store);
+      this.cache = sharedFields;
+      this.loading = sharedLoading;
+      this.keyPrefix = `${storeKey}\u0000`;
+      this.maxEntries = SHARED_MAX_ENTRIES;
     } else {
-      store = newStore();
+      this.cache = new Map();
+      this.loading = new Map();
+      this.keyPrefix = '';
+      this.maxEntries = Infinity;
     }
-    this.cache = store.cache;
-    this.loading = store.loading;
   }
 
   /**
    * Get field info for an entity type (lazy-loaded, cached).
    *
-   * A failed load returns [] and is not cached, so the next call retries.
-   * Caching it would pin an empty picklist for the whole TTL, and with a
-   * shared store, for every request of the tenant.
+   * A failed load is not cached, so the next call retries. It returns the
+   * last good copy if there is one, else [].
    */
   async getFields(entityType: string): Promise<FieldInfo[]> {
-    const cached = this.cache.get(entityType);
-    if (cached && Date.now() - cached.loadedAt < this.ttlMs) {
+    const key = this.keyPrefix + entityType;
+    const cached = this.cache.get(key);
+    if (cached && Date.now() - cached.loadedAt < PICKLIST_TTL_MS) {
+      // Re-insert so Map order tracks recency for eviction.
+      this.cache.delete(key);
+      this.cache.set(key, cached);
       return cached.fields;
     }
 
-    let pending = this.loading.get(entityType);
+    let pending = this.loading.get(key);
     if (!pending) {
       pending = this.loadFields(entityType)
         .then((fields) => {
-          if (fields !== null) this.cache.set(entityType, { fields, loadedAt: Date.now() });
+          if (fields !== null) this.store(key, fields);
           return fields;
         })
-        .finally(() => this.loading.delete(entityType));
-      this.loading.set(entityType, pending);
+        .finally(() => this.loading.delete(key));
+      this.loading.set(key, pending);
     }
-    return (await pending) ?? [];
+    return (await pending) ?? cached?.fields ?? [];
+  }
+
+  private store(key: string, fields: FieldInfo[]): void {
+    this.cache.delete(key);
+    this.cache.set(key, { fields, loadedAt: Date.now() });
+    while (this.cache.size > this.maxEntries) {
+      const oldest = this.cache.keys().next().value;
+      if (oldest === undefined) break;
+      this.cache.delete(oldest);
+    }
   }
 
   /**
@@ -163,17 +167,6 @@ export class PicklistCache {
    */
   async getTicketPriorities(): Promise<PicklistValue[]> {
     return this.getPicklistValues('Tickets', 'priority');
-  }
-
-  /**
-   * Clear cache (e.g., if picklist values change)
-   */
-  clearCache(entityType?: string): void {
-    if (entityType) {
-      this.cache.delete(entityType);
-    } else {
-      this.cache.clear();
-    }
   }
 
   /** Resolves to null on failure, so a shared in-flight load never rejects. */

@@ -6,6 +6,7 @@
 // silently drops filters), so we now bypass it entirely. Zero new runtime
 // deps — only Node 18+ built-in `fetch` via AutotaskHttpClient.
 
+import { createHash } from 'node:crypto';
 import { resolveAutotaskApiUrl } from '../utils/config';
 import { AutotaskHttpClient, QueryFilter } from './autotask-http';
 import {
@@ -154,9 +155,20 @@ export class AutotaskService {
     return username ? username.toLowerCase() : null;
   }
 
-  /** The Autotask resource this service impersonates, if any. */
-  getImpersonationResourceId(): number | undefined {
-    return this.config.autotask.impersonationResourceId;
+  /**
+   * Key for caches that return data without calling Autotask (see
+   * PicklistCache): a fingerprint of the full credential set and API URL, so a
+   * hit requires the same credentials that loaded the data, plus the
+   * impersonated resource, whose view Autotask narrows. Null when credentials
+   * aren't configured.
+   */
+  getPicklistStoreKey(): string | null {
+    const { username, secret, integrationCode, apiUrl, impersonationResourceId } = this.config.autotask;
+    if (!username || !secret || !integrationCode) return null;
+    const fingerprint = createHash('sha256')
+      .update([username.toLowerCase(), secret, integrationCode, apiUrl ?? ''].join('\u0000'))
+      .digest('hex');
+    return impersonationResourceId === undefined ? fingerprint : `${fingerprint}#as:${impersonationResourceId}`;
   }
 
   /**

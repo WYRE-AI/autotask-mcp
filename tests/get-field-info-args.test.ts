@@ -29,8 +29,7 @@ function makeHandler(): AutotaskToolHandler {
     getFieldInfo: jest.fn().mockResolvedValue(FIELDS),
     // No tenant key keeps the picklist cache instance-local, so tests can't
     // share field info through the cross-request store.
-    getTenantKey: jest.fn().mockReturnValue(null),
-    getImpersonationResourceId: jest.fn().mockReturnValue(undefined),
+    getPicklistStoreKey: jest.fn().mockReturnValue(null),
   } as unknown as jest.Mocked<AutotaskService>;
   return new AutotaskToolHandler(svc, logger);
 }

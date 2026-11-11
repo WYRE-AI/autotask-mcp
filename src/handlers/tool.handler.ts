@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/server";
 // Handles MCP tool calls for Autotask operations (search, create, update)
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
-import { PicklistCache, PicklistValue, picklistStoreKey } from '../services/picklist.cache.js';
+import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
@@ -164,10 +164,7 @@ export class AutotaskToolHandler {
     this.picklistCache = new PicklistCache(
       logger,
       (entityType) => this.autotaskService.getFieldInfo(entityType),
-      picklistStoreKey(
-        this.autotaskService.getTenantKey(),
-        this.autotaskService.getImpersonationResourceId()
-      )
+      this.autotaskService.getPicklistStoreKey() ?? undefined
     );
   }
 
