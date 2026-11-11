@@ -278,6 +278,24 @@ export class AutotaskToolHandler {
   }
 
   /**
+   * A Tickets picklist as { id, name, isActive }, for the list_* tools. A
+   * failed load with nothing cached is an error carrying the vendor status; a
+   * stale copy after a failed refresh is returned with a note saying so.
+   */
+  private async listTicketPicklist(fieldName: string, label: string): Promise<{ result: unknown; message: string }> {
+    const { values, unavailable } = await this.picklistCache.lookupPicklistValues('Tickets', fieldName);
+    const httpStatus = unavailable?.status !== undefined ? ` (HTTP ${unavailable.status})` : '';
+    if (unavailable && values.length === 0) {
+      throw new Error(`Could not load ${label} from Autotask${httpStatus}. Try again shortly.`);
+    }
+    const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
+    return {
+      result: values.map(v => ({ id: v.value, name: v.label, isActive: v.isActive })),
+      message: `Found ${values.length} ${label}${staleNote}`,
+    };
+  }
+
+  /**
    * Set the MCP server reference for elicitation support
    */
   setServer(server: Server): void {
@@ -1611,18 +1629,9 @@ export class AutotaskToolHandler {
         await s.deleteQuoteItem(a.quoteId, a.quoteItemId); return { result: true, message: `Quote item ${a.quoteItemId} deleted successfully` };
       }],
       // Picklist tools
-      ['autotask_list_queues', async () => {
-        const queues = await this.picklistCache.getQueues();
-        return { result: queues.map(q => ({ id: q.value, name: q.label, isActive: q.isActive })), message: `Found ${queues.length} queues` };
-      }],
-      ['autotask_list_ticket_statuses', async () => {
-        const statuses = await this.picklistCache.getTicketStatuses();
-        return { result: statuses.map(s => ({ id: s.value, name: s.label, isActive: s.isActive })), message: `Found ${statuses.length} ticket statuses` };
-      }],
-      ['autotask_list_ticket_priorities', async () => {
-        const priorities = await this.picklistCache.getTicketPriorities();
-        return { result: priorities.map(p => ({ id: p.value, name: p.label, isActive: p.isActive })), message: `Found ${priorities.length} ticket priorities` };
-      }],
+      ['autotask_list_queues', async () => this.listTicketPicklist('queueID', 'queues')],
+      ['autotask_list_ticket_statuses', async () => this.listTicketPicklist('status', 'ticket statuses')],
+      ['autotask_list_ticket_priorities', async () => this.listTicketPicklist('priority', 'ticket priorities')],
       ['autotask_get_field_info', async (a) => {
         // LLMs commonly pass `entity`/`field` instead of `entityType`/`fieldName`
         // (our own picklist error hints phrase it as "entity X and field Y"),
@@ -1651,6 +1660,11 @@ export class AutotaskToolHandler {
         const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
         if (typeof rawFieldName === 'string' && rawFieldName.length > 0) {
           const field = fields.find(f => f.name?.toLowerCase() === rawFieldName.toLowerCase());
+          if (!field && unavailable) {
+            // A null result is rewritten to a generic not-found message, which
+            // would drop the failure; the field may exist in Autotask by now.
+            throw new Error(`Field '${rawFieldName}' is not in the cached field info for ${rawEntityType}, and refreshing it from Autotask failed${httpStatus}. Try again shortly.`);
+          }
           return { result: field || null, message: (field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}`) + staleNote };
         }
         const summary = fields.map(f => ({ name: f.name, dataType: f.dataType, isRequired: f.isRequired, isPickList: f.isPickList, isQueryable: f.isQueryable, picklistValueCount: f.picklistValues?.length || 0 }));

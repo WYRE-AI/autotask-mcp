@@ -24,7 +24,6 @@ const fields = (label: string): FieldInfo[] => [
   },
 ];
 const labelOf = (f: FieldInfo[]) => f[0]?.picklistValues?.[0]?.label;
-const flush = () => new Promise((r) => setImmediate(r));
 
 beforeEach(() => _resetSharedPicklistStore());
 
@@ -96,7 +95,7 @@ describe('PicklistCache shared store', () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it('serves an expired entry at once and refreshes it once in the background', async () => {
+  it('after the TTL the first caller waits for one refresh; a concurrent caller gets the cached copy at once', async () => {
     let resolve!: (f: FieldInfo[]) => void;
     const load = jest
       .fn()
@@ -106,17 +105,39 @@ describe('PicklistCache shared store', () => {
     try {
       await new PicklistCache(logger, load, 'k').getFields('Tickets');
       now.mockReturnValue(1_000 + TTL_MS + 1);
-      // Both callers get the old copy without waiting; one refresh starts.
+      const first = new PicklistCache(logger, load, 'k').getFields('Tickets');
       expect(labelOf(await new PicklistCache(logger, load, 'k').getFields('Tickets'))).toBe('Old');
-      expect(labelOf(await new PicklistCache(logger, load, 'k').getFields('Tickets'))).toBe('Old');
-      expect(load).toHaveBeenCalledTimes(2);
       resolve(fields('New'));
-      await flush();
-      expect(labelOf(await new PicklistCache(logger, load, 'k').getFields('Tickets'))).toBe('New');
+      expect(labelOf(await first)).toBe('New');
       expect(load).toHaveBeenCalledTimes(2);
     } finally {
       now.mockRestore();
     }
+  });
+
+  it('replaces an in-flight load that looks dead', async () => {
+    const hung = jest.fn().mockReturnValue(new Promise<FieldInfo[]>(() => {}));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      void new PicklistCache(logger, hung, 'k').getFields('Tickets'); // never settles
+      now.mockReturnValue(1_000 + 91_000);
+      const fresh = jest.fn().mockResolvedValue(fields('New'));
+      expect(labelOf(await new PicklistCache(logger, fresh, 'k').getFields('Tickets'))).toBe('New');
+      expect(fresh).toHaveBeenCalledTimes(1);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
+  it('remembers a cold failure for the instance, so one request makes one failing call', async () => {
+    const load = jest.fn().mockRejectedValue(Object.assign(new Error('HTTP 429'), { status: 429 }));
+    const cache = new PicklistCache(logger, load, 'k');
+    for (const field of ['status', 'priority', 'queueID']) await cache.getPicklistValues('Tickets', field);
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(await cache.lookupPicklistValues('Tickets', 'status')).toEqual({ values: [], unavailable: { status: 429 } });
+    // Another instance (the next request) tries again: nothing went into the shared store.
+    await new PicklistCache(logger, load, 'k').getFields('Tickets');
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('after a failed refresh, serves the last good copy with the status and backs off', async () => {
@@ -130,8 +151,9 @@ describe('PicklistCache shared store', () => {
       const cache = () => new PicklistCache(logger, load, 'k');
       await cache().getFields('Tickets');
       now.mockReturnValue(1_000 + TTL_MS + 1);
-      await cache().lookupFields('Tickets'); // starts the refresh, which fails
-      await flush();
+      const failed = await cache().lookupFields('Tickets'); // waits for the refresh, which fails
+      expect(labelOf(failed.fields)).toBe('Old');
+      expect(failed.unavailable).toEqual({ status: 429 });
 
       // Within the backoff: no new request, old copy plus the failure.
       now.mockReturnValue(1_000 + TTL_MS + 10_000);
@@ -142,8 +164,6 @@ describe('PicklistCache shared store', () => {
 
       // After it: one retry, which succeeds and clears the failure.
       now.mockReturnValue(1_000 + TTL_MS + 31_000);
-      await cache().lookupFields('Tickets');
-      await flush();
       const after = await cache().lookupFields('Tickets');
       expect(labelOf(after.fields)).toBe('New');
       expect(after.unavailable).toBeUndefined();
@@ -166,11 +186,12 @@ describe('PicklistCache shared store', () => {
       await new PicklistCache(logger, jest.fn().mockResolvedValue(fields('Old')), 'k').getFields('Tickets');
       now.mockReturnValue(1_000 + TTL_MS + 1);
       const failing = jest.fn().mockReturnValue(new Promise<FieldInfo[]>((_, r) => (reject = r)));
-      await new PicklistCache(logger, failing, 'k').lookupFields('Tickets'); // refresh in flight
+      const starter = new PicklistCache(logger, failing, 'k').lookupFields('Tickets'); // refresh in flight
       for (let i = 0; i < 1000; i++) await new PicklistCache(logger, load, `k${i}`).getFields('Tickets'); // evicts 'k'
       const joined = new PicklistCache(logger, failing, 'k').lookupFields('Tickets');
       reject(new Error('HTTP 503'));
       const got = await joined;
+      expect(labelOf((await starter).fields)).toBe('Old');
       expect(labelOf(got.fields)).toBe('Old');
       expect(got.unavailable).toEqual({});
       expect(failing).toHaveBeenCalledTimes(1);

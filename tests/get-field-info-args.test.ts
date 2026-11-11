@@ -84,10 +84,39 @@ describe('autotask_get_field_info when Autotask fails', () => {
     expect(res.content[0].text).toContain('Could not load field info for Tickets from Autotask (HTTP 429)');
   });
 
+  it('keeps the failure when the requested field is missing from a stale copy', async () => {
+    const res = await callTool(failingHandler({ fields: FIELDS, unavailable: { status: 503 } }), { entityType: 'TicketNotes', fieldName: 'publish' });
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain("Field 'publish' is not in the cached field info for TicketNotes, and refreshing it from Autotask failed (HTTP 503)");
+  });
+
   it('says a cached copy was served when a refresh failed', async () => {
     const res = await callTool(failingHandler({ fields: FIELDS, unavailable: { status: 503 } }), { entityType: 'TicketNotes', fieldName: 'noteType' });
     expect(res.isError).toBeFalsy();
     expect(res.content[0].text).toContain('noteType');
     expect(res.content[0].text).toContain('cached copy: refreshing from Autotask failed (HTTP 503)');
+  });
+});
+
+describe('autotask_list_* picklist tools when Autotask fails', () => {
+  const handlerWith = (lookup: { values: unknown[]; unavailable?: { status?: number } }) => {
+    const handler = makeHandler();
+    (handler as unknown as { picklistCache: { lookupPicklistValues: jest.Mock } }).picklistCache.lookupPicklistValues =
+      jest.fn().mockResolvedValue(lookup);
+    return handler;
+  };
+  const list = (handler: AutotaskToolHandler, name: string) =>
+    (handler as unknown as { callTool: (n: string, a: object) => Promise<{ isError?: boolean; content: Array<{ text: string }> }> }).callTool(name, {});
+
+  it('returns an error with the vendor status instead of "Found 0" when nothing is cached', async () => {
+    const res = await list(handlerWith({ values: [], unavailable: { status: 429 } }), 'autotask_list_queues');
+    expect(res.isError).toBe(true);
+    expect(res.content[0].text).toContain('Could not load queues from Autotask (HTTP 429)');
+  });
+
+  it('notes a cached copy after a failed refresh', async () => {
+    const res = await list(handlerWith({ values: [{ value: '1', label: 'New' }], unavailable: { status: 503 } }), 'autotask_list_ticket_statuses');
+    expect(res.isError).toBeFalsy();
+    expect(res.content[0].text).toContain('Found 1 ticket statuses (cached copy: refreshing from Autotask failed (HTTP 503))');
   });
 });

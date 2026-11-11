@@ -33,6 +33,13 @@ const PICKLIST_TTL_MS = 30 * 60 * 1000;
 /** After a failed refresh, how long the last good copy is served before retrying. */
 const RETRY_BACKOFF_MS = 30 * 1000;
 
+/**
+ * An in-flight load older than this is treated as dead and replaced. On
+ * Cloudflare Workers, I/O started by a request that has ended can be
+ * cancelled, leaving a shared promise that never settles.
+ */
+const LOAD_DEAD_AFTER_MS = 90 * 1000;
+
 /** Upper bound on shared entries (credential set x entity type). */
 const SHARED_MAX_ENTRIES = 1000;
 
@@ -48,6 +55,11 @@ export interface FieldsUnavailable {
 export interface FieldsLookup {
   fields: FieldInfo[];
   unavailable?: FieldsUnavailable;
+}
+
+interface InFlight {
+  promise: Promise<FieldsLookup>;
+  startedAt: number;
 }
 
 interface CachedFields {
@@ -77,7 +89,7 @@ interface CachedFields {
  * warm: a busy gateway can push an idle tenant out, back to fetching.
  */
 const sharedFields = new Map<string, CachedFields>();
-const sharedLoading = new Map<string, Promise<FieldsLookup>>();
+const sharedLoading = new Map<string, InFlight>();
 
 /** Reset the shared picklist store. Intended for tests only. */
 export function _resetSharedPicklistStore(): void {
@@ -87,7 +99,14 @@ export function _resetSharedPicklistStore(): void {
 
 export class PicklistCache {
   private cache: Map<string, CachedFields>;
-  private loading: Map<string, Promise<FieldsLookup>>;
+  private loading: Map<string, InFlight>;
+  /**
+   * Cold failures this instance saw (nothing cached), kept out of the shared
+   * store so rejected credentials leave nothing behind, and remembered for
+   * RETRY_BACKOFF_MS so one request (gateway mode builds an instance per
+   * request) doesn't repeat a failing call for every lookup it makes.
+   */
+  private coldFailures = new Map<string, { failure: FieldsUnavailable; retryAfter: number }>();
   private keyPrefix: string;
   private maxEntries: number;
   private logger: Logger;
@@ -125,53 +144,77 @@ export class PicklistCache {
   /**
    * Field info for an entity type, and whether the latest load failed.
    *
-   * A fresh entry is returned as is. An expired one is returned straight away
-   * while a single refresh runs in the background, so a caller only waits on
-   * Autotask when nothing is cached. A failed load is never cached: the last
-   * good copy is kept and served for RETRY_BACKOFF_MS with the failure
-   * attached, then the next lookup tries again. With nothing cached, a failure
-   * returns [] with the failure attached.
+   * A fresh entry is returned as is. When it has expired, the caller that
+   * finds it waits for a single refresh (run within its own request, so a
+   * runtime that cancels I/O after a response can't strand it), while
+   * concurrent callers get the cached copy at once. A failed load is never
+   * cached: the last good copy is kept and served with the failure attached,
+   * and refreshes are retried at most every RETRY_BACKOFF_MS. With nothing
+   * cached, a failure returns [] with the failure attached, and this instance
+   * doesn't retry it within the backoff.
    */
   async lookupFields(entityType: string): Promise<FieldsLookup> {
     const key = this.keyPrefix + entityType;
+    const now = Date.now();
     const cached = this.cache.get(key);
-    if (!cached) return this.refresh(key, entityType, undefined);
+    if (!cached) {
+      const cold = this.coldFailures.get(key);
+      if (cold && now < cold.retryAfter) return { fields: [], unavailable: cold.failure };
+      const result = await this.refresh(key, entityType, undefined, now);
+      if (result.unavailable && result.fields.length === 0) {
+        this.coldFailures.set(key, { failure: result.unavailable, retryAfter: Date.now() + RETRY_BACKOFF_MS });
+      } else {
+        this.coldFailures.delete(key);
+      }
+      return result;
+    }
 
     // Re-insert so Map order tracks recency for eviction.
     this.cache.delete(key);
     this.cache.set(key, cached);
-    const now = Date.now();
-    if (now - cached.loadedAt >= PICKLIST_TTL_MS && !(cached.retryAfter !== undefined && now < cached.retryAfter)) {
-      void this.refresh(key, entityType, cached.fields);
-    }
-    return cached.failure ? { fields: cached.fields, unavailable: cached.failure } : { fields: cached.fields };
+    const current = cached.failure ? { fields: cached.fields, unavailable: cached.failure } : { fields: cached.fields };
+    const expired = now - cached.loadedAt >= PICKLIST_TTL_MS;
+    const backingOff = cached.retryAfter !== undefined && now < cached.retryAfter;
+    if (!expired || backingOff) return current;
+    if (this.liveLoad(key, now)) return current; // another caller is refreshing it
+    return this.refresh(key, entityType, cached.fields, now);
+  }
+
+  /** The in-flight load for `key`, unless there is none or it looks dead. */
+  private liveLoad(key: string, now: number): InFlight | undefined {
+    const inFlight = this.loading.get(key);
+    return inFlight && now - inFlight.startedAt < LOAD_DEAD_AFTER_MS ? inFlight : undefined;
   }
 
   /**
-   * Start a load for `key`, or join the one in flight. The shared result
-   * carries `stale` on failure, so a caller that joins after the entry was
-   * evicted still gets the last good copy. Never rejects.
+   * Start a load for `key`, or join the live one. The shared result carries
+   * `stale` on failure, so a caller that joins after the entry was evicted
+   * still gets the last good copy. Never rejects.
    */
-  private refresh(key: string, entityType: string, stale: FieldInfo[] | undefined): Promise<FieldsLookup> {
-    let pending = this.loading.get(key);
-    if (!pending) {
-      pending = this.loadFields(entityType)
-        .then((loaded): FieldsLookup => {
-          if (!loaded.unavailable) {
-            this.store(key, loaded.fields);
-            return { fields: loaded.fields };
-          }
-          const current = this.cache.get(key);
-          if (current) {
-            current.retryAfter = Date.now() + RETRY_BACKOFF_MS;
-            current.failure = loaded.unavailable;
-          }
-          return { fields: current?.fields ?? stale ?? [], unavailable: loaded.unavailable };
-        })
-        .finally(() => this.loading.delete(key));
-      this.loading.set(key, pending);
-    }
-    return pending;
+  private refresh(key: string, entityType: string, stale: FieldInfo[] | undefined, now: number): Promise<FieldsLookup> {
+    const live = this.liveLoad(key, now);
+    if (live) return live.promise;
+
+    const inFlight: InFlight = { startedAt: now, promise: Promise.resolve({ fields: [] }) };
+    inFlight.promise = this.loadFields(entityType)
+      .then((loaded): FieldsLookup => {
+        if (!loaded.unavailable) {
+          this.store(key, loaded.fields);
+          return { fields: loaded.fields };
+        }
+        const entry = this.cache.get(key);
+        if (entry) {
+          entry.retryAfter = Date.now() + RETRY_BACKOFF_MS;
+          entry.failure = loaded.unavailable;
+        }
+        return { fields: entry?.fields ?? stale ?? [], unavailable: loaded.unavailable };
+      })
+      .finally(() => {
+        // A newer load may have replaced this one if it was taken for dead.
+        if (this.loading.get(key) === inFlight) this.loading.delete(key);
+      });
+    this.loading.set(key, inFlight);
+    return inFlight.promise;
   }
 
   private store(key: string, fields: FieldInfo[]): void {
@@ -188,14 +231,20 @@ export class PicklistCache {
    * Get picklist values for a specific field on an entity type
    */
   async getPicklistValues(entityType: string, fieldName: string): Promise<PicklistValue[]> {
-    const fields = await this.getFields(entityType);
+    return (await this.lookupPicklistValues(entityType, fieldName)).values;
+  }
+
+  /** Active picklist values for a field, and whether the latest load failed. */
+  async lookupPicklistValues(
+    entityType: string,
+    fieldName: string
+  ): Promise<{ values: PicklistValue[]; unavailable?: FieldsUnavailable }> {
+    const { fields, unavailable } = await this.lookupFields(entityType);
     const field = fields.find(f => f.name.toLowerCase() === fieldName.toLowerCase());
-
-    if (!field || !field.isPickList || !field.picklistValues) {
-      return [];
-    }
-
-    return field.picklistValues.filter(v => v.isActive !== false);
+    const values = field?.isPickList && field.picklistValues
+      ? field.picklistValues.filter(v => v.isActive !== false)
+      : [];
+    return unavailable ? { values, unavailable } : { values };
   }
 
   /**
