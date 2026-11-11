@@ -26,45 +26,108 @@ export interface FieldInfo {
   picklistParentValueField?: string;
 }
 
+/** How long loaded field info is reused before it is fetched again. */
+const PICKLIST_TTL_MS = 30 * 60 * 1000;
+
+interface CachedFields {
+  fields: FieldInfo[];
+  loadedAt: number;
+}
+
+interface PicklistStore {
+  cache: Map<string, CachedFields>;
+  loading: Map<string, Promise<FieldInfo[] | null>>;
+}
+
+/**
+ * Cross-request store, keyed by tenant (and by impersonated resource, when
+ * there is one).
+ *
+ * In gateway mode a new tool handler, and so a new PicklistCache, is built for
+ * every request. With instance-local data every request refetched the field
+ * definitions it needed: get_ticket_details alone pulls Tickets and
+ * TicketNotes field info on each call. Same pattern and isolation argument as
+ * tenantCacheStore in mapping.service.ts: the key is the tenant identity, so
+ * two tenants never share an entry. Impersonated calls get their own key
+ * because Autotask limits them to the impersonated resource's security level,
+ * and that narrower view must not be served to anyone else.
+ */
+const tenantPicklistStore = new Map<string, PicklistStore>();
+
+/** Reset the tenant picklist store. Intended for tests only. */
+export function _resetTenantPicklistStore(): void {
+  tenantPicklistStore.clear();
+}
+
+/** Store key for a tenant, or undefined to keep the cache instance-local. */
+export function picklistStoreKey(
+  tenantKey: string | null | undefined,
+  impersonationResourceId?: number
+): string | undefined {
+  if (!tenantKey) return undefined;
+  const tenant = tenantKey.toLowerCase();
+  return impersonationResourceId === undefined ? tenant : `${tenant}#as:${impersonationResourceId}`;
+}
+
+function newStore(): PicklistStore {
+  return { cache: new Map(), loading: new Map() };
+}
+
 export class PicklistCache {
-  private cache: Map<string, FieldInfo[]> = new Map();
-  private loading: Map<string, Promise<FieldInfo[]>> = new Map();
+  private cache: Map<string, CachedFields>;
+  private loading: Map<string, Promise<FieldInfo[] | null>>;
   private logger: Logger;
   private getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>;
+  private ttlMs: number;
 
+  /**
+   * With a `storeKey` (see picklistStoreKey) the loaded data is shared with
+   * every PicklistCache for the same key; without one it is instance-local.
+   */
   constructor(
     logger: Logger,
-    getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>
+    getFieldInfoFn: (entityType: string) => Promise<FieldInfo[]>,
+    storeKey?: string,
+    ttlMs: number = PICKLIST_TTL_MS
   ) {
     this.logger = logger;
     this.getFieldInfoFn = getFieldInfoFn;
+    this.ttlMs = ttlMs;
+    let store: PicklistStore;
+    if (storeKey) {
+      store = tenantPicklistStore.get(storeKey) ?? newStore();
+      tenantPicklistStore.set(storeKey, store);
+    } else {
+      store = newStore();
+    }
+    this.cache = store.cache;
+    this.loading = store.loading;
   }
 
   /**
-   * Get field info for an entity type (lazy-loaded, cached)
+   * Get field info for an entity type (lazy-loaded, cached).
+   *
+   * A failed load returns [] and is not cached, so the next call retries.
+   * Caching it would pin an empty picklist for the whole TTL, and with a
+   * shared store, for every request of the tenant.
    */
   async getFields(entityType: string): Promise<FieldInfo[]> {
-    // Return cached if available
-    if (this.cache.has(entityType)) {
-      return this.cache.get(entityType)!;
+    const cached = this.cache.get(entityType);
+    if (cached && Date.now() - cached.loadedAt < this.ttlMs) {
+      return cached.fields;
     }
 
-    // If already loading, wait for that promise
-    if (this.loading.has(entityType)) {
-      return this.loading.get(entityType)!;
+    let pending = this.loading.get(entityType);
+    if (!pending) {
+      pending = this.loadFields(entityType)
+        .then((fields) => {
+          if (fields !== null) this.cache.set(entityType, { fields, loadedAt: Date.now() });
+          return fields;
+        })
+        .finally(() => this.loading.delete(entityType));
+      this.loading.set(entityType, pending);
     }
-
-    // Start loading
-    const loadPromise = this.loadFields(entityType);
-    this.loading.set(entityType, loadPromise);
-
-    try {
-      const fields = await loadPromise;
-      this.cache.set(entityType, fields);
-      return fields;
-    } finally {
-      this.loading.delete(entityType);
-    }
+    return (await pending) ?? [];
   }
 
   /**
@@ -113,7 +176,8 @@ export class PicklistCache {
     }
   }
 
-  private async loadFields(entityType: string): Promise<FieldInfo[]> {
+  /** Resolves to null on failure, so a shared in-flight load never rejects. */
+  private async loadFields(entityType: string): Promise<FieldInfo[] | null> {
     this.logger.debug(`Loading field info for entity: ${entityType}`);
     try {
       const fields = await this.getFieldInfoFn(entityType);
@@ -121,7 +185,7 @@ export class PicklistCache {
       return fields;
     } catch (error) {
       this.logger.error(`Failed to load field info for ${entityType}:`, error);
-      return [];
+      return null;
     }
   }
 }

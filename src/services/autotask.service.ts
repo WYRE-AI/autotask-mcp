@@ -154,6 +154,11 @@ export class AutotaskService {
     return username ? username.toLowerCase() : null;
   }
 
+  /** The Autotask resource this service impersonates, if any. */
+  getImpersonationResourceId(): number | undefined {
+    return this.config.autotask.impersonationResourceId;
+  }
+
   /**
    * Initialize the Autotask HTTP client with credentials.
    *

@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/server";
 // Handles MCP tool calls for Autotask operations (search, create, update)
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
-import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
+import { PicklistCache, PicklistValue, picklistStoreKey } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
@@ -159,9 +159,15 @@ export class AutotaskToolHandler {
     this.logger = logger;
     this.lazyLoading = lazyLoading;
     this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
+    // Shared across same-tenant handlers (see tenantPicklistStore), so gateway
+    // mode's per-request handlers stop refetching field info on every call.
     this.picklistCache = new PicklistCache(
       logger,
-      (entityType) => this.autotaskService.getFieldInfo(entityType)
+      (entityType) => this.autotaskService.getFieldInfo(entityType),
+      picklistStoreKey(
+        this.autotaskService.getTenantKey(),
+        this.autotaskService.getImpersonationResourceId()
+      )
     );
   }
 
