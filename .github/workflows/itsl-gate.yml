@@ -28,7 +28,9 @@ permissions:
 
 concurrency:
   group: itsl-gate-${{ github.ref }}
-  cancel-in-progress: true
+  # Cancel superseded runs on PRs only: on main, cancelling would leave an
+  # intermediate merge commit unverified (a cancelled check reads as never ran).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   checks:
@@ -145,6 +147,7 @@ jobs:
     if: always()
     needs: [checks, gitleaks, docker-build]
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
       - name: All gate jobs succeeded
         env:
