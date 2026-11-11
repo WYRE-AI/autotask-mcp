@@ -237,7 +237,8 @@ export class PicklistCache {
     } finally {
       clearTimeout(timer);
     }
-    return this.refresh(key, entityType, stale, live.startedAt + LOAD_DEAD_AFTER_MS);
+    // The real time if the timer fired late, so the new load is not taken for dead early.
+    return this.refresh(key, entityType, stale, Math.max(Date.now(), live.startedAt + LOAD_DEAD_AFTER_MS));
   }
 
   private store(key: string, fields: FieldInfo[]): void {
