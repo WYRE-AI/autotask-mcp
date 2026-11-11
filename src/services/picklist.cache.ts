@@ -2,6 +2,7 @@
 
 import { Logger } from '../utils/logger.js';
 import { vendorStatus } from '../utils/vendor-error.js';
+import { AutotaskRateLimitError } from './autotask-http.js';
 
 export interface PicklistValue {
   value: string;
@@ -40,12 +41,22 @@ const RETRY_BACKOFF_MS = 30 * 1000;
  */
 const LOAD_DEAD_AFTER_MS = 90 * 1000;
 
+/**
+ * How long a caller waits on a load another caller started before starting
+ * its own. A field-info load normally takes a second or two; past this the
+ * other request may have been cancelled, and waiting out LOAD_DEAD_AFTER_MS
+ * could outlast the caller's own client timeout.
+ */
+const JOIN_WAIT_MS = 10 * 1000;
+
 /** Upper bound on shared entries (credential set x entity type). */
 const SHARED_MAX_ENTRIES = 1000;
 
 /** Why the latest field-info load failed: the vendor HTTP status, when there was one. */
 export interface FieldsUnavailable {
   status?: number;
+  /** On HTTP 429: when (epoch ms) Autotask said to try again. */
+  rateLimitedUntil?: number;
 }
 
 /**
@@ -194,7 +205,11 @@ export class PicklistCache {
   private refresh(key: string, entityType: string, stale: FieldInfo[] | undefined, now: number): Promise<FieldsLookup> {
     const live = this.liveLoad(key, now);
     if (live) return this.join(live, key, entityType, stale);
+    return this.startLoad(key, entityType, stale, now);
+  }
 
+  /** Start a load for `key`, replacing any in-flight one. Never rejects. */
+  private startLoad(key: string, entityType: string, stale: FieldInfo[] | undefined, now: number): Promise<FieldsLookup> {
     const inFlight: InFlight = { startedAt: now, promise: Promise.resolve({ fields: [] }) };
     inFlight.promise = this.loadFields(entityType)
       .then((loaded): FieldsLookup => {
@@ -221,15 +236,15 @@ export class PicklistCache {
   }
 
   /**
-   * Wait on a load another caller started, but only for the time it has left
-   * before it counts as dead: it may belong to a request whose I/O was
-   * cancelled and never settle. Past that, start a fresh load.
+   * Wait on a load another caller started, for at most JOIN_WAIT_MS: it may
+   * belong to a request whose I/O was cancelled and never settle. Past that,
+   * start a fresh load, which replaces the stalled one, or join a newer load
+   * if someone else already replaced it.
    */
   private async join(live: InFlight, key: string, entityType: string, stale: FieldInfo[] | undefined): Promise<FieldsLookup> {
-    const remaining = Math.max(0, LOAD_DEAD_AFTER_MS - (Date.now() - live.startedAt));
     let timer: ReturnType<typeof setTimeout> | undefined;
     const expired = new Promise<null>((resolve) => {
-      timer = setTimeout(() => resolve(null), remaining);
+      timer = setTimeout(() => resolve(null), JOIN_WAIT_MS);
     });
     try {
       const result = await Promise.race([live.promise, expired]);
@@ -237,8 +252,8 @@ export class PicklistCache {
     } finally {
       clearTimeout(timer);
     }
-    // The real time if the timer fired late, so the new load is not taken for dead early.
-    return this.refresh(key, entityType, stale, Math.max(Date.now(), live.startedAt + LOAD_DEAD_AFTER_MS));
+    if (this.loading.get(key) === live) return this.startLoad(key, entityType, stale, Date.now());
+    return this.refresh(key, entityType, stale, Date.now());
   }
 
   private store(key: string, fields: FieldInfo[]): void {
@@ -302,7 +317,11 @@ export class PicklistCache {
     } catch (error) {
       const status = vendorStatus(error);
       this.logger.error(`Failed to load field info for ${entityType}${status !== undefined ? ` (HTTP ${status})` : ''}:`, error);
-      return { fields: [], unavailable: status !== undefined ? { status } : {} };
+      const unavailable: FieldsUnavailable = status !== undefined ? { status } : {};
+      if (error instanceof AutotaskRateLimitError) {
+        unavailable.rateLimitedUntil = Date.now() + error.retryAfterSeconds * 1000;
+      }
+      return { fields: [], unavailable };
     }
   }
 }

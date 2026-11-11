@@ -71,7 +71,7 @@ describe('autotask_get_field_info argument handling', () => {
 });
 
 describe('autotask_get_field_info when Autotask fails', () => {
-  const failingHandler = (lookup: { fields: unknown[]; unavailable?: { status?: number } }) => {
+  const failingHandler = (lookup: { fields: unknown[]; unavailable?: { status?: number; rateLimitedUntil?: number } }) => {
     const handler = makeHandler();
     (handler as unknown as { picklistCache: { lookupFields: jest.Mock } }).picklistCache.lookupFields =
       jest.fn().mockResolvedValue(lookup);
@@ -82,6 +82,20 @@ describe('autotask_get_field_info when Autotask fails', () => {
     const res = await callTool(failingHandler({ fields: [], unavailable: { status: 429 } }), { entityType: 'Tickets' });
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('Could not load field info for Tickets from Autotask (HTTP 429)');
+  });
+
+  it('a 429 with nothing cached returns the rate_limited result with the time left', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000);
+    try {
+      const res = await callTool(failingHandler({ fields: [], unavailable: { status: 429, rateLimitedUntil: 1_000_000 + 42_000 } }), { entityType: 'Tickets' });
+      expect(res.isError).toBe(true);
+      const body = JSON.parse(res.content[0].text);
+      expect(body.error_type).toBe('rate_limited');
+      expect(body.retry_after_seconds).toBe(42);
+      expect(body.error).toContain('Could not load field info for Tickets from Autotask (HTTP 429)');
+    } finally {
+      now.mockRestore();
+    }
   });
 
   it('keeps the failure when the requested field is missing from a stale copy', async () => {
@@ -99,7 +113,7 @@ describe('autotask_get_field_info when Autotask fails', () => {
 });
 
 describe('autotask_list_* picklist tools when Autotask fails', () => {
-  const handlerWith = (lookup: { values: unknown[]; unavailable?: { status?: number } }) => {
+  const handlerWith = (lookup: { values: unknown[]; unavailable?: { status?: number; rateLimitedUntil?: number } }) => {
     const handler = makeHandler();
     (handler as unknown as { picklistCache: { lookupPicklistValues: jest.Mock } }).picklistCache.lookupPicklistValues =
       jest.fn().mockResolvedValue(lookup);
@@ -112,6 +126,14 @@ describe('autotask_list_* picklist tools when Autotask fails', () => {
     const res = await list(handlerWith({ values: [], unavailable: { status: 429 } }), 'autotask_list_queues');
     expect(res.isError).toBe(true);
     expect(res.content[0].text).toContain('Could not load queues from Autotask (HTTP 429)');
+  });
+
+  it('a 429 with nothing cached returns the rate_limited result', async () => {
+    const res = await list(handlerWith({ values: [], unavailable: { status: 429, rateLimitedUntil: Date.now() + 60_000 } }), 'autotask_list_ticket_priorities');
+    expect(res.isError).toBe(true);
+    const body = JSON.parse(res.content[0].text);
+    expect(body.error_type).toBe('rate_limited');
+    expect(body.retry_after_seconds).toBeGreaterThan(0);
   });
 
   it('notes a cached copy after a failed refresh', async () => {

@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/server";
 // Handles MCP tool calls for Autotask operations (search, create, update)
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
-import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
+import { FieldsUnavailable, PicklistCache, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
@@ -286,7 +286,7 @@ export class AutotaskToolHandler {
     const { values, unavailable } = await this.picklistCache.lookupPicklistValues('Tickets', fieldName);
     const httpStatus = unavailable?.status !== undefined ? ` (HTTP ${unavailable.status})` : '';
     if (unavailable && values.length === 0) {
-      throw new Error(`Could not load ${label} from Autotask${httpStatus}. Try again shortly.`);
+      throw fieldsUnavailableError(`Could not load ${label} from Autotask${httpStatus}.`, unavailable);
     }
     const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
     return {
@@ -1654,7 +1654,7 @@ export class AutotaskToolHandler {
         const { fields, unavailable } = await this.picklistCache.lookupFields(entityType);
         const httpStatus = unavailable?.status !== undefined ? ` (HTTP ${unavailable.status})` : '';
         if (unavailable && fields.length === 0) {
-          throw new Error(`Could not load field info for ${rawEntityType} from Autotask${httpStatus}. Try again shortly.`);
+          throw fieldsUnavailableError(`Could not load field info for ${rawEntityType} from Autotask${httpStatus}.`, unavailable);
         }
         // A failed refresh serves the last good copy; say so rather than report a clean read.
         const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
@@ -1663,7 +1663,7 @@ export class AutotaskToolHandler {
           if (!field && unavailable) {
             // A null result is rewritten to a generic not-found message, which
             // would drop the failure; the field may exist in Autotask by now.
-            throw new Error(`Field '${rawFieldName}' is not in the cached field info for ${rawEntityType}, and refreshing it from Autotask failed${httpStatus}. Try again shortly.`);
+            throw fieldsUnavailableError(`Field '${rawFieldName}' is not in the cached field info for ${rawEntityType}, and refreshing it from Autotask failed${httpStatus}.`, unavailable);
           }
           return { result: field || null, message: (field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}`) + staleNote };
         }
@@ -1896,6 +1896,19 @@ export class AutotaskToolHandler {
       });
     }
   }
+}
+
+/**
+ * The error for field info that could not be served. A 429 becomes an
+ * AutotaskRateLimitError, so callTool returns its rate_limited result with
+ * the time left before Autotask said to retry.
+ */
+function fieldsUnavailableError(message: string, unavailable: FieldsUnavailable): Error {
+  if (unavailable.rateLimitedUntil !== undefined) {
+    const seconds = Math.max(1, Math.ceil((unavailable.rateLimitedUntil - Date.now()) / 1000));
+    return new AutotaskRateLimitError(`${message} Autotask is rate limiting this integration: wait ${seconds}s before trying again.`, seconds);
+  }
+  return new Error(`${message} Try again shortly.`);
 }
 
 /** Configuration item fields surfaced on a ticket's `configurationItem`. */

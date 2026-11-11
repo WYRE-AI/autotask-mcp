@@ -3,6 +3,7 @@
 // across different credentials, API URLs or impersonated resources.
 
 import { PicklistCache, _resetSharedPicklistStore, FieldInfo } from '../src/services/picklist.cache';
+import { AutotaskRateLimitError } from '../src/services/autotask-http';
 import { AutotaskToolHandler } from '../src/handlers/tool.handler';
 import { AutotaskService } from '../src/services/autotask.service';
 import { Logger } from '../src/utils/logger';
@@ -129,21 +130,41 @@ describe('PicklistCache shared store', () => {
     }
   });
 
-  it('a caller that joined a load that never settles gives up when it counts as dead, and loads afresh', async () => {
+  it('a caller that joined a load that never settles waits 10 s, then loads afresh; a second joiner joins that load', async () => {
     jest.useFakeTimers({ doNotFake: ['Date'] });
     const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
     try {
       void new PicklistCache(logger, jest.fn().mockReturnValue(new Promise<FieldInfo[]>(() => {})), 'k').getFields('Tickets');
-      const fresh = jest.fn().mockResolvedValue(fields('New'));
-      const joined = new PicklistCache(logger, fresh, 'k').getFields('Tickets');
-      await jest.advanceTimersByTimeAsync(89_000);
+      let finish!: (f: FieldInfo[]) => void;
+      const fresh = jest.fn().mockImplementation(() => new Promise<FieldInfo[]>((resolve) => (finish = resolve)));
+      const first = new PicklistCache(logger, fresh, 'k').getFields('Tickets');
+      await jest.advanceTimersByTimeAsync(2_000);
+      const second = new PicklistCache(logger, fresh, 'k').getFields('Tickets');
+      await jest.advanceTimersByTimeAsync(7_999);
       expect(fresh).not.toHaveBeenCalled();
-      await jest.advanceTimersByTimeAsync(1_000);
-      expect(labelOf(await joined)).toBe('New');
+      await jest.advanceTimersByTimeAsync(1);
+      expect(fresh).toHaveBeenCalledTimes(1); // the first joiner's own load
+      await jest.advanceTimersByTimeAsync(2_000); // the second joiner's 10 s are up: it joins that load
       expect(fresh).toHaveBeenCalledTimes(1);
+      finish(fields('New'));
+      expect(labelOf(await first)).toBe('New');
+      expect(labelOf(await second)).toBe('New');
     } finally {
       now.mockRestore();
       jest.useRealTimers();
+    }
+  });
+
+  it('a 429 keeps when Autotask said to retry', async () => {
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      const load = jest.fn().mockRejectedValue(new AutotaskRateLimitError('HTTP 429', 45));
+      expect(await new PicklistCache(logger, load, 'k').lookupFields('Tickets')).toEqual({
+        fields: [],
+        unavailable: { status: 429, rateLimitedUntil: 1_000 + 45_000 },
+      });
+    } finally {
+      now.mockRestore();
     }
   });
 
