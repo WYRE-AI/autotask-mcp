@@ -2,7 +2,7 @@
 // same credentials (gateway mode builds a handler per request), and never
 // across different credentials, API URLs or impersonated resources.
 
-import { PicklistCache, _resetTenantPicklistStore, FieldInfo } from '../src/services/picklist.cache';
+import { PicklistCache, _resetSharedPicklistStore, FieldInfo } from '../src/services/picklist.cache';
 import { AutotaskToolHandler } from '../src/handlers/tool.handler';
 import { AutotaskService } from '../src/services/autotask.service';
 import { Logger } from '../src/utils/logger';
@@ -25,7 +25,7 @@ const fields = (label: string): FieldInfo[] => [
 ];
 const labelOf = (f: FieldInfo[]) => f[0]?.picklistValues?.[0]?.label;
 
-beforeEach(() => _resetTenantPicklistStore());
+beforeEach(() => _resetSharedPicklistStore());
 
 describe('AutotaskService.getPicklistStoreKey', () => {
   const key = (autotask: McpServerConfig['autotask']) =>

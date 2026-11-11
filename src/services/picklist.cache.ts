@@ -52,13 +52,14 @@ interface CachedFields {
  * an impersonated resource gets its own key because Autotask narrows its
  * view. Only successful loads are stored, so credentials Autotask rejects
  * never create an entry. Least recently used entries are evicted past
- * SHARED_MAX_ENTRIES.
+ * SHARED_MAX_ENTRIES, which bounds memory but does not keep any one tenant
+ * warm: a busy gateway can push an idle tenant out, back to fetching.
  */
 const sharedFields = new Map<string, CachedFields>();
 const sharedLoading = new Map<string, Promise<FieldInfo[] | null>>();
 
 /** Reset the shared picklist store. Intended for tests only. */
-export function _resetTenantPicklistStore(): void {
+export function _resetSharedPicklistStore(): void {
   sharedFields.clear();
   sharedLoading.clear();
 }
@@ -98,8 +99,9 @@ export class PicklistCache {
   /**
    * Get field info for an entity type (lazy-loaded, cached).
    *
-   * A failed load is not cached, so the next call retries. It returns the
-   * last good copy if there is one, else [].
+   * A failed load is not cached, so the next call retries. Whatever the
+   * failure (a 429, or credentials Autotask now rejects), it returns the last
+   * good copy for this key if there is one, else [].
    */
   async getFields(entityType: string): Promise<FieldInfo[]> {
     const key = this.keyPrefix + entityType;
