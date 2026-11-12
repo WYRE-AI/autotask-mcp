@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Security
+
+- **Patched critical Dependabot alerts in transitive dependencies.** `dompurify` 3.4.16 to 3.4.17 ([GHSA-cg2g-xh64-v4q7](https://github.com/advisories/GHSA-cg2g-xh64-v4q7), alert #296) and `proxy-addr` 2.0.7 to 2.0.8 ([GHSA-jqcg-44mw-7w3h](https://github.com/advisories/GHSA-jqcg-44mw-7w3h), alert #267), via lockfile update. `handlebars` already resolves to 4.7.10, the patched version for [GHSA-p8wg-vrv2-v86f](https://github.com/advisories/GHSA-p8wg-vrv2-v86f) and [GHSA-8r5x-fm3f-whwj](https://github.com/advisories/GHSA-8r5x-fm3f-whwj) (alerts #276, #271).
+
 ### Fixed
 
 - **`autotask_get_ticket_details` showed the assistant only the title, status and priority** ([WYREAI-527](https://linear.app/wyre-ai/issue/WYREAI-527)). Since the MCP Apps ticket card shipped, the tool's text content was a one-line summary and the ticket itself sat only in `structuredContent`, which assistants such as Claude don't read. That happened whenever the card was attached, with or without the note-writing defaults, and regardless of `fullDetails`. The text now has a readable header (status, priority, queue, company, contact name, assignee, dates, linked configuration item, description, resolution, custom fields (UDFs) with values, and recent notes) followed by the full ticket record as JSON. Tickets that can't get a card (no title or ticket number) get the same text, with raw status/priority/queue IDs and their notes fetched separately. The contact and configuration item are looked up best-effort: a failed lookup falls back to the ID and logs a warning with the vendor HTTP status. A failed notes lookup is shown as "Recent notes: unavailable" with the HTTP status, never as "none", and is logged the same way. With `fullDetails: false`, non-empty UDFs are now kept, with each value capped at 200 characters (including the `... [truncated]` marker), instead of being blanked. The card and `structuredContent` are unchanged.
