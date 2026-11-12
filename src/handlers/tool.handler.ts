@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/server";
 // Handles MCP tool calls for Autotask operations (search, create, update)
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
-import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
+import { FieldsUnavailable, PicklistCache, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
@@ -159,9 +159,12 @@ export class AutotaskToolHandler {
     this.logger = logger;
     this.lazyLoading = lazyLoading;
     this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
+    // Shared across same-tenant handlers (see tenantPicklistStore), so gateway
+    // mode's per-request handlers stop refetching field info on every call.
     this.picklistCache = new PicklistCache(
       logger,
-      (entityType) => this.autotaskService.getFieldInfo(entityType)
+      (entityType) => this.autotaskService.getFieldInfo(entityType),
+      this.autotaskService.getPicklistStoreKey() ?? undefined
     );
   }
 
@@ -272,6 +275,24 @@ export class AutotaskToolHandler {
       );
       return null;
     }
+  }
+
+  /**
+   * A Tickets picklist as { id, name, isActive }, for the list_* tools. A
+   * failed load with nothing cached is an error carrying the vendor status; a
+   * stale copy after a failed refresh is returned with a note saying so.
+   */
+  private async listTicketPicklist(fieldName: string, label: string): Promise<{ result: unknown; message: string }> {
+    const { values, unavailable } = await this.picklistCache.lookupPicklistValues('Tickets', fieldName);
+    const httpStatus = unavailable?.status !== undefined ? ` (HTTP ${unavailable.status})` : '';
+    if (unavailable && values.length === 0) {
+      throw fieldsUnavailableError(`Could not load ${label} from Autotask${httpStatus}.`, unavailable);
+    }
+    const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
+    return {
+      result: values.map(v => ({ id: v.value, name: v.label, isActive: v.isActive })),
+      message: `Found ${values.length} ${label}${staleNote}`,
+    };
   }
 
   /**
@@ -1608,18 +1629,9 @@ export class AutotaskToolHandler {
         await s.deleteQuoteItem(a.quoteId, a.quoteItemId); return { result: true, message: `Quote item ${a.quoteItemId} deleted successfully` };
       }],
       // Picklist tools
-      ['autotask_list_queues', async () => {
-        const queues = await this.picklistCache.getQueues();
-        return { result: queues.map(q => ({ id: q.value, name: q.label, isActive: q.isActive })), message: `Found ${queues.length} queues` };
-      }],
-      ['autotask_list_ticket_statuses', async () => {
-        const statuses = await this.picklistCache.getTicketStatuses();
-        return { result: statuses.map(s => ({ id: s.value, name: s.label, isActive: s.isActive })), message: `Found ${statuses.length} ticket statuses` };
-      }],
-      ['autotask_list_ticket_priorities', async () => {
-        const priorities = await this.picklistCache.getTicketPriorities();
-        return { result: priorities.map(p => ({ id: p.value, name: p.label, isActive: p.isActive })), message: `Found ${priorities.length} ticket priorities` };
-      }],
+      ['autotask_list_queues', async () => this.listTicketPicklist('queueID', 'queues')],
+      ['autotask_list_ticket_statuses', async () => this.listTicketPicklist('status', 'ticket statuses')],
+      ['autotask_list_ticket_priorities', async () => this.listTicketPicklist('priority', 'ticket priorities')],
       ['autotask_get_field_info', async (a) => {
         // LLMs commonly pass `entity`/`field` instead of `entityType`/`fieldName`
         // (our own picklist error hints phrase it as "entity X and field Y"),
@@ -1639,13 +1651,24 @@ export class AutotaskToolHandler {
           'companynotes': 'CompanyNotes',
         };
         const entityType = entityAliases[rawEntityType.toLowerCase()] || rawEntityType;
-        const fields = await this.picklistCache.getFields(entityType);
+        const { fields, unavailable } = await this.picklistCache.lookupFields(entityType);
+        const httpStatus = unavailable?.status !== undefined ? ` (HTTP ${unavailable.status})` : '';
+        if (unavailable && fields.length === 0) {
+          throw fieldsUnavailableError(`Could not load field info for ${rawEntityType} from Autotask${httpStatus}.`, unavailable);
+        }
+        // A failed refresh serves the last good copy; say so rather than report a clean read.
+        const staleNote = unavailable ? ` (cached copy: refreshing from Autotask failed${httpStatus})` : '';
         if (typeof rawFieldName === 'string' && rawFieldName.length > 0) {
           const field = fields.find(f => f.name?.toLowerCase() === rawFieldName.toLowerCase());
-          return { result: field || null, message: field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}` };
+          if (!field && unavailable) {
+            // A null result is rewritten to a generic not-found message, which
+            // would drop the failure; the field may exist in Autotask by now.
+            throw fieldsUnavailableError(`Field '${rawFieldName}' is not in the cached field info for ${rawEntityType}, and refreshing it from Autotask failed${httpStatus}.`, unavailable);
+          }
+          return { result: field || null, message: (field ? `Field info for ${rawEntityType}.${rawFieldName}` : `Field '${rawFieldName}' not found on ${rawEntityType}`) + staleNote };
         }
         const summary = fields.map(f => ({ name: f.name, dataType: f.dataType, isRequired: f.isRequired, isPickList: f.isPickList, isQueryable: f.isQueryable, picklistValueCount: f.picklistValues?.length || 0 }));
-        return { result: summary, message: `Found ${fields.length} fields for ${rawEntityType}` };
+        return { result: summary, message: `Found ${fields.length} fields for ${rawEntityType}${staleNote}` };
       }],
 
       // Billing Items (Approve and Post workflow)
@@ -1873,6 +1896,19 @@ export class AutotaskToolHandler {
       });
     }
   }
+}
+
+/**
+ * The error for field info that could not be served. A 429 becomes an
+ * AutotaskRateLimitError, so callTool returns its rate_limited result with
+ * the time left before Autotask said to retry.
+ */
+function fieldsUnavailableError(message: string, unavailable: FieldsUnavailable): Error {
+  if (unavailable.rateLimitedUntil !== undefined) {
+    const seconds = Math.max(1, Math.ceil((unavailable.rateLimitedUntil - Date.now()) / 1000));
+    return new AutotaskRateLimitError(`${message} Autotask is rate limiting this integration: wait ${seconds}s before trying again.`, seconds);
+  }
+  return new Error(`${message} Try again shortly.`);
 }
 
 /** Configuration item fields surfaced on a ticket's `configurationItem`. */
