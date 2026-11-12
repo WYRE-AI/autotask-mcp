@@ -71,6 +71,16 @@ export interface FieldsLookup {
 interface InFlight {
   promise: Promise<FieldsLookup>;
   startedAt: number;
+  /** The last good copy, served if this load fails; carried into a replacement load. */
+  stale?: FieldInfo[] | undefined;
+}
+
+/**
+ * When a failed load may be retried: after the normal backoff, or later if
+ * Autotask said to wait longer (HTTP 429 Retry-After).
+ */
+function retryDeadline(failure: FieldsUnavailable): number {
+  return Math.max(Date.now() + RETRY_BACKOFF_MS, failure.rateLimitedUntil ?? 0);
 }
 
 interface CachedFields {
@@ -113,8 +123,8 @@ export class PicklistCache {
   private loading: Map<string, InFlight>;
   /**
    * Cold failures this instance saw (nothing cached), kept out of the shared
-   * store so rejected credentials leave nothing behind, and remembered for
-   * RETRY_BACKOFF_MS so one request (gateway mode builds an instance per
+   * store so rejected credentials leave nothing behind, and remembered until
+   * retryDeadline() so one request (gateway mode builds an instance per
    * request) doesn't repeat a failing call for every lookup it makes.
    */
   private coldFailures = new Map<string, { failure: FieldsUnavailable; retryAfter: number }>();
@@ -160,9 +170,9 @@ export class PicklistCache {
    * runtime that cancels I/O after a response can't strand it), while
    * concurrent callers get the cached copy at once. A failed load is never
    * cached: the last good copy is kept and served with the failure attached,
-   * and refreshes are retried at most every RETRY_BACKOFF_MS. With nothing
-   * cached, a failure returns [] with the failure attached, and this instance
-   * doesn't retry it within the backoff.
+   * and refreshes are retried at most every RETRY_BACKOFF_MS, or later when a
+   * 429's Retry-After says so. With nothing cached, a failure returns [] with
+   * the failure attached, and this instance doesn't retry it within the backoff.
    */
   async lookupFields(entityType: string): Promise<FieldsLookup> {
     const key = this.keyPrefix + entityType;
@@ -173,7 +183,7 @@ export class PicklistCache {
       if (cold && now < cold.retryAfter) return { fields: [], unavailable: cold.failure };
       const result = await this.refresh(key, entityType, undefined, now);
       if (result.unavailable && result.fields.length === 0) {
-        this.coldFailures.set(key, { failure: result.unavailable, retryAfter: Date.now() + RETRY_BACKOFF_MS });
+        this.coldFailures.set(key, { failure: result.unavailable, retryAfter: retryDeadline(result.unavailable) });
       } else {
         this.coldFailures.delete(key);
       }
@@ -210,7 +220,7 @@ export class PicklistCache {
 
   /** Start a load for `key`, replacing any in-flight one. Never rejects. */
   private startLoad(key: string, entityType: string, stale: FieldInfo[] | undefined, now: number): Promise<FieldsLookup> {
-    const inFlight: InFlight = { startedAt: now, promise: Promise.resolve({ fields: [] }) };
+    const inFlight: InFlight = { startedAt: now, stale, promise: Promise.resolve({ fields: [] }) };
     inFlight.promise = this.loadFields(entityType)
       .then((loaded): FieldsLookup => {
         // A load replaced as dead may still settle; it must not touch the
@@ -222,7 +232,7 @@ export class PicklistCache {
         }
         const entry = this.cache.get(key);
         if (entry && current) {
-          entry.retryAfter = Date.now() + RETRY_BACKOFF_MS;
+          entry.retryAfter = retryDeadline(loaded.unavailable);
           entry.failure = loaded.unavailable;
         }
         return { fields: entry?.fields ?? stale ?? [], unavailable: loaded.unavailable };
@@ -252,8 +262,10 @@ export class PicklistCache {
     } finally {
       clearTimeout(timer);
     }
-    if (this.loading.get(key) === live) return this.startLoad(key, entityType, stale, Date.now());
-    return this.refresh(key, entityType, stale, Date.now());
+    // The stalled load may hold a last good copy this caller never saw (its entry was evicted).
+    const fallback = stale ?? live.stale;
+    if (this.loading.get(key) === live) return this.startLoad(key, entityType, fallback, Date.now());
+    return this.refresh(key, entityType, fallback, Date.now());
   }
 
   private store(key: string, fields: FieldInfo[]): void {

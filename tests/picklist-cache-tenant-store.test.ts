@@ -262,6 +262,61 @@ describe('PicklistCache shared store', () => {
     }
   });
 
+  it('a joiner whose 10 s run out gets the last good copy from the stalled refresh, even after eviction', async () => {
+    jest.useFakeTimers({ doNotFake: ['Date'] });
+    const load = jest.fn().mockImplementation(async (entity: string) => fields(entity));
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      await new PicklistCache(logger, jest.fn().mockResolvedValue(fields('Old')), 'k').getFields('Tickets');
+      now.mockReturnValue(1_000 + TTL_MS + 1);
+      void new PicklistCache(logger, jest.fn().mockReturnValue(new Promise<FieldInfo[]>(() => {})), 'k').lookupFields('Tickets'); // stalls
+      for (let i = 0; i < 1000; i++) await new PicklistCache(logger, load, `k${i}`).getFields('Tickets'); // evicts 'k'
+      const failing = jest.fn().mockRejectedValue(Object.assign(new Error('HTTP 503'), { status: 503 }));
+      const joined = new PicklistCache(logger, failing, 'k').lookupFields('Tickets');
+      await jest.advanceTimersByTimeAsync(10_000);
+      const got = await joined;
+      expect(failing).toHaveBeenCalledTimes(1);
+      expect(labelOf(got.fields)).toBe('Old');
+      expect(got.unavailable).toEqual({ status: 503 });
+    } finally {
+      now.mockRestore();
+      jest.useRealTimers();
+    }
+  });
+
+  it('honours a 429 Retry-After longer than the 30 s backoff, cold and cached', async () => {
+    const limited = () => new AutotaskRateLimitError('HTTP 429', 45);
+    const now = jest.spyOn(Date, 'now').mockReturnValue(1_000);
+    try {
+      // Cold: the instance does not call again until 45 s have passed.
+      const cold = jest.fn().mockRejectedValue(limited());
+      const cache = new PicklistCache(logger, cold, 'cold');
+      await cache.lookupFields('Tickets');
+      now.mockReturnValue(1_000 + 31_000);
+      await cache.lookupFields('Tickets');
+      expect(cold).toHaveBeenCalledTimes(1);
+      now.mockReturnValue(1_000 + 45_000);
+      await cache.lookupFields('Tickets');
+      expect(cold).toHaveBeenCalledTimes(2);
+
+      // Cached: the shared entry is not refreshed again until 45 s have passed.
+      now.mockReturnValue(1_000);
+      const warm = jest.fn().mockResolvedValueOnce(fields('Old')).mockRejectedValueOnce(limited()).mockResolvedValue(fields('New'));
+      const shared = () => new PicklistCache(logger, warm, 'warm');
+      await shared().getFields('Tickets');
+      now.mockReturnValue(1_000 + TTL_MS);
+      expect((await shared().lookupFields('Tickets')).unavailable).toEqual({ status: 429, rateLimitedUntil: 1_000 + TTL_MS + 45_000 });
+      now.mockReturnValue(1_000 + TTL_MS + 31_000);
+      expect(labelOf(await shared().getFields('Tickets'))).toBe('Old');
+      expect(warm).toHaveBeenCalledTimes(2);
+      now.mockReturnValue(1_000 + TTL_MS + 45_000);
+      expect(labelOf(await shared().getFields('Tickets'))).toBe('New');
+      expect(warm).toHaveBeenCalledTimes(3);
+    } finally {
+      now.mockRestore();
+    }
+  });
+
   it('caps the shared store, evicting the least recently used entry', async () => {
     const load = jest.fn().mockImplementation(async (entity: string) => fields(entity));
     const keep = new PicklistCache(logger, load, 'keep');
