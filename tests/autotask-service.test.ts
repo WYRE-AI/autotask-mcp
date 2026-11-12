@@ -775,17 +775,17 @@ describe('AutotaskService', () => {
           callIndex = 1;
           return jsonResponse({
             items: buildBatch(1, 200),
-            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?page=2` },
           });
         }
-        if (method === 'POST' && url.includes('Companies/query?page=2')) {
+        if (method === 'POST' && url.includes('Companies/query/next?page=2')) {
           callIndex = 2;
           return jsonResponse({
             items: buildBatch(201, 200),
-            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=3` },
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?page=3` },
           });
         }
-        if (method === 'POST' && url.includes('Companies/query?page=3')) {
+        if (method === 'POST' && url.includes('Companies/query/next?page=3')) {
           callIndex = 3;
           return jsonResponse({
             items: buildBatch(401, 100),
@@ -820,16 +820,16 @@ describe('AutotaskService', () => {
         if (method === 'POST' && url === `${BASE}/Companies/query`) {
           return jsonResponse({
             items: buildBatch(1, 200),
-            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?page=2` },
           });
         }
-        if (method === 'POST' && url.includes('Companies/query?page=2')) {
+        if (method === 'POST' && url.includes('Companies/query/next?page=2')) {
           return jsonResponse({
             items: buildBatch(201, 200),
-            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=3` },
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?page=3` },
           });
         }
-        if (method === 'POST' && url.includes('Companies/query?page=3')) {
+        if (method === 'POST' && url.includes('Companies/query/next?page=3')) {
           return jsonResponse({
             items: buildBatch(401, 100),
             pageDetails: { nextPageUrl: null },
@@ -892,7 +892,7 @@ describe('AutotaskService', () => {
         const page = m ? parseInt(m[1], 10) : 1;
         return jsonResponse({
           items: buildBatch((page - 1) * 200 + 1, 200),
-          pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=${page + 1}` },
+          pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?page=${page + 1}` },
         });
         void method;
       });
@@ -929,10 +929,10 @@ describe('AutotaskService', () => {
           capturedMaxRecords.push(body.MaxRecords);
           return jsonResponse({
             items: buildBatch(1, 500),
-            pageDetails: { nextPageUrl: `${BASE}/Companies/query?page=2` },
+            pageDetails: { nextPageUrl: `${BASE}/Companies/query/next?page=2` },
           });
         }
-        if (method === 'POST' && url.includes('Companies/query?page=2')) {
+        if (method === 'POST' && url.includes('Companies/query/next?page=2')) {
           return jsonResponse({
             items: buildBatch(501, 200),
             pageDetails: { nextPageUrl: null },
@@ -1168,10 +1168,10 @@ describe('AutotaskService', () => {
         if (method === 'POST' && url === `${BASE}/Tasks/query`) {
           return jsonResponse({
             items: buildBatch(1, 25),
-            pageDetails: { nextPageUrl: `${BASE}/Tasks/query?page=2` },
+            pageDetails: { nextPageUrl: `${BASE}/Tasks/query/next?page=2` },
           });
         }
-        if (method === 'POST' && url.includes('Tasks/query?page=2')) {
+        if (method === 'POST' && url.includes('Tasks/query/next?page=2')) {
           return jsonResponse({
             items: buildBatch(26, 25),
             pageDetails: { nextPageUrl: null },

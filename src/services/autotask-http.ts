@@ -179,6 +179,47 @@ function assertNoQueryInWritePath(method: string, path: string): void {
   }
 }
 
+
+/**
+ * ATM-020: validate a pagination URL taken from an Autotask response before
+ * credentials are sent to it. Returns the absolute URL to follow, or throws.
+ *
+ * Requires https, no userinfo, an origin exactly equal to the base URL's
+ * origin, and a path of `<base path>/{entity}/query/next` (case-insensitive,
+ * as Autotask lowercases the service path in the URLs it returns). A relative
+ * URL is joined onto the base, matching how request() resolves paths.
+ * Only origin + pathname are ever logged or put in the error (the query may
+ * hold paging tokens).
+ */
+export function assertSamePaginationOrigin(
+  nextPageUrl: string,
+  base: string,
+  entity: string,
+  logger?: Logger,
+): string {
+  const refuse = (url: URL | null): never => {
+    const where = url ? `${url.origin}${url.pathname}` : '(unparseable)';
+    logger?.error(`Refusing to follow nextPageUrl to an unexpected host: ${where}`);
+    throw new Error(`Refusing to follow nextPageUrl to an unexpected host (${where})`);
+  };
+  let baseUrl: URL;
+  let url: URL;
+  try {
+    baseUrl = new URL(base);
+    url = /^[a-z][a-z0-9+.-]*:/i.test(nextPageUrl)
+      ? new URL(nextPageUrl)
+      : new URL(`${base.replace(/\/+$/, '')}${nextPageUrl.startsWith('/') ? '' : '/'}${nextPageUrl}`);
+  } catch {
+    return refuse(null);
+  }
+  if (url.protocol !== 'https:' || url.username || url.password) return refuse(url);
+  if (url.origin !== baseUrl.origin) return refuse(url);
+  const prefix = baseUrl.pathname.replace(/\/+$/, '').toLowerCase();
+  const expected = `${prefix}/${entity}/query/next`.toLowerCase();
+  if (url.pathname.replace(/\/+$/, '').toLowerCase() !== expected) return refuse(url);
+  return url.toString();
+}
+
 /**
  * Minimal HTTP client for the Autotask REST API.
  *
@@ -455,7 +496,14 @@ export class AutotaskHttpClient {
       // body as the initial query; a GET returns HTTP 405 ("does not support
       // http method 'GET'"), which silently truncates large result sets (e.g.
       // the company name cache never loads past the first page).
-      resp = await this.request<QueryResponse<T>>('POST', resp.pageDetails.nextPageUrl, body);
+      // ATM-020: never send credentials to a host the response merely names.
+      const nextUrl = assertSamePaginationOrigin(
+        resp.pageDetails.nextPageUrl,
+        await this.baseUrl(),
+        entity,
+        this.logger,
+      );
+      resp = await this.request<QueryResponse<T>>('POST', nextUrl, body);
       if (resp?.items) items.push(...resp.items);
     }
 
