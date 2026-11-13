@@ -221,6 +221,8 @@ AUTOTASK_INTEGRATION_CODE=your-integration-code
 # unauthenticated zoneInformation endpoint on first connect. Only set this
 # explicitly to override auto-detection (e.g. for an on-prem proxy).
 # AUTOTASK_API_URL=https://webservices2.autotask.net/atservicesrest/
+# Attribute notes and other supported writes to this Autotask resource (env mode)
+# AUTOTASK_IMPERSONATION_RESOURCE_ID=29682886
 MCP_SERVER_NAME=autotask-mcp
 
 # Authentication mode
@@ -281,6 +283,27 @@ Every `/mcp` request must include a valid `X-Gateway-S2S` header and the three A
 | `X-Integration-Code` | Autotask integration code |
 | `X-API-URL` | (Optional) Custom Autotask API URL |
 | `X-Impersonation-Resource-Id` | (Optional) Autotask resource ID to act on behalf of. Forwarded to Autotask as its `ImpersonationResourceId` header, so actions are attributed to that resource instead of the API user, and recorded in the entity's read-only `impersonatorCreatorResourceID` field. Must be a positive integer; anything else is ignored with a warning. The impersonated resource must itself have permission for the action, and the API user's security level must permit impersonation. |
+
+### Impersonation
+
+Autotask attributes writes to another resource when a request carries the [`ImpersonationResourceId` header](https://ww1.autotask.net/help/developerhelp/Content/APIs/REST/General_Topics/REST_Swagger_UI.htm). The server sends it on every Autotask call when a resource is set; Autotask applies it only to entities and actions that support impersonation and ignores it elsewhere. The supported list (see [Entities that support impersonation](https://autotask.net/help/developerhelp/content/apis/REST/Entities/_EntitiesOverview.htm)) includes the note entities this server writes (`TicketNote`, `ProjectNote`, `CompanyNote`), plus `TimeEntry`, `Ticket`, `Projects`, `Company`, `Contact`, `ServiceCall`, `Opportunity` and `Quote`. Autotask records the impersonated resource as the creator and fills the read-only `impersonatorCreatorResourceID`; setting that field in a body does nothing.
+
+Autotask's requirements:
+
+- The API-only user's security level must allow impersonation on the entity type.
+- The impersonated resource's security level must allow it to be impersonated ("Allow impersonation of resources with this security level").
+- Both must have permission to add or edit the entity.
+
+Where the resource ID comes from:
+
+| Mode | Source | Fallback |
+|------|--------|----------|
+| `AUTH_MODE=gateway` | `X-Impersonation-Resource-Id` on that request | None. Resource IDs are tenant-specific, so an env default is never applied to gateway requests. |
+| `AUTH_MODE=env`, HTTP | `X-Impersonation-Resource-Id` on that request | `AUTOTASK_IMPERSONATION_RESOURCE_ID` |
+| `AUTH_MODE=env`, Cloudflare Worker | `AUTOTASK_IMPERSONATION_RESOURCE_ID` only | None. The Worker route has no `X-Gateway-S2S` check, so a caller-supplied header is not honored there. |
+| `AUTH_MODE=env`, stdio | `AUTOTASK_IMPERSONATION_RESOURCE_ID` | None |
+
+A per-request value builds a fresh service for that request only, so it never carries over to another request. Values that aren't positive integers are ignored with a warning. If Autotask rejects an impersonated call, the error says which resource was being impersonated and the call is not retried as the API user.
 
 ### X-Gateway-S2S signing
 
@@ -680,6 +703,7 @@ npm test -- tests/autotask-service.test.ts
 | `AUTOTASK_SECRET` | ✅ | - | Autotask API secret key |
 | `AUTOTASK_INTEGRATION_CODE` | ✅ | - | Autotask integration code |
 | `AUTOTASK_API_URL` | ❌ | Auto-detected | Autotask API endpoint URL |
+| `AUTOTASK_IMPERSONATION_RESOURCE_ID` | ❌ | unset | Env mode only. Default Autotask resource ID to impersonate, sent as Autotask's `ImpersonationResourceId` header on every call so notes, time entries and other supported writes are attributed to that resource. Must be a positive integer; anything else is ignored with a warning. Over HTTP, a per-request `X-Impersonation-Resource-Id` header overrides it for that request only. Ignored in gateway mode, where each request supplies its own. See [Impersonation](#impersonation). |
 | `MCP_SERVER_NAME` | ❌ | `autotask-mcp` | MCP server name |
 | `MCP_TRANSPORT` | ❌ | `stdio` | Transport type (`stdio` or `http`) |
 | `MCP_HTTP_PORT` | ❌ | `8080` | HTTP transport port |

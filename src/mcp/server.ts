@@ -79,14 +79,37 @@ export class AutotaskMcpServer {
    * X-API-Secret / X-Integration-Code / X-API-Url contract as before. stdio
    * connections have no requestInfo and always use env-configured credentials.
    */
-  public requestFactory(): McpServerFactory {
+  public requestFactory(
+    opts: {
+      /**
+       * Honor a per-request X-Impersonation-Resource-Id in env mode. Only safe
+       * when the transport authenticates the caller first (the Node HTTP path
+       * requires X-Gateway-S2S). The Cloudflare Worker has no such ingress
+       * check, so it passes false and uses only the env default.
+       */
+      allowEnvImpersonationHeader?: boolean;
+    } = {}
+  ): McpServerFactory {
     const isGatewayMode = this.envConfig?.auth?.mode === 'gateway';
+    const allowEnvImpersonationHeader = opts.allowEnvImpersonationHeader ?? true;
     return (ctx) => {
       let credentials: GatewayCredentials | undefined;
       if (isGatewayMode && ctx.requestInfo) {
         credentials = parseCredentialsFromHeaders(
-          Object.fromEntries(ctx.requestInfo.headers) as Record<string, string | undefined>
+          Object.fromEntries(ctx.requestInfo.headers) as Record<string, string | undefined>,
+          this.logger
         );
+      } else if (ctx.requestInfo && allowEnvImpersonationHeader) {
+        // Env mode over HTTP: the server is bound to one tenant's env
+        // credentials, so a per-request X-Impersonation-Resource-Id can safely
+        // override AUTOTASK_IMPERSONATION_RESOURCE_ID for this request only.
+        const impersonationResourceId = parseCredentialsFromHeaders(
+          Object.fromEntries(ctx.requestInfo.headers) as Record<string, string | undefined>,
+          this.logger
+        ).impersonationResourceId;
+        if (impersonationResourceId !== undefined) {
+          return this.createRequestServer(this.envCredentialsWithImpersonation(impersonationResourceId));
+        }
       }
       return this.createRequestServer(credentials);
     };
@@ -142,6 +165,21 @@ export class AutotaskMcpServer {
     toolHandler.setServer(server);
 
     return server;
+  }
+
+  /**
+   * Env-mode credentials with a per-request impersonation override. Never used
+   * in gateway mode: there each request carries its own tenant's credentials,
+   * and an env-level resource ID would belong to the wrong tenant.
+   */
+  private envCredentialsWithImpersonation(impersonationResourceId: number): GatewayCredentials {
+    return {
+      username: this.config.autotask.username,
+      secret: this.config.autotask.secret,
+      integrationCode: this.config.autotask.integrationCode,
+      apiUrl: this.config.autotask.apiUrl,
+      impersonationResourceId,
+    };
   }
 
   /**
