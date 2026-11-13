@@ -300,6 +300,7 @@ Where the resource ID comes from:
 |------|--------|----------|
 | `AUTH_MODE=gateway` | `X-Impersonation-Resource-Id` on that request | None. Resource IDs are tenant-specific, so an env default is never applied to gateway requests. |
 | `AUTH_MODE=env`, HTTP | `X-Impersonation-Resource-Id` on that request | `AUTOTASK_IMPERSONATION_RESOURCE_ID` |
+| `AUTH_MODE=env`, Cloudflare Worker | `AUTOTASK_IMPERSONATION_RESOURCE_ID` only | None. The Worker route has no `X-Gateway-S2S` check, so a caller-supplied header is not honored there. |
 | `AUTH_MODE=env`, stdio | `AUTOTASK_IMPERSONATION_RESOURCE_ID` | None |
 
 A per-request value builds a fresh service for that request only, so it never carries over to another request. Values that aren't positive integers are ignored with a warning. If Autotask rejects an impersonated call, the error says which resource was being impersonated and the call is not retried as the API user.

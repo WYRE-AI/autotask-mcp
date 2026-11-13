@@ -29,12 +29,15 @@ describe('mergeWithMcpConfig keeps impersonationResourceId (#364)', () => {
     expect(merged.autotask.impersonationResourceId).toBe(123);
   });
 
-  it('leaves it unset when the env var is absent or invalid', () => {
+  it('leaves it unset when the env var is absent or invalid, warning on invalid', () => {
+    const warn = jest.spyOn(console, 'error').mockImplementation(() => undefined);
     process.env.AUTH_MODE = 'env';
     delete process.env.AUTOTASK_IMPERSONATION_RESOURCE_ID;
     expect(mergeWithMcpConfig(loadEnvironmentConfig()).autotask).not.toHaveProperty('impersonationResourceId');
     process.env.AUTOTASK_IMPERSONATION_RESOURCE_ID = '-4';
     expect(mergeWithMcpConfig(loadEnvironmentConfig()).autotask).not.toHaveProperty('impersonationResourceId');
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('-4'));
+    warn.mockRestore();
   });
 
   it('lets an explicit MCP arg override the env value, but ignores an invalid one', () => {
@@ -69,12 +72,17 @@ describe('requestFactory: per-request X-Impersonation-Resource-Id', () => {
     };
   }
 
-  function run(mode: 'env' | 'gateway', headers: Record<string, string>) {
-    const server = new AutotaskMcpServer(baseConfig, logger, envConfig(mode));
+  function run(
+    mode: 'env' | 'gateway',
+    headers: Record<string, string>,
+    opts?: { allowEnvImpersonationHeader?: boolean },
+    log: Logger = logger
+  ) {
+    const server = new AutotaskMcpServer(baseConfig, log, envConfig(mode));
     const spy = jest
       .spyOn(server, 'createRequestServer')
       .mockReturnValue({} as ReturnType<AutotaskMcpServer['createRequestServer']>);
-    const factory = server.requestFactory();
+    const factory = server.requestFactory(opts);
     (factory as (ctx: unknown) => unknown)({ requestInfo: { headers: new Headers(headers) } });
     return spy.mock.calls[0][0];
   }
@@ -88,8 +96,17 @@ describe('requestFactory: per-request X-Impersonation-Resource-Id', () => {
     expect(run('env', {})).toBeUndefined();
   });
 
-  it('env mode: an invalid header is ignored rather than forwarded', () => {
-    expect(run('env', { 'x-impersonation-resource-id': '12abc' })).toBeUndefined();
+  it('env mode: an invalid header is ignored with a warning rather than forwarded', () => {
+    const warnLogger = new Logger('error');
+    const warn = jest.spyOn(warnLogger, 'warn').mockImplementation(() => undefined);
+    expect(run('env', { 'x-impersonation-resource-id': '12abc' }, undefined, warnLogger)).toBeUndefined();
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('12abc'));
+  });
+
+  it('env mode: the header is not honored when the transport opts out (Worker)', () => {
+    expect(
+      run('env', { 'x-impersonation-resource-id': '222' }, { allowEnvImpersonationHeader: false })
+    ).toBeUndefined();
   });
 
   it('gateway mode: uses only the request header, never the env default', () => {

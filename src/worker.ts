@@ -136,7 +136,11 @@ function getAppServer(env: Env): AutotaskMcpServer {
 let mcpHandler: McpHttpHandler | undefined;
 function getMcpHandler(env: Env): McpHttpHandler {
   if (!mcpHandler) {
-    mcpHandler = createMcpHandler(getAppServer(env).requestFactory(), {
+    mcpHandler = createMcpHandler(getAppServer(env).requestFactory({
+      // No X-Gateway-S2S check on the Worker route, so a caller-supplied
+      // X-Impersonation-Resource-Id is not honored in env mode here.
+      allowEnvImpersonationHeader: false,
+    }), {
       legacy: 'stateless',
     });
   }
