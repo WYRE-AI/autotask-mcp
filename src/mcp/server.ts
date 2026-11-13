@@ -88,10 +88,18 @@ export class AutotaskMcpServer {
        * check, so it passes false and uses only the env default.
        */
       allowEnvImpersonationHeader?: boolean;
+      /**
+       * Trust X-Conduit-Acting-User-Email in gateway mode. Only true when this
+       * transport verified X-Gateway-S2S before the factory runs (Node HTTP
+       * with a usable CONDUIT_S2S_SECRET). Default false: the Worker and an
+       * insecure-dev listener never act on a caller-supplied email.
+       */
+      trustActingUserEmail?: boolean;
     } = {}
   ): McpServerFactory {
     const isGatewayMode = this.envConfig?.auth?.mode === 'gateway';
     const allowEnvImpersonationHeader = opts.allowEnvImpersonationHeader ?? true;
+    const trustActingUserEmail = opts.trustActingUserEmail ?? false;
     return (ctx) => {
       let credentials: GatewayCredentials | undefined;
       if (isGatewayMode && ctx.requestInfo) {
@@ -99,6 +107,7 @@ export class AutotaskMcpServer {
           Object.fromEntries(ctx.requestInfo.headers) as Record<string, string | undefined>,
           this.logger
         );
+        if (!trustActingUserEmail) delete credentials.actingUserEmail;
       } else if (ctx.requestInfo && allowEnvImpersonationHeader) {
         // Env mode over HTTP: the server is bound to one tenant's env
         // credentials, so a per-request X-Impersonation-Resource-Id can safely
@@ -197,6 +206,10 @@ export class AutotaskMcpServer {
     if (credentials.apiUrl) autotaskConfig.apiUrl = credentials.apiUrl;
     if (credentials.impersonationResourceId) {
       autotaskConfig.impersonationResourceId = credentials.impersonationResourceId;
+    } else if (credentials.actingUserEmail) {
+      // An explicit resource ID wins; otherwise resolve the acting user's
+      // resource by email, lazily, on the first write.
+      autotaskConfig.actingUserEmail = credentials.actingUserEmail;
     }
 
     const requestConfig: McpServerConfig = {
@@ -420,7 +433,7 @@ export class AutotaskMcpServer {
     // default stateless fallback ('stateless') — a fresh factory-built server
     // per request, exactly the per-request stateless idiom this server has
     // always used. Legacy GET/DELETE session operations answer 405 by design.
-    this.mcpHandler = createMcpHandler(this.requestFactory(), {
+    this.mcpHandler = createMcpHandler(this.requestFactory({ trustActingUserEmail: Boolean(s2sSecret) }), {
       legacy: 'stateless',
       onerror: (error) => this.logger.error('MCP handler error:', error),
     });

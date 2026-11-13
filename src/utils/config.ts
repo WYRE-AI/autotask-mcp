@@ -2,6 +2,7 @@
 // Handles loading configuration from environment variables and MCP client arguments
 // Supports gateway mode where credentials come via HTTP headers
 
+import { ACTING_USER_EMAIL_HEADER, parseActingUserEmail } from '../services/impersonation-resolver.js';
 import { McpServerConfig } from '../types/mcp.js';
 import { LogLevel } from './logger.js';
 // `resolveJsonModule` is enabled in tsconfig. We read package.json so the
@@ -72,6 +73,11 @@ export interface GatewayCredentials {
    * account. Undefined when absent or not a positive integer.
    */
   impersonationResourceId: number | undefined;
+  /**
+   * Acting Conduit user's verified email, from X-Conduit-Acting-User-Email.
+   * Only trusted on S2S-verified requests; the server drops it otherwise.
+   */
+  actingUserEmail?: string | undefined;
 }
 
 /**
@@ -136,6 +142,7 @@ export function parseCredentialsFromHeaders(
     integrationCode: getHeader('x-integration-code'),
     apiUrl: getHeader('x-api-url'),
     impersonationResourceId: parseImpersonationResourceId(getHeader('x-impersonation-resource-id'), logger),
+    actingUserEmail: parseActingUserEmail(getHeader(ACTING_USER_EMAIL_HEADER), logger),
   };
 }
 

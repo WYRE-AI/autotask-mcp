@@ -1,5 +1,9 @@
 ## [Unreleased]
 
+### Added
+
+- **Acting-user impersonation by email.** In gateway mode, `X-Conduit-Acting-User-Email` (honored only after `X-Gateway-S2S` verifies, never on the Worker) makes writes impersonate the single active Autotask resource with that exact email. Notes, time entries and other writes are then attributed to the person instead of the API user. The lookup runs as the API user, only on writes, and is cached per tenant and email (15 min hits, 5 min misses, 1 min errors; raw emails are never stored). No match, an ambiguous match or an inactive match falls back to the API user. An Autotask rejection of the impersonation retries the write once as the API user and stops impersonating that user until the cache entry expires. An explicit `X-Impersonation-Resource-Id` still wins and stays strict.
+
 ### Fixed
 
 - **`AUTOTASK_IMPERSONATION_RESOURCE_ID` was ignored in env mode** ([#364](https://github.com/WYRE-AI/autotask-mcp/issues/364)). `loadEnvironmentConfig()` parsed it, but `mergeWithMcpConfig()` rebuilt the Autotask config from username, secret, integration code and API URL only, so writes ran as the API user with no `ImpersonationResourceId` header and no warning. The value is now carried through (an explicit MCP arg still overrides it), the Cloudflare Worker reads it too, and env-mode Node HTTP (which requires `X-Gateway-S2S`) accepts a per-request `X-Impersonation-Resource-Id` that overrides it for that request only. The Cloudflare Worker has no S2S check on `/mcp`, so it ignores that header and uses only the env default. Invalid IDs from headers or env vars are logged as warnings. Gateway mode is unchanged: it uses only the request header and never an env default, because resource IDs are tenant-specific. Tests cover the merge, the per-request override, the no-bleed rule in gateway mode, and the header on ticket, project and company note creates.
