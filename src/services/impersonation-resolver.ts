@@ -46,6 +46,10 @@ interface CacheEntry {
 const DEFAULT_HIT_TTL_MS = 15 * 60_000;
 const DEFAULT_MISS_TTL_MS = 5 * 60_000;
 const ERROR_TTL_MS = 60_000;
+// A refusal reflects tenant security config, which changes rarely; a long
+// window keeps a 500-style refusal from failing one write per user every
+// 15 minutes.
+const DEFAULT_REJECTED_TTL_MS = 6 * 60 * 60_000;
 const MAX_ENTRIES = 10_000;
 const LOOKUP_PAGE = 5;
 
@@ -173,7 +177,8 @@ export async function resolveResourceIdByEmail(
 /**
  * Autotask refused an impersonated write for this tenant+email on one
  * operation (method + entity route, e.g. "POST /Tickets/{id}/Notes"). Stop
- * impersonating that user for that operation only, until the hit TTL passes,
+ * impersonating that user for that operation only, for 6 hours by default
+ * (AUTOTASK_IMPERSONATION_REJECTED_TTL_MS),
  * so later writes skip the doomed first attempt while other operations the
  * resource IS allowed to impersonate keep working.
  */
@@ -184,7 +189,7 @@ export function markImpersonationRejected(username: string, email: string, opera
     if (oldest !== undefined) rejections.delete(oldest);
   }
   rejections.delete(key);
-  rejections.set(key, now() + ttlFromEnv('AUTOTASK_IMPERSONATION_CACHE_TTL_MS', DEFAULT_HIT_TTL_MS));
+  rejections.set(key, now() + ttlFromEnv('AUTOTASK_IMPERSONATION_REJECTED_TTL_MS', DEFAULT_REJECTED_TTL_MS));
 }
 
 /** True while `operation` is suppressed for this tenant+email. */

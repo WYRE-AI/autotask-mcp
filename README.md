@@ -313,7 +313,12 @@ In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Ac
 1. On the first write of a request (POST create, PATCH, PUT or DELETE; never a GET or a `/query` read), the sidecar queries active `Resources` by `email` with the tenant's own API credentials, as the API user.
 2. Exactly one **active** resource with that exact email (case-insensitive) is a match. The write carries `ImpersonationResourceId: <id>`.
 3. No match, more than one active match, or only inactive matches mean the write runs as the API user, as it did before.
-4. If Autotask rejects the impersonated write, the write is retried once as the API user. A rejection is a 403, another 4xx (except 429) that mentions impersonation, or a 500 whose structured `errors` list mentions it. That user is then not impersonated for that operation (method and entity route) until the cache entry expires; other operations keep impersonating. A rejected request was not applied, so the retry can't double-write. Gateway 5xx responses and unstructured 500s are never retried, because the write may have landed. Usually a rejection means the tenant hasn't enabled impersonation in the security levels (see [Impersonation](#impersonation)).
+4. If Autotask refuses the impersonation, attribution for that user and operation (method and entity route) is switched off for 6 hours (`AUTOTASK_IMPERSONATION_REJECTED_TTL_MS`). Other operations keep impersonating. What happens to the refused write depends on the response:
+   - A 403, or another 4xx (except 429) that mentions impersonation: the write is retried once as the API user. A rejected 4xx request was not applied, so the retry can't double-write.
+   - A 500 whose structured `errors` list mentions impersonation: the write is **not** retried, because Autotask doesn't guarantee that a 500 wasn't applied. The call fails with a hint, and the next attempt runs as the API user.
+   - Gateway 5xx responses and unstructured 500s are not treated as refusals at all.
+
+   Usually a refusal means the tenant hasn't enabled impersonation in the security levels (see [Impersonation](#impersonation)).
 
 Lookups are cached per tenant (API username) and email: matches for 15 minutes, misses for 5 minutes, lookup errors for 1 minute. You can tune this with `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` and `AUTOTASK_IMPERSONATION_MISS_TTL_MS`. Cache keys are SHA-256 hashes, so raw emails are never stored. Lookup outcomes are logged at debug level, without the email.
 
@@ -719,6 +724,7 @@ npm test -- tests/autotask-service.test.ts
 | `AUTOTASK_API_URL` | ❌ | Auto-detected | Autotask API endpoint URL |
 | `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` | ❌ | `900000` | How long an acting-user email → resource match is cached (per tenant and email). |
 | `AUTOTASK_IMPERSONATION_MISS_TTL_MS` | ❌ | `300000` | How long a no-match, ambiguous or inactive lookup is cached. |
+| `AUTOTASK_IMPERSONATION_REJECTED_TTL_MS` | ❌ | `21600000` | How long acting-user impersonation stays off for a user and operation after Autotask refuses it. |
 | `AUTOTASK_IMPERSONATION_RESOURCE_ID` | ❌ | unset | Env mode only. Default Autotask resource ID to impersonate, sent as Autotask's `ImpersonationResourceId` header on every call so notes, time entries and other supported writes are attributed to that resource. Must be a positive integer; anything else is ignored with a warning. Over HTTP, a per-request `X-Impersonation-Resource-Id` header overrides it for that request only. Ignored in gateway mode, where each request supplies its own. See [Impersonation](#impersonation). |
 | `MCP_SERVER_NAME` | ❌ | `autotask-mcp` | MCP server name |
 | `MCP_TRANSPORT` | ❌ | `stdio` | Transport type (`stdio` or `http`) |

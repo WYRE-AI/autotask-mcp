@@ -11,7 +11,7 @@ import {
   pickResource,
   resolveResourceIdByEmail,
 } from '../src/services/impersonation-resolver';
-import { isImpersonationRejection } from '../src/services/autotask-http';
+import { classifyImpersonationRejection } from '../src/services/autotask-http';
 import { parseCredentialsFromHeaders } from '../src/utils/config';
 import { AutotaskMcpServer } from '../src/mcp/server';
 import { AutotaskService } from '../src/services/autotask.service';
@@ -165,20 +165,21 @@ describe('resolveResourceIdByEmail cache', () => {
   });
 });
 
-describe('isImpersonationRejection', () => {
-  it('treats 403, impersonation-mentioning 4xx, and structured 500 impersonation errors as rejections', () => {
-    expect(isImpersonationRejection(403, '')).toBe(true);
-    expect(isImpersonationRejection(400, 'impersonation not permitted')).toBe(true);
-    expect(isImpersonationRejection(500, '{"errors":["Impersonation is not allowed for this resource"]}')).toBe(true);
+describe('classifyImpersonationRejection', () => {
+  it('retries only rejected 4xx responses', () => {
+    expect(classifyImpersonationRejection(403, '')).toBe('retry');
+    expect(classifyImpersonationRejection(400, 'impersonation not permitted')).toBe('retry');
   });
-  it('never treats an unstructured 500 or a gateway 5xx as a rejection (the write may have landed)', () => {
-    expect(isImpersonationRejection(500, 'impersonation proxy crashed')).toBe(false);
-    expect(isImpersonationRejection(502, '{"errors":["impersonation"]}')).toBe(false);
-    expect(isImpersonationRejection(503, 'impersonation')).toBe(false);
+  it('never retries a 500; a structured impersonation 500 only suppresses', () => {
+    expect(classifyImpersonationRejection(500, '{"errors":["Impersonation is not allowed for this resource"]}')).toBe('suppress');
+    expect(classifyImpersonationRejection(500, 'impersonation proxy crashed')).toBe(false);
   });
-  it('does not treat ordinary validation errors or 429s as rejections', () => {
-    expect(isImpersonationRejection(500, '{"errors":["Title is required"]}')).toBe(false);
-    expect(isImpersonationRejection(429, 'impersonation')).toBe(false);
+  it('ignores gateway 5xx, 429s and ordinary validation errors', () => {
+    expect(classifyImpersonationRejection(502, '{"errors":["impersonation"]}')).toBe(false);
+    expect(classifyImpersonationRejection(503, 'impersonation')).toBe(false);
+    expect(classifyImpersonationRejection(500, '{"errors":["Title is required"]}')).toBe(false);
+    expect(classifyImpersonationRejection(429, 'impersonation')).toBe(false);
+    expect(classifyImpersonationRejection(400, 'Title is required')).toBe(false);
   });
 });
 
@@ -298,10 +299,10 @@ describe('AutotaskHttpClient with an acting-user email', () => {
     expect(write.headers).not.toHaveProperty('ImpersonationResourceId');
   });
 
-  it('retries once as the API user when Autotask rejects the impersonation, then stops impersonating that user', async () => {
+  it('retries a 4xx impersonation rejection once as the API user, then stops impersonating that operation', async () => {
     const calls = stubFetch((c) => {
       if (c.url.endsWith('/Resources/query')) return resourceRows([{ id: 77, email: 'tech@example.com', isActive: true }]);
-      if (c.headers.ImpersonationResourceId) return { status: 500, body: { errors: ['Impersonation is not permitted'] } };
+      if (c.headers.ImpersonationResourceId) return { status: 403, body: { errors: ['Impersonation is not permitted'] } };
       return { status: 200, body: { itemId: 1 } };
     });
     const svc = service('tech@example.com');
@@ -311,6 +312,20 @@ describe('AutotaskHttpClient with an acting-user email', () => {
     await svc.createTicketNote(7, note);
     const after = calls.filter((c) => c.url.endsWith('/Tickets/7/Notes')).slice(2);
     expect(after.map((w) => w.headers.ImpersonationResourceId)).toEqual([undefined]);
+  });
+
+  it('does not retry a 500 impersonation refusal (no duplicate risk), but the next attempt runs as the API user', async () => {
+    const calls = stubFetch((c) => {
+      if (c.url.endsWith('/Resources/query')) return resourceRows([{ id: 77, email: 'tech@example.com', isActive: true }]);
+      if (c.headers.ImpersonationResourceId) return { status: 500, body: { errors: ['Impersonation is not permitted'] } };
+      return { status: 200, body: { itemId: 1 } };
+    });
+    const svc = service('tech@example.com');
+    await expect(svc.createTicketNote(7, note)).rejects.toThrow(/trying again will record it as the API user/);
+    expect(calls.filter((c) => c.url.endsWith('/Tickets/7/Notes'))).toHaveLength(1);
+    await expect(svc.createTicketNote(7, note)).resolves.toBe(1);
+    const writes = calls.filter((c) => c.url.endsWith('/Tickets/7/Notes'));
+    expect(writes.map((w) => w.headers.ImpersonationResourceId)).toEqual(['77', undefined]);
   });
 
   it('does not retry an ordinary validation error', async () => {

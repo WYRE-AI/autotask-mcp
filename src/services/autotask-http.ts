@@ -300,24 +300,24 @@ interface Impersonation {
 
 /**
  * Autotask doesn't document a distinct error for "impersonation not allowed",
- * so classify conservatively. Retrying as the API user is only safe when the
- * request was rejected, not partly applied:
- * - 4xx (except 429): a 403, or a body that mentions impersonation.
- * - 500 only when the body is Autotask's structured business-rule rejection
- *   (`{"errors":[...]}`) and one of those errors mentions impersonation.
- *   Autotask reports validation/permission rejections that way.
- * - Never 502/503/504 or any other 5xx: the write may have been committed.
+ * so classify conservatively:
+ * - 'retry': 4xx (except 429) that is a 403 or mentions impersonation. The
+ *   request was rejected, so re-sending it as the API user can't double-write.
+ * - 'suppress': a 500 whose structured `{"errors":[...]}` body mentions
+ *   impersonation. Autotask doesn't guarantee a 500 wasn't applied, so it is
+ *   never retried; the caller only stops impersonating for that operation.
+ * - false: anything else, including 502/503/504 and unstructured 500s.
  */
-export function isImpersonationRejection(status: number, body: string): boolean {
+export function classifyImpersonationRejection(status: number, body: string): 'retry' | 'suppress' | false {
   if (status === 429 || status < 400) return false;
-  if (status < 500) return status === 403 || /imperson/i.test(body.slice(0, 4000));
+  if (status < 500) return status === 403 || /imperson/i.test(body.slice(0, 4000)) ? 'retry' : false;
   if (status !== 500) return false;
   try {
     const parsed = JSON.parse(body) as { errors?: unknown };
-    return (
-      Array.isArray(parsed.errors) &&
+    return Array.isArray(parsed.errors) &&
       parsed.errors.some((e) => typeof e === 'string' && /imperson/i.test(e))
-    );
+      ? 'suppress'
+      : false;
   } catch {
     return false;
   }
@@ -595,20 +595,36 @@ export class AutotaskHttpClient {
       // Exception: impersonation derived from the acting user's email is
       // best-effort by design. Conduit sends that email for every user, and
       // many tenants never enable impersonation in their security levels, so
-      // a rejection there falls back to the API user (today's behaviour)
-      // instead of failing the write. A rejected request was not applied, so
-      // the retry cannot double-write. The tenant+user is then cached as
-      // "don't impersonate" so later writes skip the doomed first attempt.
-      if (
-        opts.impersonation?.source === 'email' &&
-        this.actingUserEmail &&
-        isImpersonationRejection(response.status, text)
-      ) {
-        markImpersonationRejected(this.username, this.actingUserEmail, impersonationOperation(method, path));
-        this.logger.debug(
-          `Autotask ${method} ${path} rejected acting-user impersonation (HTTP ${response.status}); retrying as the API user`
-        );
-        return this.send<T>(method, path, body, { ...opts, impersonation: undefined });
+      // a rejection there must not keep failing writes.
+      //   - 'retry': a 4xx rejection. The request was not applied, so it is
+      //     re-sent once as the API user (today's behaviour).
+      //   - 'suppress': a structured 500 that mentions impersonation. Autotask
+      //     doesn't guarantee a 500 wasn't applied, so this call is NOT
+      //     retried (no duplicate-write risk); it fails with a hint, and the
+      //     operation is suppressed so the user's next attempt runs as the
+      //     API user.
+      // Either way only this tenant+user+operation is suppressed.
+      if (opts.impersonation?.source === 'email' && this.actingUserEmail) {
+        const verdict = classifyImpersonationRejection(response.status, text);
+        if (verdict) {
+          markImpersonationRejected(this.username, this.actingUserEmail, impersonationOperation(method, path));
+          if (verdict === 'retry') {
+            this.logger.debug(
+              `Autotask ${method} ${path} rejected acting-user impersonation (HTTP ${response.status}); retrying as the API user`
+            );
+            return this.send<T>(method, path, body, { ...opts, impersonation: undefined });
+          }
+          this.logger.debug(
+            `Autotask ${method} ${path} rejected acting-user impersonation (HTTP ${response.status}); not retrying a 500, suppressed for next attempt`
+          );
+          const err = new Error(
+            `Autotask ${method} ${path} failed: HTTP ${response.status}: ${errorDetail(text)} ` +
+              `(Autotask refused to record this as the acting user. Impersonation is now switched off for this action, ` +
+              `so trying again will record it as the API user. Check first that it wasn't saved.)`
+          );
+          (err as Error & { status?: number }).status = response.status;
+          throw err;
+        }
       }
       const impersonationHint =
         opts.impersonation !== undefined
