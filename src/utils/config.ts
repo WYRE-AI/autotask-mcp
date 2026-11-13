@@ -31,6 +31,8 @@ export interface EnvironmentConfig {
     secret?: string;
     integrationCode?: string;
     apiUrl?: string;
+    /** Default Autotask resource to impersonate (AUTOTASK_IMPERSONATION_RESOURCE_ID). */
+    impersonationResourceId?: number;
   };
   server: {
     name: string;
@@ -205,6 +207,19 @@ export function mergeWithMcpConfig(envConfig: EnvironmentConfig, mcpArgs?: Recor
       apiUrl: mcpArgs?.autotask?.apiUrl || envConfig.autotask.apiUrl
     }
   };
+
+  // Carry the env-configured impersonation resource through. Dropping it here
+  // made AUTOTASK_IMPERSONATION_RESOURCE_ID a silent no-op in env mode (#364):
+  // writes ran as the API user with no ImpersonationResourceId header.
+  const impersonationResourceId =
+    parseImpersonationResourceId(
+      mcpArgs?.autotask?.impersonationResourceId !== undefined
+        ? String(mcpArgs.autotask.impersonationResourceId)
+        : undefined
+    ) ?? envConfig.autotask.impersonationResourceId;
+  if (impersonationResourceId !== undefined) {
+    serverConfig.autotask.impersonationResourceId = impersonationResourceId;
+  }
 
   return serverConfig;
 }

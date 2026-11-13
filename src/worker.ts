@@ -24,6 +24,7 @@
 //    - AUTOTASK_SECRET
 //    - AUTOTASK_INTEGRATION_CODE
 //    - AUTOTASK_API_URL (optional)
+//    - AUTOTASK_IMPERSONATION_RESOURCE_ID (optional, env mode only)
 //
 // `tools/list` and `initialize` work without credentials; only `tools/call`
 // requires them.
@@ -33,6 +34,7 @@ import { Logger } from './utils/logger.js';
 import {
   getServerVersion,
   parseCredentialsFromHeaders,
+  parseImpersonationResourceId,
 } from './utils/config.js';
 import type { McpServerConfig } from './types/mcp.js';
 
@@ -41,6 +43,7 @@ export interface Env {
   AUTOTASK_SECRET?: string;
   AUTOTASK_INTEGRATION_CODE?: string;
   AUTOTASK_API_URL?: string;
+  AUTOTASK_IMPERSONATION_RESOURCE_ID?: string;
   AUTH_MODE?: string;
   LOG_LEVEL?: string;
   LOG_FORMAT?: string;
@@ -94,6 +97,15 @@ function getAppServer(env: Env): AutotaskMcpServer {
   if (env.AUTOTASK_INTEGRATION_CODE)
     autotask.integrationCode = env.AUTOTASK_INTEGRATION_CODE;
   if (env.AUTOTASK_API_URL) autotask.apiUrl = env.AUTOTASK_API_URL;
+  // Env-mode default impersonation (#364). Gateway mode ignores it: each
+  // request's resource ID must come from that request's own headers.
+  const impersonationResourceId = parseImpersonationResourceId(
+    env.AUTOTASK_IMPERSONATION_RESOURCE_ID,
+    logger
+  );
+  if (impersonationResourceId !== undefined && env.AUTH_MODE !== 'gateway') {
+    autotask.impersonationResourceId = impersonationResourceId;
+  }
 
   const config: McpServerConfig = {
     name: 'autotask-mcp',
