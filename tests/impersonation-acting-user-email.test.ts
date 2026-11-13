@@ -5,6 +5,7 @@
 import {
   __impersonationCacheSize,
   __resetImpersonationCacheForTests,
+  impersonationOperation,
   markImpersonationRejected,
   parseActingUserEmail,
   pickResource,
@@ -86,7 +87,10 @@ describe('resolveResourceIdByEmail cache', () => {
     expect(c.query).toHaveBeenCalledTimes(1);
     expect(c.query).toHaveBeenCalledWith(
       'Resources',
-      [{ op: 'eq', field: 'email', value: 'tech@example.com' }],
+      [
+        { op: 'eq', field: 'email', value: 'tech@example.com' },
+        { op: 'eq', field: 'isActive', value: true },
+      ],
       expect.objectContaining({ includeFields: ['id', 'email', 'isActive'] })
     );
   });
@@ -142,6 +146,19 @@ describe('resolveResourceIdByEmail cache', () => {
     expect(c.query).toHaveBeenCalledTimes(1);
   });
 
+  it('normalizes the email so mixed-case callers still match and share the cache', async () => {
+    const c = client([{ id: 9, email: 'tech@example.com', isActive: true }]);
+    expect(await resolveResourceIdByEmail(c, 'api@t.example', ' Tech@Example.COM ', quiet)).toBe(9);
+    expect(await resolveResourceIdByEmail(c, 'api@t.example', 'tech@example.com', quiet)).toBe(9);
+    expect(c.query).toHaveBeenCalledTimes(1);
+  });
+
+  it('treats a full lookup page as ambiguous rather than trusting a truncated list', async () => {
+    // Only one exact match in the page, but the page is full: not confident.
+    const full = [{ id: 1, email: 'tech@example.com', isActive: true }, ...Array.from({ length: 4 }, (_, i) => ({ id: i + 2, email: 'x@example.com', isActive: true }))];
+    expect(await resolveResourceIdByEmail(client(full), 'api@t.example', 'tech@example.com', quiet)).toBeUndefined();
+  });
+
   it('never stores raw emails in the cache', async () => {
     await resolveResourceIdByEmail(client([]), 'api@t.example', 'tech@example.com', quiet);
     expect(__impersonationCacheSize()).toBe(1);
@@ -149,9 +166,15 @@ describe('resolveResourceIdByEmail cache', () => {
 });
 
 describe('isImpersonationRejection', () => {
-  it('treats 403 and impersonation-mentioning errors as rejections', () => {
+  it('treats 403, impersonation-mentioning 4xx, and structured 500 impersonation errors as rejections', () => {
     expect(isImpersonationRejection(403, '')).toBe(true);
+    expect(isImpersonationRejection(400, 'impersonation not permitted')).toBe(true);
     expect(isImpersonationRejection(500, '{"errors":["Impersonation is not allowed for this resource"]}')).toBe(true);
+  });
+  it('never treats an unstructured 500 or a gateway 5xx as a rejection (the write may have landed)', () => {
+    expect(isImpersonationRejection(500, 'impersonation proxy crashed')).toBe(false);
+    expect(isImpersonationRejection(502, '{"errors":["impersonation"]}')).toBe(false);
+    expect(isImpersonationRejection(503, 'impersonation')).toBe(false);
   });
   it('does not treat ordinary validation errors or 429s as rejections', () => {
     expect(isImpersonationRejection(500, '{"errors":["Title is required"]}')).toBe(false);
@@ -306,11 +329,24 @@ describe('AutotaskHttpClient with an acting-user email', () => {
     expect(calls[0]!.headers.ImpersonationResourceId).toBe('555');
   });
 
-  it('markImpersonationRejected suppresses the lookup for that tenant+user', async () => {
-    markImpersonationRejected('api@tenant.example', 'tech@example.com');
-    const calls = stubFetch(() => ({ status: 200, body: { itemId: 1 } }));
-    await service('tech@example.com').createTicketNote(7, note);
-    expect(calls.some((c) => c.url.endsWith('/Resources/query'))).toBe(false);
-    expect(calls[0]!.headers).not.toHaveProperty('ImpersonationResourceId');
+  it('a rejection suppresses impersonation for that operation only', async () => {
+    markImpersonationRejected('api@tenant.example', 'Tech@example.com', 'POST /Tickets/{id}/Notes');
+    const calls = stubFetch((c) =>
+      c.url.endsWith('/Resources/query')
+        ? resourceRows([{ id: 77, email: 'tech@example.com', isActive: true }])
+        : { status: 200, body: { itemId: 1 } }
+    );
+    const svc = service('tech@example.com');
+    await svc.createTicketNote(9, note);
+    expect(calls.find((c) => c.url.endsWith('/Tickets/9/Notes'))!.headers).not.toHaveProperty('ImpersonationResourceId');
+    await svc.createProjectNote(8, note);
+    expect(calls.find((c) => c.url.endsWith('/Projects/8/Notes'))!.headers.ImpersonationResourceId).toBe('77');
+  });
+
+  it('impersonationOperation normalizes IDs, the /v1.0 root, absolute URLs and query strings', () => {
+    expect(impersonationOperation('post', '/Tickets/123/Notes')).toBe('POST /Tickets/{id}/Notes');
+    expect(impersonationOperation('PATCH', 'https://webservices99.autotask.net/ATServicesRest/v1.0/Tickets?x=1')).toBe(
+      'PATCH /ATServicesRest/Tickets'
+    );
   });
 });

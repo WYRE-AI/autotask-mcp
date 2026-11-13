@@ -310,10 +310,10 @@ A per-request value builds a fresh service for that request only, so it never ca
 
 In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Acting-User-Email`, and the sidecar attributes that person's writes to their own Autotask resource:
 
-1. On the first write of a request (POST create, PATCH, PUT or DELETE; never a GET or a `/query` read), the sidecar queries `Resources` by `email` with the tenant's own API credentials, as the API user.
+1. On the first write of a request (POST create, PATCH, PUT or DELETE; never a GET or a `/query` read), the sidecar queries active `Resources` by `email` with the tenant's own API credentials, as the API user.
 2. Exactly one **active** resource with that exact email (case-insensitive) is a match. The write carries `ImpersonationResourceId: <id>`.
 3. No match, more than one active match, or only inactive matches mean the write runs as the API user, as it did before.
-4. If Autotask rejects the impersonated write (HTTP 403, or an error that mentions impersonation), the write is retried once as the API user. That user is then not impersonated again until the cache entry expires. A rejected request was not applied, so the retry can't double-write. Usually this means the tenant hasn't enabled impersonation in the security levels (see [Impersonation](#impersonation)).
+4. If Autotask rejects the impersonated write, the write is retried once as the API user. A rejection is a 403, another 4xx (except 429) that mentions impersonation, or a 500 whose structured `errors` list mentions it. That user is then not impersonated for that operation (method and entity route) until the cache entry expires; other operations keep impersonating. A rejected request was not applied, so the retry can't double-write. Gateway 5xx responses and unstructured 500s are never retried, because the write may have landed. Usually a rejection means the tenant hasn't enabled impersonation in the security levels (see [Impersonation](#impersonation)).
 
 Lookups are cached per tenant (API username) and email: matches for 15 minutes, misses for 5 minutes, lookup errors for 1 minute. You can tune this with `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` and `AUTOTASK_IMPERSONATION_MISS_TTL_MS`. Cache keys are SHA-256 hashes, so raw emails are never stored. Lookup outcomes are logged at debug level, without the email.
 

@@ -8,7 +8,12 @@
 
 import { resolveAutotaskApiUrl, invalidateZoneUrlCache } from '../utils/config';
 import { Logger } from '../utils/logger';
-import { markImpersonationRejected, resolveResourceIdByEmail } from './impersonation-resolver';
+import {
+  impersonationOperation,
+  isImpersonationRejected,
+  markImpersonationRejected,
+  resolveResourceIdByEmail,
+} from './impersonation-resolver';
 
 export interface QueryFilter {
   op: string;
@@ -295,12 +300,27 @@ interface Impersonation {
 
 /**
  * Autotask doesn't document a distinct error for "impersonation not allowed",
- * so treat a 403, or any non-429 error whose body mentions impersonation, as
- * a rejection of the impersonation rather than of the write itself.
+ * so classify conservatively. Retrying as the API user is only safe when the
+ * request was rejected, not partly applied:
+ * - 4xx (except 429): a 403, or a body that mentions impersonation.
+ * - 500 only when the body is Autotask's structured business-rule rejection
+ *   (`{"errors":[...]}`) and one of those errors mentions impersonation.
+ *   Autotask reports validation/permission rejections that way.
+ * - Never 502/503/504 or any other 5xx: the write may have been committed.
  */
 export function isImpersonationRejection(status: number, body: string): boolean {
   if (status === 429 || status < 400) return false;
-  return status === 403 || /imperson/i.test(body.slice(0, 4000));
+  if (status < 500) return status === 403 || /imperson/i.test(body.slice(0, 4000));
+  if (status !== 500) return false;
+  try {
+    const parsed = JSON.parse(body) as { errors?: unknown };
+    return (
+      Array.isArray(parsed.errors) &&
+      parsed.errors.some((e) => typeof e === 'string' && /imperson/i.test(e))
+    );
+  } catch {
+    return false;
+  }
 }
 
 export function isIdempotentAutotaskRequest(method: string, path: string): boolean {
@@ -394,6 +414,9 @@ export class AutotaskHttpClient {
     if (!this.actingUserEmail) return undefined;
     const verb = method.toUpperCase();
     if (verb === 'GET' || verb === 'HEAD' || isAutotaskQueryRead(verb, path)) return undefined;
+    if (isImpersonationRejected(this.username, this.actingUserEmail, impersonationOperation(verb, path))) {
+      return undefined;
+    }
     const resourceId = await resolveResourceIdByEmail(this, this.username, this.actingUserEmail, this.logger);
     return resourceId === undefined ? undefined : { resourceId, source: 'email' };
   }
@@ -581,7 +604,7 @@ export class AutotaskHttpClient {
         this.actingUserEmail &&
         isImpersonationRejection(response.status, text)
       ) {
-        markImpersonationRejected(this.username, this.actingUserEmail);
+        markImpersonationRejected(this.username, this.actingUserEmail, impersonationOperation(method, path));
         this.logger.debug(
           `Autotask ${method} ${path} rejected acting-user impersonation (HTTP ${response.status}); retrying as the API user`
         );

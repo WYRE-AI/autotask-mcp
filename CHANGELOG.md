@@ -2,7 +2,7 @@
 
 ### Added
 
-- **Acting-user impersonation by email.** In gateway mode, `X-Conduit-Acting-User-Email` (honored only after `X-Gateway-S2S` verifies, never on the Worker) makes writes impersonate the single active Autotask resource with that exact email. Notes, time entries and other writes are then attributed to the person instead of the API user. The lookup runs as the API user, only on writes, and is cached per tenant and email (15 min hits, 5 min misses, 1 min errors; raw emails are never stored). No match, an ambiguous match or an inactive match falls back to the API user. An Autotask rejection of the impersonation retries the write once as the API user and stops impersonating that user until the cache entry expires. An explicit `X-Impersonation-Resource-Id` still wins and stays strict.
+- **Acting-user impersonation by email.** In gateway mode, `X-Conduit-Acting-User-Email` (honored only after `X-Gateway-S2S` verifies, never on the Worker) makes writes impersonate the single active Autotask resource with that exact email. Notes, time entries and other writes are then attributed to the person instead of the API user. The lookup runs as the API user, only on writes, and is cached per tenant and email (15 min hits, 5 min misses, 1 min errors; raw emails are never stored). No match, an ambiguous match or an inactive match falls back to the API user. An Autotask rejection of the impersonation (403, an impersonation-mentioning 4xx, or a structured 500 that mentions it; never a gateway 5xx) retries the write once as the API user and stops impersonating that user for that operation until the cache entry expires. An explicit `X-Impersonation-Resource-Id` still wins and stays strict.
 
 ### Fixed
 

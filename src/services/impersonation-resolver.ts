@@ -47,6 +47,7 @@ const DEFAULT_HIT_TTL_MS = 15 * 60_000;
 const DEFAULT_MISS_TTL_MS = 5 * 60_000;
 const ERROR_TTL_MS = 60_000;
 const MAX_ENTRIES = 10_000;
+const LOOKUP_PAGE = 5;
 
 function ttlFromEnv(name: string, fallback: number): number {
   const raw = typeof process !== 'undefined' ? process.env?.[name] : undefined;
@@ -56,6 +57,7 @@ function ttlFromEnv(name: string, fallback: number): number {
 
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<number | undefined>>();
+const rejections = new Map<string, number>();
 let now: () => number = () => Date.now();
 
 /** Cache key: tenant (API username) + acting email, hashed so the map never holds raw emails. */
@@ -114,6 +116,9 @@ export async function resolveResourceIdByEmail(
   email: string,
   logger: { debug: (msg: string) => void }
 ): Promise<number | undefined> {
+  // Normalize at the boundary: programmatic callers may not have gone through
+  // parseActingUserEmail, and the key, query and comparison must agree.
+  email = email.trim().toLowerCase();
   const key = impersonationCacheKey(username, email);
   const tag = key.slice(0, 12);
   const hit = cache.get(key);
@@ -125,12 +130,20 @@ export async function resolveResourceIdByEmail(
 
   const lookup = (async () => {
     try {
+      // Filter to active resources upstream so uniqueness is never judged
+      // from a truncated list: a full page means "too many to be sure".
       const rows = await client.query<ResourceRow>(
         'Resources',
-        [{ op: 'eq', field: 'email', value: email }],
-        { maxRecords: 10, includeFields: ['id', 'email', 'isActive'] }
+        [
+          { op: 'eq', field: 'email', value: email },
+          { op: 'eq', field: 'isActive', value: true },
+        ],
+        { maxRecords: LOOKUP_PAGE, includeFields: ['id', 'email', 'isActive'] }
       );
-      const { resourceId, outcome } = pickResource(rows ?? [], email);
+      const { resourceId, outcome } =
+        (rows ?? []).length >= LOOKUP_PAGE
+          ? { resourceId: null, outcome: 'ambiguous' as const }
+          : pickResource(rows ?? [], email);
       const ttl =
         resourceId !== null
           ? ttlFromEnv('AUTOTASK_IMPERSONATION_CACHE_TTL_MS', DEFAULT_HIT_TTL_MS)
@@ -158,23 +171,49 @@ export async function resolveResourceIdByEmail(
 }
 
 /**
- * Autotask refused an impersonated write for this tenant+email (typically the
- * resource's security level doesn't allow impersonation). Stop impersonating
- * that user until the hit TTL passes so every write doesn't pay for a retry.
+ * Autotask refused an impersonated write for this tenant+email on one
+ * operation (method + entity route, e.g. "POST /Tickets/{id}/Notes"). Stop
+ * impersonating that user for that operation only, until the hit TTL passes,
+ * so later writes skip the doomed first attempt while other operations the
+ * resource IS allowed to impersonate keep working.
  */
-export function markImpersonationRejected(username: string, email: string): void {
-  store(
-    impersonationCacheKey(username, email),
-    null,
-    'rejected',
-    ttlFromEnv('AUTOTASK_IMPERSONATION_CACHE_TTL_MS', DEFAULT_HIT_TTL_MS)
-  );
+export function markImpersonationRejected(username: string, email: string, operation: string): void {
+  const key = `${impersonationCacheKey(username, email.trim().toLowerCase())}|${operation}`;
+  if (rejections.size >= MAX_ENTRIES && !rejections.has(key)) {
+    const oldest = rejections.keys().next().value;
+    if (oldest !== undefined) rejections.delete(oldest);
+  }
+  rejections.delete(key);
+  rejections.set(key, now() + ttlFromEnv('AUTOTASK_IMPERSONATION_CACHE_TTL_MS', DEFAULT_HIT_TTL_MS));
+}
+
+/** True while `operation` is suppressed for this tenant+email. */
+export function isImpersonationRejected(username: string, email: string, operation: string): boolean {
+  const key = `${impersonationCacheKey(username, email.trim().toLowerCase())}|${operation}`;
+  const until = rejections.get(key);
+  if (until === undefined) return false;
+  if (until > now()) return true;
+  rejections.delete(key);
+  return false;
+}
+
+/** "POST /Tickets/123/Notes" -> "POST /Tickets/{id}/Notes" (query string dropped). */
+export function impersonationOperation(method: string, path: string): string {
+  let route = path;
+  try {
+    if (/^https?:\/\//i.test(route)) route = new URL(route).pathname;
+  } catch {
+    /* keep as-is */
+  }
+  route = route.split('?')[0]!.replace(/\/v1\.0(?=\/)/i, '').replace(/\/\d+(?=\/|$)/g, '/{id}');
+  return `${method.toUpperCase()} ${route}`;
 }
 
 /** Tests only. */
 export function __resetImpersonationCacheForTests(clock?: () => number): void {
   cache.clear();
   inflight.clear();
+  rejections.clear();
   now = clock ?? (() => Date.now());
 }
 
