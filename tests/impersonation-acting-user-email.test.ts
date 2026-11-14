@@ -11,7 +11,7 @@ import {
   pickResource,
   resolveResourceIdByEmail,
 } from '../src/services/impersonation-resolver';
-import { classifyImpersonationRejection } from '../src/services/autotask-http';
+import { _resetTenantSemaphores, classifyImpersonationRejection } from '../src/services/autotask-http';
 import { parseCredentialsFromHeaders } from '../src/utils/config';
 import { AutotaskMcpServer } from '../src/mcp/server';
 import { AutotaskService } from '../src/services/autotask.service';
@@ -228,7 +228,7 @@ describe('AutotaskHttpClient with an acting-user email', () => {
 
   type Call = { url: string; method: string; headers: Record<string, string>; body?: string };
 
-  function stubFetch(handler: (c: Call) => { status: number; body: unknown }) {
+  function stubFetch(handler: (c: Call) => { status: number; body: unknown } | Promise<{ status: number; body: unknown }>) {
     const calls: Call[] = [];
     (global as unknown as { fetch: unknown }).fetch = jest.fn(async (url: string, init: RequestInit) => {
       const call: Call = {
@@ -238,7 +238,7 @@ describe('AutotaskHttpClient with an acting-user email', () => {
         ...(typeof init.body === 'string' ? { body: init.body } : {}),
       };
       calls.push(call);
-      const { status, body } = handler(call);
+      const { status, body } = await handler(call);
       const text = JSON.stringify(body);
       return {
         ok: status >= 200 && status < 300,
@@ -328,6 +328,46 @@ describe('AutotaskHttpClient with an acting-user email', () => {
     expect(writes.map((w) => w.headers.ImpersonationResourceId)).toEqual(['77', undefined]);
   });
 
+  it('rechecks suppression after a queued write acquires the tenant slot', async () => {
+    const previousMaxInflight = process.env.AUTOTASK_MAX_INFLIGHT;
+    process.env.AUTOTASK_MAX_INFLIGHT = '1';
+    _resetTenantSemaphores();
+    let releaseFirst!: () => void;
+    const firstResponse = new Promise<void>((resolve) => { releaseFirst = resolve; });
+    let signalFirstStarted!: () => void;
+    const firstStarted = new Promise<void>((resolve) => { signalFirstStarted = resolve; });
+    const calls = stubFetch(async (c) => {
+      if (c.url.endsWith('/Resources/query')) return resourceRows([{ id: 77, email: 'tech@example.com', isActive: true }]);
+      if (c.headers.ImpersonationResourceId) {
+        signalFirstStarted();
+        await firstResponse;
+        return { status: 500, body: { errors: ['Impersonation is not permitted'] } };
+      }
+      return { status: 200, body: { itemId: 1 } };
+    });
+    try {
+      const svc = service('tech@example.com');
+      const first = expect(svc.createTicketNote(7, note)).rejects.toThrow(/trying again will record it as the API user/);
+      await firstStarted;
+      const second = svc.createTicketNote(8, note);
+      // Drain promise continuations so the cached lookup finishes and the
+      // second write queues behind the first write's occupied tenant slot.
+      await new Promise<void>((resolve) => setImmediate(resolve));
+      expect(calls.filter((c) => /\/Tickets\/\d+\/Notes$/.test(c.url))).toHaveLength(1);
+      releaseFirst();
+      await first;
+      await expect(second).resolves.toBe(1);
+      const writes = calls.filter((c) => /\/Tickets\/\d+\/Notes$/.test(c.url));
+      expect(writes.map((c) => c.headers.ImpersonationResourceId)).toEqual(['77', undefined]);
+      expect(writes.map((c) => c.url.split('/').slice(-3).join('/'))).toEqual(['Tickets/7/Notes', 'Tickets/8/Notes']);
+    } finally {
+      releaseFirst();
+      if (previousMaxInflight === undefined) delete process.env.AUTOTASK_MAX_INFLIGHT;
+      else process.env.AUTOTASK_MAX_INFLIGHT = previousMaxInflight;
+      _resetTenantSemaphores();
+    }
+  });
+
   it('does not retry an ordinary validation error', async () => {
     const calls = stubFetch((c) => {
       if (c.url.endsWith('/Resources/query')) return resourceRows([{ id: 77, email: 'tech@example.com', isActive: true }]);
@@ -337,7 +377,8 @@ describe('AutotaskHttpClient with an acting-user email', () => {
     expect(calls.filter((c) => c.url.endsWith('/Tickets/7/Notes'))).toHaveLength(1);
   });
 
-  it('an explicit resource ID wins and is never replaced by the email lookup', async () => {
+  it('an explicit resource ID wins even when email impersonation is suppressed', async () => {
+    markImpersonationRejected('api@tenant.example', 'tech@example.com', 'POST /Tickets/{id}/Notes');
     const calls = stubFetch(() => ({ status: 200, body: { itemId: 1 } }));
     await service('tech@example.com', 555).createTicketNote(7, note);
     expect(calls.some((c) => c.url.endsWith('/Resources/query'))).toBe(false);

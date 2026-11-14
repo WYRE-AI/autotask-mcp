@@ -467,11 +467,19 @@ export class AutotaskHttpClient {
     assertNotCoolingDown(cooldownKey);
     // Resolved before taking a slot: an email lookup is itself a request and
     // must not wait behind the slot this call would be holding.
-    const impersonation = await this.impersonationFor(method, path);
+    let impersonation = await this.impersonationFor(method, path);
     const release = await acquireTenantSlot(cooldownKey);
     try {
       // A sibling call may have armed the cooldown while we waited.
       assertNotCoolingDown(cooldownKey);
+      // A sibling write may have rejected email-derived impersonation while
+      // this call waited for a slot. Explicit IDs remain strict.
+      if (
+        impersonation?.source === 'email' && this.actingUserEmail &&
+        isImpersonationRejected(this.username, this.actingUserEmail, impersonationOperation(method, path))
+      ) {
+        impersonation = undefined;
+      }
       return await this.send<T>(method, path, body, { isZoneRetry, threadRetries: 0, impersonation });
     } finally {
       release();
