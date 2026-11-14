@@ -42,6 +42,9 @@ function readHeader(value: string | string[] | undefined): string | undefined {
   return undefined;
 }
 
+/** How /mcp requests are authenticated, decided once at HTTP startup. */
+type HttpAuthMode = 's2s' | 'insecure-dev' | 'unauthenticated-http';
+
 export class AutotaskMcpServer {
   private config: McpServerConfig;
   private autotaskService: AutotaskService;
@@ -358,15 +361,63 @@ export class AutotaskMcpServer {
   }
 
   /**
-   * Secret for X-Gateway-S2S. Read at HTTP startup, not per request.
-   * Empty and known placeholders are fail-closed: the process exits unless
-   * MCP_ALLOW_INSECURE_DEV=1. The secret value is never written to logs.
+   * HTTP authentication policy, read once at startup, not per request.
+   *
+   * - A usable CONDUIT_S2S_SECRET is enforced on every /mcp request.
+   * - MCP_ALLOW_INSECURE_DEV=1 (local development) skips X-Gateway-S2S and
+   *   forces 127.0.0.1.
+   * - MCP_ALLOW_UNAUTHENTICATED_HTTP=1 skips X-Gateway-S2S for a single-tenant
+   *   AUTH_MODE=env deployment on a trusted private network. It is refused
+   *   with any other AUTH_MODE, together with MCP_ALLOW_INSECURE_DEV=1, or
+   *   with a placeholder CONDUIT_S2S_SECRET. In AUTH_MODE=env a usable
+   *   secret takes precedence over it.
+   * - Anything else is fail-closed: the process exits.
+   *
+   * The secret value is never written to logs.
    */
-  private resolveHttpS2sSecret(): string {
+  private resolveHttpAuth(): { s2sSecret: string; mode: HttpAuthMode } {
     const trimmed = (process.env.CONDUIT_S2S_SECRET ?? '').trim();
-    if (isUsableConduitS2sSecret(trimmed)) return trimmed;
+    const usable = isUsableConduitS2sSecret(trimmed);
+    const placeholder = !usable && trimmed.length > 0;
 
-    const placeholder = trimmed.length > 0;
+    if (process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP === '1') {
+      const authMode = this.envConfig?.auth?.mode;
+      if (authMode !== 'env') {
+        const shown = authMode === undefined ? 'unset' : JSON.stringify(String(authMode).slice(0, 32));
+        this.logger.error(
+          `Refusing to start HTTP transport: MCP_ALLOW_UNAUTHENTICATED_HTTP=1 requires AUTH_MODE=env (got ${shown}). ` +
+            'Gateway and multi-tenant deployments must authenticate every request with X-Gateway-S2S.'
+        );
+        process.exit(1);
+      }
+      if (process.env.MCP_ALLOW_INSECURE_DEV === '1') {
+        this.logger.error(
+          'Refusing to start HTTP transport: MCP_ALLOW_UNAUTHENTICATED_HTTP=1 and MCP_ALLOW_INSECURE_DEV=1 are both set. ' +
+            'Set only one: MCP_ALLOW_INSECURE_DEV=1 for loopback-only development, or ' +
+            'MCP_ALLOW_UNAUTHENTICATED_HTTP=1 for a trusted private network.'
+        );
+        process.exit(1);
+      }
+      if (usable) {
+        this.logger.info(
+          'MCP_ALLOW_UNAUTHENTICATED_HTTP=1 is ignored because CONDUIT_S2S_SECRET is configured; ' +
+            'X-Gateway-S2S is enforced on every /mcp request.'
+        );
+        return { s2sSecret: trimmed, mode: 's2s' };
+      }
+      if (placeholder) {
+        this.logger.error(
+          'Refusing to start HTTP transport: CONDUIT_S2S_SECRET is a known placeholder value and ' +
+            'MCP_ALLOW_UNAUTHENTICATED_HTTP=1 is set. Set a real CONDUIT_S2S_SECRET, or remove ' +
+            'CONDUIT_S2S_SECRET to run without service-to-service authentication.'
+        );
+        process.exit(1);
+      }
+      return { s2sSecret: '', mode: 'unauthenticated-http' };
+    }
+
+    if (usable) return { s2sSecret: trimmed, mode: 's2s' };
+
     if (process.env.MCP_ALLOW_INSECURE_DEV === '1') {
       const why = placeholder
         ? 'CONDUIT_S2S_SECRET is a known placeholder'
@@ -376,7 +427,7 @@ export class AutotaskMcpServer {
           'HTTP /mcp is not enforcing X-Gateway-S2S and listens on 127.0.0.1 only. ' +
           'Do not use this outside local development.'
       );
-      return '';
+      return { s2sSecret: '', mode: 'insecure-dev' };
     }
 
     const why = placeholder
@@ -385,7 +436,8 @@ export class AutotaskMcpServer {
     this.logger.error(
       `Refusing to start HTTP transport: ${why} ` +
         'An empty or placeholder secret would accept unauthenticated /mcp requests (CWE-306). ' +
-        'Set CONDUIT_S2S_SECRET to the gateway-provisioned secret, or set MCP_ALLOW_INSECURE_DEV=1 for local development only.'
+        'Set CONDUIT_S2S_SECRET to the gateway-provisioned secret, set MCP_ALLOW_INSECURE_DEV=1 for local development only, ' +
+        'or set MCP_ALLOW_UNAUTHENTICATED_HTTP=1 with AUTH_MODE=env for a single-tenant deployment on a trusted private network.'
     );
     process.exit(1);
   }
@@ -393,17 +445,21 @@ export class AutotaskMcpServer {
   /**
    * Start with HTTP Streamable transport.
    * Refuses to listen without a usable CONDUIT_S2S_SECRET unless
-   * MCP_ALLOW_INSECURE_DEV=1, which forces 127.0.0.1. A configured secret
-   * honors MCP_HTTP_HOST. In gateway mode, credentials are extracted from
-   * request headers on each request and missing headers are rejected.
+   * MCP_ALLOW_INSECURE_DEV=1, which forces 127.0.0.1, or
+   * MCP_ALLOW_UNAUTHENTICATED_HTTP=1 (AUTH_MODE=env only), which binds only an
+   * explicitly set MCP_HTTP_HOST. A configured secret honors MCP_HTTP_HOST.
+   * In gateway mode, credentials are extracted from request headers on each
+   * request and missing headers are rejected.
    */
   private async startHttpTransport(): Promise<void> {
     const port = this.envConfig?.transport?.port ?? 8080;
-    const s2sSecret = this.resolveHttpS2sSecret();
+    const { s2sSecret, mode: httpAuthMode } = this.resolveHttpAuth();
+    const unauthenticatedHttp = httpAuthMode === 'unauthenticated-http';
     const listen = resolveHttpListenHost({
       s2sSecret,
       configuredHost: this.envConfig?.transport?.host,
       explicitHost: process.env.MCP_HTTP_HOST,
+      allowUnauthenticatedHttp: unauthenticatedHttp,
     });
     if (listen.overriddenHost !== undefined) {
       this.logger.error(
@@ -414,6 +470,20 @@ export class AutotaskMcpServer {
     }
     const host = listen.host;
     const isGatewayMode = this.envConfig?.auth?.mode === 'gateway';
+    if (unauthenticatedHttp) {
+      this.logger.error(
+        `SECURITY WARNING: MCP_ALLOW_UNAUTHENTICATED_HTTP=1. HTTP /mcp on ${host}:${port} does not authenticate requests ` +
+          '(X-Gateway-S2S is not checked). Any client that can reach this address can call every tool as the ' +
+          'configured Autotask API user. Use this single-tenant mode only on a trusted private network restricted by ' +
+          'firewall or network policy, and never expose it publicly. Browser requests (with an Origin header) are rejected.'
+      );
+      if (!process.env.MCP_HTTP_HOST?.trim()) {
+        this.logger.warn(
+          'MCP_HTTP_HOST is not set, so the unauthenticated listener binds 127.0.0.1 only. Set MCP_HTTP_HOST to a ' +
+            'private interface address (or 0.0.0.0 inside a container) to accept connections from the private network.'
+        );
+      }
+    }
 
     // One dual-era handler for the process: modern (2026-07-28 envelope)
     // traffic is served natively; legacy 2025-era traffic is served by the
@@ -471,10 +541,29 @@ export class AutotaskMcpServer {
       // MCP endpoint — dual-era handler (fresh factory-built server per
       // request in both eras; nothing is shared between requests)
       if (url.pathname === '/mcp') {
+        // Without S2S nothing proves the caller is trusted, and the wildcard
+        // CORS policy above would let any web page opened by someone on the
+        // private network call tools (directly or via DNS rebinding). Server
+        // and gateway clients do not send Origin; browsers always do on POST.
+        if (unauthenticatedHttp && req.headers.origin !== undefined) {
+          this.logger.warn('Rejected browser-originated /mcp request in unauthenticated HTTP mode');
+          res.writeHead(403, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            jsonrpc: '2.0',
+            error: {
+              code: -32001,
+              message: 'Forbidden: browser requests are not accepted when MCP_ALLOW_UNAUTHENTICATED_HTTP=1',
+            },
+            id: null,
+          }));
+          return;
+        }
+
         // Gateway S2S verification (gateway#377 parity). Runs before any
         // credential extraction — see src/mcp/s2s-verify.ts. An empty
-        // s2sSecret is only reachable when MCP_ALLOW_INSECURE_DEV=1; startup
-        // refuses otherwise. A configured secret is always enforced.
+        // s2sSecret is only reachable when MCP_ALLOW_INSECURE_DEV=1 or
+        // MCP_ALLOW_UNAUTHENTICATED_HTTP=1 (AUTH_MODE=env); startup refuses
+        // otherwise. A configured secret is always enforced.
         if (s2sSecret && !verifyS2sHeader(readHeader(req.headers[S2S_HEADER]), s2sSecret)) {
           this.logger.warn('Rejected request with missing/invalid gateway S2S header');
           res.writeHead(401, { 'Content-Type': 'application/json' });

@@ -144,7 +144,7 @@ curl -X POST http://127.0.0.1:8080/mcp \
 | `AUTH_MODE` | `env` | Authentication mode: `env` or `gateway` |
 | `MCP_TRANSPORT` | `stdio` | Transport: `stdio` or `http` |
 | `MCP_HTTP_PORT` | `8080` | HTTP port (when transport=http) |
-| `MCP_HTTP_HOST` | `0.0.0.0` when a secret is set; `127.0.0.1` without one | HTTP host (when transport=http). A configured secret honors this. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
+| `MCP_HTTP_HOST` | `0.0.0.0` when a secret is set; `127.0.0.1` without one | HTTP host (when transport=http). A configured secret honors this, and so does `MCP_ALLOW_UNAUTHENTICATED_HTTP=1` when it is set explicitly. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
 | `CONDUIT_S2S_SECRET` | — | Required for HTTP. Signs `X-Gateway-S2S`. Empty and known placeholders are rejected. |
 | `MCP_ALLOW_INSECURE_DEV` | unset | Set to exactly `1` for local HTTP without a usable secret. Listens on `127.0.0.1` only. |
 | `LOG_LEVEL` | `info` | Logging: `error`, `warn`, `info`, `debug` |

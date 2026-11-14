@@ -397,9 +397,10 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
   MCP_SERVER_VERSION       - Override the reported server version. Defaults to the version baked into the image's package.json at build time. Useful for stamping a custom build identifier.
   MCP_TRANSPORT            - Transport type: stdio, http (default: stdio)
   MCP_HTTP_PORT            - HTTP port when using http transport (default: 8080)
-  MCP_HTTP_HOST            - HTTP bind address when CONDUIT_S2S_SECRET is set (default: 0.0.0.0). Without a usable secret the listener is 127.0.0.1.
+  MCP_HTTP_HOST            - HTTP bind address when CONDUIT_S2S_SECRET is set (default: 0.0.0.0) or MCP_ALLOW_UNAUTHENTICATED_HTTP=1 (must be set explicitly). Otherwise, without a usable secret, the listener is 127.0.0.1.
   CONDUIT_S2S_SECRET       - Required to start HTTP. Signs X-Gateway-S2S (HMAC-SHA256 of "t=<unix seconds>"). Empty and known placeholders are rejected.
   MCP_ALLOW_INSECURE_DEV   - Set to exactly 1 to start HTTP without a usable CONDUIT_S2S_SECRET. Local only; forces 127.0.0.1 and does not check X-Gateway-S2S.
+  MCP_ALLOW_UNAUTHENTICATED_HTTP - Set to exactly 1 (AUTH_MODE=env only, CONDUIT_S2S_SECRET unset) for a single-tenant deployment on a trusted private network. Does not check X-Gateway-S2S, binds MCP_HTTP_HOST only when set explicitly (127.0.0.1 otherwise; containers set MCP_HTTP_HOST=0.0.0.0), rejects browser Origin requests. Restrict access with a firewall or network policy; never expose publicly.
   LOG_LEVEL                - Logging level: error, warn, info, debug (default: info)
   LOG_FORMAT               - Log format: simple, json (default: simple)
   AUTOTASK_ENHANCE_CONCURRENCY - Max concurrent Autotask API calls used to resolve company/resource names on search results (default: 3). Kept low to stay under Autotask's concurrent-thread limit.
