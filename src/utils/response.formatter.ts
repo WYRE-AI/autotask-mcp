@@ -4,7 +4,17 @@
  * per entity type and providing pagination metadata.
  */
 
-export type EntityType = 'tickets' | 'companies' | 'contacts' | 'projects' | 'tasks' | 'resources' | 'billingItems' | 'billingItemApprovalLevels' | 'timeEntries';
+export type EntityType =
+  | 'tickets'
+  | 'ticketCharges'
+  | 'companies'
+  | 'contacts'
+  | 'projects'
+  | 'tasks'
+  | 'resources'
+  | 'billingItems'
+  | 'billingItemApprovalLevels'
+  | 'timeEntries';
 
 export interface CompactResponse {
   summary: {
@@ -23,6 +33,7 @@ export interface CompactResponse {
  */
 const SUMMARY_FIELDS: Record<EntityType, string[]> = {
   tickets: ['id', 'ticketNumber', 'title', 'status', 'priority', 'companyID', 'assignedResourceID', 'assignedResourceRoleID', 'createDate', 'dueDateTime'],
+  ticketCharges: ['id', 'ticketID', 'name', 'description', 'chargeType', 'unitQuantity', 'unitPrice', 'unitCost', 'billableToAccount', 'datePurchased', 'productID', 'billingCodeID', 'status'],
   companies: ['id', 'companyName', 'isActive', 'phone', 'city', 'state'],
   contacts: ['id', 'firstName', 'lastName', 'emailAddress', 'companyID'],
   projects: ['id', 'projectName', 'status', 'companyID', 'projectLeadResourceID', 'startDate', 'endDate'],
@@ -100,6 +111,7 @@ export function detectEntityType(toolName: string): EntityType | null {
   if (toolName.includes('billing_item_approval')) return 'billingItemApprovalLevels';
   if (toolName.includes('billing_item')) return 'billingItems';
   if (toolName.includes('time_entr')) return 'timeEntries';
+  if (toolName.includes('ticket_charge')) return 'ticketCharges';
   if (toolName.includes('ticket')) return 'tickets';
   if (toolName.includes('compan')) return 'companies';
   if (toolName.includes('contact')) return 'contacts';
