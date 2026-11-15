@@ -1864,7 +1864,7 @@ export class AutotaskToolHandler {
           retry_after_seconds: error.retryAfterSeconds,
           tool: name,
           // Belt-and-suspenders for LLM clients that don't parse error_type.
-          instruction: 'Do not retry this call. Ask the user to narrow the query (e.g. filter by date range, company, or ticket ID) before issuing another Autotask request.',
+          instruction: 'Do not retry this call immediately or in a loop. Wait at least retry_after_seconds before trying again, and ask the user whether to narrow the query (e.g. filter by date range, company, or ticket ID).',
         });
       }
       return errorToolResult({

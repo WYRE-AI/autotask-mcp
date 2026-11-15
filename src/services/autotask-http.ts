@@ -119,7 +119,14 @@ function parseRetryAfter(headerValue: string | null): number {
  * the zone cache): in gateway mode client instances are per-request, so an
  * instance-level gate would never trip across calls.
  */
-const rateLimitCooldowns = new Map<string, number>();
+const rateLimitCooldowns = new Map<string, Cooldown>();
+
+interface Cooldown {
+  /** When the local gate opens again (Retry-After capped at MAX_COOLDOWN_MS). */
+  gateUntil: number;
+  /** When Autotask said to try again (uncapped Retry-After), reported to callers. */
+  retryAt: number;
+}
 
 /** Cap a bad/hostile Retry-After header so it can't lock a tenant out for long. */
 const MAX_COOLDOWN_MS = 5 * 60 * 1000;
@@ -342,10 +349,13 @@ function threadLimitError(detail: string, retriesUsed: number): AutotaskRateLimi
 }
 
 function assertNotCoolingDown(cooldownKey: string): void {
-  const cooldownUntil = rateLimitCooldowns.get(cooldownKey);
-  if (cooldownUntil === undefined) return;
-  const remainingSeconds = Math.ceil((cooldownUntil - Date.now()) / 1000);
-  if (remainingSeconds > 0) {
+  const cooldown = rateLimitCooldowns.get(cooldownKey);
+  if (cooldown === undefined) return;
+  const now = Date.now();
+  if (cooldown.gateUntil > now) {
+    // The gate uses the capped deadline; the caller is told Autotask's own
+    // (possibly longer) Retry-After.
+    const remainingSeconds = Math.max(1, Math.ceil((Math.max(cooldown.retryAt, cooldown.gateUntil) - now) / 1000));
     throw new AutotaskRateLimitError(
       `Autotask API threshold exceeded (HTTP 429) — this tenant is in a ${remainingSeconds}s cooldown and this call was NOT sent upstream. ` +
         `Do NOT retry until the cooldown passes; retries cannot succeed and querying again immediately only delays recovery. ` +
@@ -574,10 +584,11 @@ export class AutotaskHttpClient {
         // Arm the per-tenant cooldown gate so any further calls (including
         // LLM retry-spam and mapping-cache lookups) fail fast locally until
         // the window passes instead of piling onto the throttled tenant.
-        rateLimitCooldowns.set(
-          cooldownKey,
-          Date.now() + Math.min(retryAfter * 1000, MAX_COOLDOWN_MS),
-        );
+        const armedAt = Date.now();
+        rateLimitCooldowns.set(cooldownKey, {
+          gateUntil: armedAt + Math.min(retryAfter * 1000, MAX_COOLDOWN_MS),
+          retryAt: armedAt + retryAfter * 1000,
+        });
         // Single-line message that LLMs will read verbatim — instruct against
         // retry, surface the wait, point at the underlying issue. The structured
         // `retryAfterSeconds` field lets handlers do programmatic things too.

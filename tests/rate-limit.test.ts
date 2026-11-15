@@ -144,7 +144,8 @@ describe('Rate limit handling (#69, #91)', () => {
       expect(parsed.error_type).toBe('rate_limited');
       expect(parsed.retry_after_seconds).toBe(120);
       expect(parsed.tool).toBe('autotask_search_tickets');
-      expect(parsed.instruction).toMatch(/Do not retry/);
+      expect(parsed.instruction).toMatch(/Do not retry this call immediately/);
+      expect(parsed.instruction).toMatch(/retry_after_seconds/);
     });
   });
 });

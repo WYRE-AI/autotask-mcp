@@ -155,6 +155,13 @@ describe('per-tenant 429 cooldown gate', () => {
 
     try {
       await expect(client.get('Companies', 1)).rejects.toThrow(AutotaskRateLimitError);
+      // While gated, callers are told Autotask's own Retry-After, not the capped gate.
+      jest.advanceTimersByTime(60_000);
+      const gated = (await client.get('Companies', 1).catch((e: unknown) => e)) as AutotaskRateLimitError;
+      expect(gated).toBeInstanceOf(AutotaskRateLimitError);
+      expect(gated.retryAfterSeconds).toBe(86_400 - 60);
+      expect(gated.message).toContain('Try again in 86340 s.');
+      jest.advanceTimersByTime(4 * 60 * 1000);
       // 5 minutes (the cap) + a beat — the 24h header must not still gate us.
       jest.advanceTimersByTime(5 * 60 * 1000 + 1_000);
       await expect(client.get('Companies', 1)).resolves.toEqual({ id: 1 });
