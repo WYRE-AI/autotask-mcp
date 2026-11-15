@@ -63,6 +63,7 @@ describe('per-tenant 429 cooldown gate', () => {
 
       // Retry-spam: none of these may reach upstream during the cooldown.
       await expect(client.get('Companies', 1)).rejects.toThrow(/NOT sent upstream/);
+      await expect(client.get('Companies', 1)).rejects.toThrow(/HTTP 429.*Try again in \d+ s\./);
       await expect(client.query('Tickets', [])).rejects.toThrow(AutotaskRateLimitError);
       await expect(client.rawRequest('POST', '/TicketHistory/query', {})).rejects.toThrow(AutotaskRateLimitError);
       expect(fetchMock).toHaveBeenCalledTimes(1);

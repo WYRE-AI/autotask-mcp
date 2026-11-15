@@ -336,7 +336,7 @@ function threadLimitError(detail: string, retriesUsed: number): AutotaskRateLimi
       : 'Create/update calls are not retried automatically.';
   return new AutotaskRateLimitError(
     `Autotask concurrent thread threshold exceeded (HTTP 429). This call was rejected before Autotask processed it, so it was NOT applied. ${retryNote} ` +
-      `Do not fan out parallel calls; in-flight requests are already capped per tenant. Detail: ${detail}`,
+      `Try again in 1 s. Do not fan out parallel calls; in-flight requests are already capped per tenant. Detail: ${detail}`,
     1,
   );
 }
@@ -349,7 +349,7 @@ function assertNotCoolingDown(cooldownKey: string): void {
     throw new AutotaskRateLimitError(
       `Autotask API threshold exceeded (HTTP 429) — this tenant is in a ${remainingSeconds}s cooldown and this call was NOT sent upstream. ` +
         `Do NOT retry until the cooldown passes; retries cannot succeed and querying again immediately only delays recovery. ` +
-        `Wait ${remainingSeconds}s, or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
+        `Try again in ${remainingSeconds} s. Or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
       remainingSeconds,
     );
   }
@@ -585,7 +585,7 @@ export class AutotaskHttpClient {
           `Autotask API threshold exceeded (HTTP 429). Do NOT retry this call automatically — ` +
           `the next ${retryAfter}s will likely hit 429 again, and repeated retries can extend the ` +
           `cooldown. Ask the user to scope the query (e.g. narrow date range, filter by company/ticket ID) ` +
-          `or wait ${retryAfter}s before trying again. Detail: ${detail}`,
+          `or wait before trying again. Try again in ${Math.max(1, retryAfter)} s. Detail: ${detail}`,
           retryAfter,
         );
       }

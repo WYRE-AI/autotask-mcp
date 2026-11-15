@@ -192,6 +192,7 @@ describe('thread-limit vs hourly 429', () => {
       expect(err).toBeInstanceOf(AutotaskRateLimitError);
       expect((err as AutotaskRateLimitError).retryAfterSeconds).toBe(1);
       expect((err as Error).message).toMatch(/thread threshold/i);
+      expect((err as Error).message).toMatch(/HTTP 429.*Try again in 1 s\./);
       expect((err as Error).message).not.toMatch(/NOT sent upstream/);
       expect(fetchMock).toHaveBeenCalledTimes(1 + THREAD_LIMIT_MAX_RETRIES);
 
