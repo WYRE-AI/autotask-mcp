@@ -236,6 +236,9 @@ export class AutotaskService {
       if (options.isActive !== undefined) {
         filters.push({ op: 'eq', field: 'isActive', value: options.isActive });
       }
+      if (options.classification !== undefined && options.classification !== null) {
+        filters.push({ op: 'eq', field: 'classification', value: options.classification });
+      }
 
       const page = Math.max(1, options.page || 1);
       const pageSize = Math.min(options.pageSize || 25, 200);
