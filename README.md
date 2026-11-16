@@ -308,6 +308,8 @@ A per-request value builds a fresh service for that request only, so it never ca
 
 ### Acting-user impersonation
 
+**Opt-in:** this is off unless the sidecar runs with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (or `1`). When off, the header is ignored and writes run as the tenant's API user.
+
 In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Acting-User-Email`, and the sidecar attributes that person's writes to their own Autotask resource:
 
 1. On the first write of a request (POST create, PATCH, PUT or DELETE; never a GET or a `/query` read), the sidecar queries active `Resources` by `email` with the tenant's own API credentials, as the API user.
