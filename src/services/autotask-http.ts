@@ -92,14 +92,19 @@ const REQUEST_TIMEOUT_MS = 60_000;
 // re-tripping while still over.
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
-function parseRetryAfter(headerValue: string | null): number {
+/**
+ * Whole seconds to wait, never less than 1: `Retry-After: 0` or an HTTP-date
+ * in the past gives 1, so `retryAfterSeconds`, the "Try again in N s."
+ * message and the cooldown deadline all carry the same N.
+ */
+export function parseRetryAfter(headerValue: string | null): number {
   if (!headerValue) return DEFAULT_RETRY_AFTER_SECONDS;
   // RFC 7231: either an integer count of seconds, or an HTTP-date.
   const asInt = Number.parseInt(headerValue, 10);
-  if (Number.isFinite(asInt) && asInt >= 0) return asInt;
+  if (Number.isFinite(asInt) && asInt >= 0) return Math.max(1, asInt);
   const asDate = Date.parse(headerValue);
   if (Number.isFinite(asDate)) {
-    return Math.max(0, Math.ceil((asDate - Date.now()) / 1000));
+    return Math.max(1, Math.ceil((asDate - Date.now()) / 1000));
   }
   return DEFAULT_RETRY_AFTER_SECONDS;
 }
@@ -596,7 +601,7 @@ export class AutotaskHttpClient {
           `Autotask API threshold exceeded (HTTP 429). Do NOT retry this call automatically — ` +
           `the next ${retryAfter}s will likely hit 429 again, and repeated retries can extend the ` +
           `cooldown. Ask the user to scope the query (e.g. narrow date range, filter by company/ticket ID) ` +
-          `or wait before trying again. Try again in ${Math.max(1, retryAfter)} s. Detail: ${detail}`,
+          `or wait before trying again. Try again in ${retryAfter} s. Detail: ${detail}`,
           retryAfter,
         );
       }

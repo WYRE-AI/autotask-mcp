@@ -93,6 +93,28 @@ describe('Rate limit handling (#69, #91)', () => {
       }
     });
 
+    test.each([
+      ['Retry-After: 0', '0'],
+      ['an HTTP-date in the past', 'Wed, 21 Oct 2015 07:28:00 GMT'],
+    ])('clamps %s to 1 s in retryAfterSeconds, the message and the cooldown', async (_label, header) => {
+      fetchSpy = jest
+        .spyOn(globalThis, 'fetch')
+        .mockResolvedValue(responseWith(429, { errors: ['Threshold exceeded'] }, { 'Retry-After': header }));
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      const err = (await service.searchTickets({}).catch((e) => e)) as AutotaskRateLimitError;
+      expect(err).toBeInstanceOf(AutotaskRateLimitError);
+      expect(err.retryAfterSeconds).toBe(1);
+      expect(err.message).toContain('Try again in 1 s.');
+
+      // The cooldown gate armed by that 429 reports the same 1 s.
+      const gated = (await service.searchTickets({}).catch((e) => e)) as AutotaskRateLimitError;
+      expect(gated).toBeInstanceOf(AutotaskRateLimitError);
+      expect(gated.message).toContain('NOT sent upstream');
+      expect(gated.retryAfterSeconds).toBe(1);
+      expect(gated.message).toContain('Try again in 1 s.');
+    });
+
     test('falls back to default when Retry-After is unparseable garbage', async () => {
       fetchSpy = jest
         .spyOn(globalThis, 'fetch')
