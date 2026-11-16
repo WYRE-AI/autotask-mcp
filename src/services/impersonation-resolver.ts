@@ -20,6 +20,16 @@ const EMAIL_RE = /^[^\s@,;<>"'()[\]\\]+@[^\s@,;<>"'()[\]\\]+\.[^\s@,;<>"'()[\]\\
 const MAX_EMAIL_LENGTH = 254;
 
 /** Normalize and validate an acting-user email. Undefined when absent or malformed. */
+/**
+ * Acting-user (email) impersonation is opt-in. Off unless
+ * AUTOTASK_IMPERSONATE_ACTING_USER is "true" or "1"; when off, writes run as
+ * the tenant's API user exactly as before acting-user impersonation existed.
+ */
+export function isActingUserImpersonationEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
+  const v = (env.AUTOTASK_IMPERSONATE_ACTING_USER ?? '').trim().toLowerCase();
+  return v === 'true' || v === '1';
+}
+
 export function parseActingUserEmail(
   raw: string | undefined,
   logger?: { warn: (msg: string) => void }
