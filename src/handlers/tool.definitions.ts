@@ -58,17 +58,21 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   // Company tools
   {
     name: 'autotask_search_companies',
-    description: 'Search companies by name or status. Max 200/page.',
+    description: 'Search companies by name, status or classification. Each result includes companyType and classification (picklist IDs; resolve names with autotask_get_field_info for entity Companies). Max 200/page.',
     inputSchema: {
       type: 'object',
       properties: {
         searchTerm: {
           type: 'string',
-          
+
         },
         isActive: {
           type: 'boolean',
-          
+
+        },
+        classification: {
+          type: 'number',
+          description: 'Only companies with this classification picklist ID (see autotask_get_field_info, entity Companies, field classification)'
         },
         page: {
           type: 'number',

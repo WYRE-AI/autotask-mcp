@@ -861,6 +861,23 @@ describe('AutotaskService', () => {
       expect(capturedFilters).toContainEqual({ op: 'eq', field: 'isActive', value: true });
     });
 
+    test('searchCompanies filters by classification when given, including id 0', async () => {
+      const captured: any[] = [];
+      fetchSpy = jest.spyOn(globalThis, 'fetch').mockImplementation(async (_input, init) => {
+        captured.push(JSON.parse(init!.body as string).filter);
+        return jsonResponse({ items: [], pageDetails: { nextPageUrl: null } });
+      });
+
+      const service = new AutotaskService(configWithUrl, mockLogger);
+      await service.searchCompanies({ classification: 7 });
+      await service.searchCompanies({ classification: 0 });
+      await service.searchCompanies({});
+
+      expect(captured[0]).toContainEqual({ op: 'eq', field: 'classification', value: 7 });
+      expect(captured[1]).toContainEqual({ op: 'eq', field: 'classification', value: 0 });
+      expect(JSON.stringify(captured[2])).not.toContain('classification');
+    });
+
     test('searchCompanies honors page by slicing over http.query cursor pagination', async () => {
       // Simulate a tenant whose /Companies/query endpoint returns:
       //   - first POST  → 200 items + nextPageUrl
