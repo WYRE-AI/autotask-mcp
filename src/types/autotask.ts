@@ -5,6 +5,7 @@ export interface AutotaskCompany {
   id?: number;
   companyName?: string;
   companyType?: number;
+  classification?: number;
   phone?: string;
   address1?: string;
   address2?: string;
@@ -683,6 +684,7 @@ export interface AutotaskQueryOptions {
   searchTerm?: string;
   companyID?: number;
   isActive?: boolean | number;
+  classification?: number;
 }
 
 // Extended query options for more advanced queries

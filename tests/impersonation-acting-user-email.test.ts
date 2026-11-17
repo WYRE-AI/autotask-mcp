@@ -10,6 +10,8 @@ import {
   parseActingUserEmail,
   pickResource,
   resolveResourceIdByEmail,
+  isActingUserImpersonationEnabled,
+  parseImpersonateActingUser,
 } from '../src/services/impersonation-resolver';
 import { _resetTenantSemaphores, classifyImpersonationRejection } from '../src/services/autotask-http';
 import { parseCredentialsFromHeaders } from '../src/utils/config';
@@ -174,6 +176,11 @@ describe('classifyImpersonationRejection', () => {
     expect(classifyImpersonationRejection(500, '{"errors":["Impersonation is not allowed for this resource"]}')).toBe('suppress');
     expect(classifyImpersonationRejection(500, 'impersonation proxy crashed')).toBe(false);
   });
+  it('retries the structured 500 permission refusal Autotask returns for an impersonated write', () => {
+    expect(
+      classifyImpersonationRejection(500, '{"errors":["The logged in Resource does not have the adequate permissions to create this entity type."]}')
+    ).toBe('retry');
+  });
   it('ignores gateway 5xx, 429s and ordinary validation errors', () => {
     expect(classifyImpersonationRejection(502, '{"errors":["impersonation"]}')).toBe(false);
     expect(classifyImpersonationRejection(503, 'impersonation')).toBe(false);
@@ -213,10 +220,75 @@ describe('header trust in the request factory', () => {
     expect(parseCredentialsFromHeaders(tenant).actingUserEmail).toBe('tech@example.com');
   });
 
-  it('keeps the email only when the transport verified S2S', () => {
-    expect(credsFor(tenant, { trustActingUserEmail: true })?.actingUserEmail).toBe('tech@example.com');
-    expect(credsFor(tenant)?.actingUserEmail).toBeUndefined();
-    expect(credsFor(tenant, { trustActingUserEmail: false })?.actingUserEmail).toBeUndefined();
+  describe('with AUTOTASK_IMPERSONATE_ACTING_USER=true', () => {
+    const prev = process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+    beforeEach(() => { process.env.AUTOTASK_IMPERSONATE_ACTING_USER = 'true'; });
+    afterEach(() => {
+      if (prev === undefined) delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+      else process.env.AUTOTASK_IMPERSONATE_ACTING_USER = prev;
+    });
+    it('keeps the email only when the transport verified S2S', () => {
+      expect(credsFor(tenant, { trustActingUserEmail: true })?.actingUserEmail).toBe('tech@example.com');
+      expect(credsFor(tenant)?.actingUserEmail).toBeUndefined();
+      expect(credsFor(tenant, { trustActingUserEmail: false })?.actingUserEmail).toBeUndefined();
+    });
+  });
+
+  it('is off by default: drops the email even when S2S was verified, so writes run as the API user', () => {
+    const prev = process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+    try {
+      delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+      expect(credsFor(tenant, { trustActingUserEmail: true })?.actingUserEmail).toBeUndefined();
+      process.env.AUTOTASK_IMPERSONATE_ACTING_USER = 'false';
+      expect(credsFor(tenant, { trustActingUserEmail: true })?.actingUserEmail).toBeUndefined();
+    } finally {
+      if (prev === undefined) delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+      else process.env.AUTOTASK_IMPERSONATE_ACTING_USER = prev;
+    }
+  });
+
+  describe('per-connection opt-in (X-Autotask-Impersonate-Acting-User)', () => {
+    const prev = process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+    beforeEach(() => { delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER; });
+    afterEach(() => {
+      if (prev === undefined) delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+      else process.env.AUTOTASK_IMPERSONATE_ACTING_USER = prev;
+    });
+    const optedIn = { ...tenant, 'x-autotask-impersonate-acting-user': 'on' };
+
+    it('keeps the email for a connection that opted in, on S2S-verified requests', () => {
+      expect(credsFor(optedIn, { trustActingUserEmail: true })?.actingUserEmail).toBe('tech@example.com');
+    });
+    it('ignores the opt-in without S2S verification', () => {
+      expect(credsFor(optedIn)?.actingUserEmail).toBeUndefined();
+      expect(credsFor(optedIn, { trustActingUserEmail: false })?.actingUserEmail).toBeUndefined();
+    });
+    it('stays off for connections that did not opt in or sent "off"', () => {
+      expect(credsFor(tenant, { trustActingUserEmail: true })?.actingUserEmail).toBeUndefined();
+      expect(
+        credsFor({ ...tenant, 'x-autotask-impersonate-acting-user': 'off' }, { trustActingUserEmail: true })?.actingUserEmail
+      ).toBeUndefined();
+    });
+    it('never lets the opt-in pick a resource on its own', () => {
+      const creds = credsFor({ ...optedIn, 'x-conduit-acting-user-email': '' }, { trustActingUserEmail: true });
+      expect(creds?.actingUserEmail).toBeUndefined();
+      expect(creds?.impersonationResourceId).toBeUndefined();
+    });
+    it('parses the header strictly', () => {
+      expect(parseImpersonateActingUser(undefined)).toBe(false);
+      expect(parseImpersonateActingUser('On')).toBe(true);
+      expect(parseImpersonateActingUser(' true ')).toBe(true);
+      expect(parseImpersonateActingUser('1')).toBe(true);
+      expect(parseImpersonateActingUser('off')).toBe(false);
+      expect(parseImpersonateActingUser('yes')).toBe(false);
+    });
+  });
+
+  it('parses the opt-in flag strictly', () => {
+    expect(isActingUserImpersonationEnabled({})).toBe(false);
+    expect(isActingUserImpersonationEnabled({ AUTOTASK_IMPERSONATE_ACTING_USER: '1' })).toBe(true);
+    expect(isActingUserImpersonationEnabled({ AUTOTASK_IMPERSONATE_ACTING_USER: ' TRUE ' })).toBe(true);
+    expect(isActingUserImpersonationEnabled({ AUTOTASK_IMPERSONATE_ACTING_USER: 'yes' })).toBe(false);
   });
 });
 
@@ -325,6 +397,19 @@ describe('AutotaskHttpClient with an acting-user email', () => {
     expect(calls.filter((c) => c.url.endsWith('/Tickets/7/Notes'))).toHaveLength(1);
     await expect(svc.createTicketNote(7, note)).resolves.toBe(1);
     const writes = calls.filter((c) => c.url.endsWith('/Tickets/7/Notes'));
+    expect(writes.map((w) => w.headers.ImpersonationResourceId)).toEqual(['77', undefined]);
+  });
+
+  it('retries a 500 "adequate permissions" refusal once as the API user, so the note still posts', async () => {
+    const calls = stubFetch((c) => {
+      if (c.url.endsWith('/Resources/query')) return resourceRows([{ id: 77, email: 'tech@example.com', isActive: true }]);
+      if (c.headers.ImpersonationResourceId) {
+        return { status: 500, body: { errors: ['The logged in Resource does not have the adequate permissions to create this entity type.'] } };
+      }
+      return { status: 200, body: { itemId: 1 } };
+    });
+    await expect(service('tech@example.com').createTicketNote(9, note)).resolves.toBe(1);
+    const writes = calls.filter((c) => c.url.endsWith('/Tickets/9/Notes'));
     expect(writes.map((w) => w.headers.ImpersonationResourceId)).toEqual(['77', undefined]);
   });
 

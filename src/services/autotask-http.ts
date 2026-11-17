@@ -326,10 +326,14 @@ export function classifyImpersonationRejection(status: number, body: string): 'r
   if (status !== 500) return false;
   try {
     const parsed = JSON.parse(body) as { errors?: unknown };
-    return Array.isArray(parsed.errors) &&
-      parsed.errors.some((e) => typeof e === 'string' && /imperson/i.test(e))
-      ? 'suppress'
-      : false;
+    if (!Array.isArray(parsed.errors)) return false;
+    const errors = parsed.errors.filter((e): e is string => typeof e === 'string');
+    // Autotask answers an impersonated write the resource may not make with a
+    // structured 500 "The logged in Resource does not have the adequate
+    // permissions to create this entity type." That is a permission check, so
+    // nothing was written and re-sending as the API user is safe.
+    if (errors.some((e) => /does not have the adequate permissions/i.test(e))) return 'retry';
+    return errors.some((e) => /imperson/i.test(e)) ? 'suppress' : false;
   } catch {
     return false;
   }
