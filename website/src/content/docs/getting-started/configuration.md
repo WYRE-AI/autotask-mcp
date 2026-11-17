@@ -23,6 +23,18 @@ description: Configure credentials, transport, and server options.
 | `MCP_ALLOW_INSECURE_DEV` | unset | Set to exactly `1` for local HTTP without a usable secret. Skips `X-Gateway-S2S` and listens on `127.0.0.1` only. |
 | `LOG_LEVEL` | `info` | Logging level: `error`, `warn`, `info`, `debug` |
 
+## Impersonation (optional)
+
+By default every call runs as the API user. See [Impersonation](/autotask-mcp/reference/impersonation/) for details.
+
+| Variable | Default | Description |
+|----------|---------|-------------|
+| `AUTOTASK_IMPERSONATION_RESOURCE_ID` | unset | Env mode only. Resource ID to impersonate on every call (strict: a refusal fails the call). |
+| `AUTOTASK_IMPERSONATE_ACTING_USER` | unset (off) | Gateway mode. `true`/`1` turns on acting-user impersonation for every tenant. Prefer the per-connection `X-Autotask-Impersonate-Acting-User` header. |
+| `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` | `900000` | How long an email-to-resource match is cached. |
+| `AUTOTASK_IMPERSONATION_MISS_TTL_MS` | `300000` | How long a no-match result is cached. |
+| `AUTOTASK_IMPERSONATION_REJECTED_TTL_MS` | `21600000` | How long acting-user impersonation stays off for a user and operation after a refusal. |
+
 ## Using a .env File
 
 You can place credentials in a `.env` file in the project root:

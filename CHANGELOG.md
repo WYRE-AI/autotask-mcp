@@ -1,5 +1,21 @@
 ## [Unreleased]
 
+### Documentation
+
+- **Impersonation docs** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). The README's acting-user section now has:
+  - a precedence table: explicit resource ID, then acting-user email (opt-in), then the API user;
+  - the permission-500 retry as the API user;
+  - a note on the v2.40.0 regression;
+  - `AUTOTASK_IMPERSONATE_ACTING_USER` in the environment-variable table.
+
+  The docs site has a new **Impersonation** reference page, and its configuration page lists the impersonation variables.
+
+### Impersonation release notes (v2.40.0 to v2.42.0)
+
+- **v2.40.0: regression, don't use.** Acting-user impersonation was on for every gateway request. Tenants whose API user can't impersonate got HTTP 500 "The logged in Resource does not have the adequate permissions to create this entity type." on every ticket note, with no fallback.
+- **v2.41.1: fix.** Acting-user impersonation is opt-in (`AUTOTASK_IMPERSONATE_ACTING_USER`), and that 500 retries once as the API user (#384).
+- **v2.42.0: per-connection opt-in.** `X-Autotask-Impersonate-Acting-User: on`, trusted only after `X-Gateway-S2S` verifies (#385).
+
 ### Added
 
 - **Per-connection opt-in to acting-user impersonation** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). In gateway mode, `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) turns on acting-user impersonation for that request's connection, alongside the global `AUTOTASK_IMPERSONATE_ACTING_USER`. Conduit sets it from the Autotask connection's stored setting. Like `X-Conduit-Acting-User-Email`, it is honored only after `X-Gateway-S2S` verifies. Without it (and without the env flag) writes run as the API user. The permission-500 retry as the API user still applies.
