@@ -36,7 +36,7 @@ When it applies:
 2. If exactly one active resource matches, the write carries its `ImpersonationResourceId`.
 3. If there's no single match (none, several, or only inactive ones), the write runs as the API user.
 4. If Autotask refuses with a 403, a 4xx that mentions impersonation, or an HTTP 500 saying the logged-in resource "does not have the adequate permissions", the write is **retried once as the API user**.
-5. Any other impersonation-related HTTP 500 is not retried (Autotask may have applied it). The call fails, and impersonation is paused for that user and operation, six hours by default.
+5. Any other HTTP 500 whose structured `errors` list mentions impersonation is not retried, because Autotask may have applied it. The call fails, and impersonation is paused for that user and operation (six hours by default). A 500 without a structured `errors` list, or one that doesn't mention impersonation, fails like any other error and doesn't trigger the pause.
 
 An explicit resource ID always wins over the acting-user email.
 
