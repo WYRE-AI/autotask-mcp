@@ -309,6 +309,16 @@ A per-request value builds a fresh service for that request only, so it never ca
 
 ### Acting-user impersonation
 
+> **Default off. Note on v2.40.0:** v2.40.0 turned acting-user impersonation on for every gateway request. On tenants whose Autotask API user isn't allowed to impersonate, every ticket note then failed with HTTP 500 "The logged in Resource does not have the adequate permissions to create this entity type.", and that response wasn't retried. v2.41.1 made the feature opt-in and retries that 500 once as the API user, and v2.42.0 added the per-connection opt-in header. Don't run v2.40.0.
+
+**Ways to impersonate, from highest precedence:**
+
+| Source | Scope | Behavior on refusal |
+|---|---|---|
+| Explicit resource ID: `X-Impersonation-Resource-Id` header, or `AUTOTASK_IMPERSONATION_RESOURCE_ID` in env mode (see [Impersonation](#impersonation)) | Every call on that request or server | Strict: the call fails, and is never retried as the API user |
+| Acting-user email (`X-Conduit-Acting-User-Email`), when opted in with `X-Autotask-Impersonate-Acting-User: on` for the connection, or `AUTOTASK_IMPERSONATE_ACTING_USER=true` for every tenant | Writes only | Best-effort: falls back to the API user as described below |
+| Neither | | Every call runs as the API user (the default) |
+
 **Opt-in:** this is off unless the sidecar runs with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (or `1`) for every tenant, or the request carries `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) for that connection. Conduit sets that header from the Autotask connection's "Post writes as the signed-in person" setting. Both are honored only after `X-Gateway-S2S` verifies. When off, the email header is ignored and writes run as the tenant's API user.
 
 In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Acting-User-Email`, and the sidecar attributes that person's writes to their own Autotask resource:
@@ -318,14 +328,15 @@ In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Ac
 3. No match, more than one active match, or only inactive matches mean the write runs as the API user, as it did before.
 4. If Autotask refuses the impersonation, attribution for that user and operation (method and entity route) is switched off for 6 hours (`AUTOTASK_IMPERSONATION_REJECTED_TTL_MS`). Other operations keep impersonating. What happens to the refused write depends on the response:
    - A 403, or another 4xx (except 429) that mentions impersonation: the write is retried once as the API user. A rejected 4xx request was not applied, so the retry can't double-write.
-   - A 500 whose structured `errors` list mentions impersonation: the write is **not** retried, because Autotask doesn't guarantee that a 500 wasn't applied. The call fails with a hint, and the next attempt runs as the API user.
+   - A structured 500 saying the logged-in resource "does not have the adequate permissions to create this entity type": the write is retried once as the API user. This is Autotask's permission check, so nothing was written. It's what Autotask returns when the API user's security level doesn't allow impersonation (see the v2.40.0 note below).
+   - Any other 500 whose structured `errors` list mentions impersonation: the write is **not** retried, because Autotask doesn't guarantee that a 500 wasn't applied. The call fails with a hint, and the next attempt runs as the API user.
    - Gateway 5xx responses and unstructured 500s are not treated as refusals at all.
 
    Usually a refusal means the tenant hasn't enabled impersonation in the security levels (see [Impersonation](#impersonation)).
 
 Lookups are cached per tenant (API username) and email: matches for 15 minutes, misses for 5 minutes, lookup errors for 1 minute. You can tune this with `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` and `AUTOTASK_IMPERSONATION_MISS_TTL_MS`. Cache keys are SHA-256 hashes, so raw emails are never stored. Lookup outcomes are logged at debug level, without the email.
 
-The header is trusted only because Conduit is the only caller that can pass `X-Gateway-S2S`, and Conduit sets the header itself and strips any client-supplied copy. The sidecar ignores it on the Cloudflare Worker (no S2S check) and on an insecure-dev listener. An explicit `X-Impersonation-Resource-Id` always wins and keeps its strict behavior: it applies to every call, and a rejection fails the call.
+Both headers (`X-Conduit-Acting-User-Email` and `X-Autotask-Impersonate-Acting-User`) are trusted only because Conduit is the only caller that can pass `X-Gateway-S2S`. Conduit sets the email from the user's verified login and the opt-in from the connection's stored setting, and strips any client-supplied copy. The sidecar ignores it on the Cloudflare Worker (no S2S check) and on an insecure-dev listener. An explicit `X-Impersonation-Resource-Id` always wins and keeps its strict behavior: it applies to every call, and a rejection fails the call.
 
 ### X-Gateway-S2S signing
 
@@ -725,6 +736,7 @@ npm test -- tests/autotask-service.test.ts
 | `AUTOTASK_SECRET` | ✅ | - | Autotask API secret key |
 | `AUTOTASK_INTEGRATION_CODE` | ✅ | - | Autotask integration code |
 | `AUTOTASK_API_URL` | ❌ | Auto-detected | Autotask API endpoint URL |
+| `AUTOTASK_IMPERSONATE_ACTING_USER` | ❌ | unset (off) | Gateway mode. `true` or `1` turns on [acting-user impersonation](#acting-user-impersonation) for **every** tenant. Leave it unset and opt in per connection with `X-Autotask-Impersonate-Acting-User: on`. |
 | `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` | ❌ | `900000` | How long an acting-user email → resource match is cached (per tenant and email). |
 | `AUTOTASK_IMPERSONATION_MISS_TTL_MS` | ❌ | `300000` | How long a no-match, ambiguous or inactive lookup is cached. |
 | `AUTOTASK_IMPERSONATION_REJECTED_TTL_MS` | ❌ | `21600000` | How long acting-user impersonation stays off for a user and operation after Autotask refuses it. |
