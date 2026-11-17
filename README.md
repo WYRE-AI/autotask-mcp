@@ -283,6 +283,7 @@ Every `/mcp` request must include a valid `X-Gateway-S2S` header and the three A
 | `X-Integration-Code` | Autotask integration code |
 | `X-API-URL` | (Optional) Custom Autotask API URL |
 | `X-Conduit-Acting-User-Email` | (Optional) Verified email of the Conduit user making the call. Honored only on Node HTTP with a usable `CONDUIT_S2S_SECRET` (so only after `X-Gateway-S2S` verifies), never on the Cloudflare Worker. Writes impersonate the single active Autotask resource with that exact email; see [Acting-user impersonation](#acting-user-impersonation). Ignored when `X-Impersonation-Resource-Id` is present. |
+| `X-Autotask-Impersonate-Acting-User` | (Optional) `on` (or `true`/`1`) opts this connection in to acting-user impersonation. Conduit sends it from the Autotask connection's "Post writes as the signed-in person" setting. Honored only after `X-Gateway-S2S` verifies. Absent or anything else means writes run as the API user (unless `AUTOTASK_IMPERSONATE_ACTING_USER` is set). |
 | `X-Impersonation-Resource-Id` | (Optional) Autotask resource ID to act on behalf of. Forwarded to Autotask as its `ImpersonationResourceId` header, so actions are attributed to that resource instead of the API user, and recorded in the entity's read-only `impersonatorCreatorResourceID` field. Must be a positive integer; anything else is ignored with a warning. The impersonated resource must itself have permission for the action, and the API user's security level must permit impersonation. |
 
 ### Impersonation
@@ -308,7 +309,7 @@ A per-request value builds a fresh service for that request only, so it never ca
 
 ### Acting-user impersonation
 
-**Opt-in:** this is off unless the sidecar runs with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (or `1`). When off, the header is ignored and writes run as the tenant's API user.
+**Opt-in:** this is off unless the sidecar runs with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (or `1`) for every tenant, or the request carries `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) for that connection. Conduit sets that header from the Autotask connection's "Post writes as the signed-in person" setting. Both are honored only after `X-Gateway-S2S` verifies. When off, the email header is ignored and writes run as the tenant's API user.
 
 In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Acting-User-Email`, and the sidecar attributes that person's writes to their own Autotask resource:
 

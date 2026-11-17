@@ -2,7 +2,12 @@
 // Handles loading configuration from environment variables and MCP client arguments
 // Supports gateway mode where credentials come via HTTP headers
 
-import { ACTING_USER_EMAIL_HEADER, parseActingUserEmail } from '../services/impersonation-resolver.js';
+import {
+  ACTING_USER_EMAIL_HEADER,
+  IMPERSONATE_ACTING_USER_HEADER,
+  parseActingUserEmail,
+  parseImpersonateActingUser,
+} from '../services/impersonation-resolver.js';
 import { McpServerConfig } from '../types/mcp.js';
 import { LogLevel } from './logger.js';
 // `resolveJsonModule` is enabled in tsconfig. We read package.json so the
@@ -78,6 +83,12 @@ export interface GatewayCredentials {
    * Only trusted on S2S-verified requests; the server drops it otherwise.
    */
   actingUserEmail?: string | undefined;
+  /**
+   * Per-connection opt-in to acting-user impersonation, from
+   * X-Autotask-Impersonate-Acting-User ("on"/"true"/"1"). Only trusted on
+   * S2S-verified requests; the server ignores it otherwise.
+   */
+  impersonateActingUser?: boolean;
 }
 
 /**
@@ -143,6 +154,8 @@ export function parseCredentialsFromHeaders(
     apiUrl: getHeader('x-api-url'),
     impersonationResourceId: parseImpersonationResourceId(getHeader('x-impersonation-resource-id'), logger),
     actingUserEmail: parseActingUserEmail(getHeader(ACTING_USER_EMAIL_HEADER), logger),
+    // Set only when opted in, so callers comparing parsed credentials see no new key by default.
+    ...(parseImpersonateActingUser(getHeader(IMPERSONATE_ACTING_USER_HEADER)) ? { impersonateActingUser: true } : {}),
   };
 }
 
