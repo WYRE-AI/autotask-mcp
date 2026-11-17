@@ -11,6 +11,7 @@ import {
   pickResource,
   resolveResourceIdByEmail,
   isActingUserImpersonationEnabled,
+  parseImpersonateActingUser,
 } from '../src/services/impersonation-resolver';
 import { _resetTenantSemaphores, classifyImpersonationRejection } from '../src/services/autotask-http';
 import { parseCredentialsFromHeaders } from '../src/utils/config';
@@ -244,6 +245,43 @@ describe('header trust in the request factory', () => {
       if (prev === undefined) delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
       else process.env.AUTOTASK_IMPERSONATE_ACTING_USER = prev;
     }
+  });
+
+  describe('per-connection opt-in (X-Autotask-Impersonate-Acting-User)', () => {
+    const prev = process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+    beforeEach(() => { delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER; });
+    afterEach(() => {
+      if (prev === undefined) delete process.env.AUTOTASK_IMPERSONATE_ACTING_USER;
+      else process.env.AUTOTASK_IMPERSONATE_ACTING_USER = prev;
+    });
+    const optedIn = { ...tenant, 'x-autotask-impersonate-acting-user': 'on' };
+
+    it('keeps the email for a connection that opted in, on S2S-verified requests', () => {
+      expect(credsFor(optedIn, { trustActingUserEmail: true })?.actingUserEmail).toBe('tech@example.com');
+    });
+    it('ignores the opt-in without S2S verification', () => {
+      expect(credsFor(optedIn)?.actingUserEmail).toBeUndefined();
+      expect(credsFor(optedIn, { trustActingUserEmail: false })?.actingUserEmail).toBeUndefined();
+    });
+    it('stays off for connections that did not opt in or sent "off"', () => {
+      expect(credsFor(tenant, { trustActingUserEmail: true })?.actingUserEmail).toBeUndefined();
+      expect(
+        credsFor({ ...tenant, 'x-autotask-impersonate-acting-user': 'off' }, { trustActingUserEmail: true })?.actingUserEmail
+      ).toBeUndefined();
+    });
+    it('never lets the opt-in pick a resource on its own', () => {
+      const creds = credsFor({ ...optedIn, 'x-conduit-acting-user-email': '' }, { trustActingUserEmail: true });
+      expect(creds?.actingUserEmail).toBeUndefined();
+      expect(creds?.impersonationResourceId).toBeUndefined();
+    });
+    it('parses the header strictly', () => {
+      expect(parseImpersonateActingUser(undefined)).toBe(false);
+      expect(parseImpersonateActingUser('On')).toBe(true);
+      expect(parseImpersonateActingUser(' true ')).toBe(true);
+      expect(parseImpersonateActingUser('1')).toBe(true);
+      expect(parseImpersonateActingUser('off')).toBe(false);
+      expect(parseImpersonateActingUser('yes')).toBe(false);
+    });
   });
 
   it('parses the opt-in flag strictly', () => {

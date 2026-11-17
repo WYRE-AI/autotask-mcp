@@ -108,10 +108,15 @@ export class AutotaskMcpServer {
           Object.fromEntries(ctx.requestInfo.headers) as Record<string, string | undefined>,
           this.logger
         );
-        // Acting-user impersonation is opt-in (AUTOTASK_IMPERSONATE_ACTING_USER).
-        // Conduit sends the email for every user, and most tenants' API users
-        // can't impersonate, so defaulting it on broke their note writes.
-        if (!trustActingUserEmail || !isActingUserImpersonationEnabled()) delete credentials.actingUserEmail;
+        // Acting-user impersonation is opt-in: either for every tenant
+        // (AUTOTASK_IMPERSONATE_ACTING_USER) or per connection
+        // (X-Autotask-Impersonate-Acting-User, set by Conduit from the
+        // connection's stored settings). Conduit sends the email for every
+        // user, and most tenants' API users can't impersonate, so defaulting
+        // it on broke their note writes. Both are trusted only after S2S.
+        const optedIn = isActingUserImpersonationEnabled() || credentials.impersonateActingUser === true;
+        if (!trustActingUserEmail || !optedIn) delete credentials.actingUserEmail;
+        delete credentials.impersonateActingUser;
       } else if (ctx.requestInfo && allowEnvImpersonationHeader) {
         // Env mode over HTTP: the server is bound to one tenant's env
         // credentials, so a per-request X-Impersonation-Resource-Id can safely
