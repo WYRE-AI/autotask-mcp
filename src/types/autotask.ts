@@ -587,6 +587,93 @@ export interface AutotaskServiceCallTicketResource {
   [key: string]: any;
 }
 
+/**
+ * Filters for ServiceCalls searches. Field names are the Autotask REST ones
+ * (ServiceCalls entity: startDateTime, endDateTime, lastModifiedDateTime,
+ * companyID, status). There is no resource field on ServiceCalls: a resource
+ * is linked through ServiceCallTickets -> ServiceCallTicketResources.
+ */
+export interface ServiceCallSearchOptions {
+  companyID?: number;
+  status?: number;
+  /** startDateTime >= startAfter */
+  startAfter?: string;
+  /** startDateTime <= startBefore */
+  startBefore?: string;
+  /** lastModifiedDateTime >= lastModifiedAfter */
+  lastModifiedAfter?: string;
+  /** Only service calls with a ticket assigned to this resource (via ServiceCallTicketResources). */
+  resourceId?: number;
+  /** Only these service call IDs. */
+  ids?: number[];
+  pageSize?: number;
+  /** Legacy internal aliases: startDateTime >= startDate, endDateTime <= endDate. */
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface ServiceCallSearchResult {
+  items: AutotaskServiceCall[];
+  /** True when a resourceId search hit its scan cap and may have missed matches. */
+  truncated: boolean;
+}
+
+export interface ServiceCallScheduleOptions extends Omit<ServiceCallSearchOptions, 'ids' | 'pageSize' | 'startDate' | 'endDate'> {
+  serviceCallIds?: number[];
+  /** Max service calls returned in window mode (default 100, max 500). */
+  maxServiceCalls?: number;
+  /** Fetch ticketNumber/title/status/companyID for linked tickets (default true). */
+  includeTicketSummary?: boolean;
+}
+
+export interface ServiceCallScheduleTicketSummary {
+  id: number;
+  ticketNumber?: string;
+  title?: string;
+  status?: number;
+  priority?: number;
+  companyID?: number;
+  assignedResourceID?: number;
+  queueID?: number;
+  dueDateTime?: string;
+  lastActivityDate?: string;
+}
+
+export interface ServiceCallScheduleResource {
+  serviceCallTicketResourceID?: number | undefined;
+  resourceID?: number | undefined;
+  roleID?: number | undefined;
+  resourceName?: string | undefined;
+}
+
+export interface ServiceCallScheduleTicket {
+  serviceCallTicketID?: number | undefined;
+  ticketID?: number | undefined;
+  ticket?: ServiceCallScheduleTicketSummary | null | undefined;
+  resources: ServiceCallScheduleResource[];
+}
+
+export interface ServiceCallScheduleEntry extends AutotaskServiceCall {
+  tickets: ServiceCallScheduleTicket[];
+}
+
+export interface ServiceCallSchedule {
+  serviceCalls: ServiceCallScheduleEntry[];
+  /** serviceCallIds that were requested but not returned by Autotask. */
+  missingServiceCallIds?: number[];
+  truncated: {
+    serviceCalls: boolean;
+    tickets: boolean;
+    resources: boolean;
+    ticketSummaries: boolean;
+  };
+  counts: {
+    serviceCalls: number;
+    tickets: number;
+    resources: number;
+  };
+}
+
 
 export interface AutotaskBillingCode {
   id?: number;

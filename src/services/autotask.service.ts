@@ -7,7 +7,7 @@
 // deps — only Node 18+ built-in `fetch` via AutotaskHttpClient.
 
 import { resolveAutotaskApiUrl } from '../utils/config';
-import { AutotaskHttpClient, QueryFilter } from './autotask-http';
+import { AutotaskHttpClient, AUTOTASK_MAX_PAGE_SIZE, QueryFilter } from './autotask-http';
 import {
   AutotaskContractService,
   AutotaskContractServiceUnit,
@@ -51,6 +51,12 @@ import {
   AutotaskServiceCall,
   AutotaskServiceCallTicket,
   AutotaskServiceCallTicketResource,
+  ServiceCallSearchOptions,
+  ServiceCallSearchResult,
+  ServiceCallSchedule,
+  ServiceCallScheduleEntry,
+  ServiceCallScheduleOptions,
+  ServiceCallScheduleTicketSummary,
   AutotaskPhase,
   AutotaskResourceRole,
   AutotaskRole,
@@ -64,6 +70,90 @@ import { FieldInfo, PicklistValue } from './picklist.cache';
  * Default "match all" filter required by Autotask for unconstrained queries.
  */
 export const MATCH_ALL: QueryFilter[] = [{ op: 'gte', field: 'id', value: 0 }];
+
+/**
+ * Autotask rejects a query with more than 500 OR conditions ("Queries are
+ * limited to 500 or fewer 'OR' conditions"), and an `in` list expands to one
+ * per value. Batch reads split their `in` lists into chunks of this size so a
+ * chunk plus any extra filters stays well under that limit.
+ */
+export const IN_FILTER_CHUNK_SIZE = 200;
+/** Max IDs accepted by the composite service-call schedule read. */
+export const SERVICE_CALL_SCHEDULE_MAX_IDS = 50;
+/** Max IDs accepted by autotask_get_ticket_details' ticketIDs[]. */
+export const TICKET_DETAILS_MAX_IDS = 50;
+/** Max IDs accepted by the ids[] / serviceCallIds[] / serviceCallTicketIds[] search filters. */
+export const SERVICE_CALL_SEARCH_MAX_IDS = 500;
+/** Window-mode schedule reads: default and max service calls returned. */
+export const SERVICE_CALL_SCHEDULE_DEFAULT_MAX = 100;
+export const SERVICE_CALL_SCHEDULE_MAX = 500;
+/** Total-row bounds for the linked-entity reads behind a schedule. */
+export const SERVICE_CALL_SCHEDULE_MAX_TICKET_LINKS = 2000;
+export const SERVICE_CALL_SCHEDULE_MAX_RESOURCE_LINKS = 4000;
+/**
+ * ServiceCalls has no resource field, so a resourceId filter reads candidate
+ * service calls first and keeps the ones with a matching
+ * ServiceCallTicketResources row. This caps how many candidates are scanned.
+ */
+export const SERVICE_CALL_RESOURCE_SCAN_CAP = 1000;
+
+/** Fields fetched for a schedule's ticket summaries (Tickets entity names). */
+const SCHEDULE_TICKET_SUMMARY_FIELDS = [
+  'id', 'ticketNumber', 'title', 'status', 'priority', 'companyID',
+  'assignedResourceID', 'queueID', 'dueDateTime', 'lastActivityDate',
+] as const;
+
+/**
+ * Validate and de-duplicate an ID list argument. Returns [] for undefined.
+ * Throws on non-integers or more than `max` distinct IDs, before any
+ * Autotask call is made.
+ */
+export function normalizeIdList(value: unknown, argName: string, max: number): number[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value)) {
+    throw new Error(`${argName} must be an array of integer IDs`);
+  }
+  const ids: number[] = [];
+  const seen = new Set<number>();
+  for (const v of value) {
+    const n = typeof v === 'string' && v.trim() !== '' ? Number(v) : v;
+    if (typeof n !== 'number' || !Number.isInteger(n) || n < 0) {
+      throw new Error(`${argName} must contain only non-negative integer IDs (got ${JSON.stringify(v)})`);
+    }
+    if (!seen.has(n)) {
+      seen.add(n);
+      ids.push(n);
+    }
+  }
+  if (ids.length > max) {
+    throw new Error(`${argName} accepts at most ${max} IDs (got ${ids.length})`);
+  }
+  return ids;
+}
+
+function clampPageSize(value: unknown, fallback: number, max: number): number {
+  const n = typeof value === 'number' && Number.isFinite(value) ? Math.floor(value) : fallback;
+  return Math.min(Math.max(n, 1), max);
+}
+
+/**
+ * ServiceCalls filters, by Autotask REST field name. startAfter/startBefore
+ * bound startDateTime; the legacy startDate/endDate aliases keep their old
+ * meaning (startDateTime >= startDate, endDateTime <= endDate).
+ */
+function buildServiceCallFilters(options: ServiceCallSearchOptions): QueryFilter[] {
+  const filters: QueryFilter[] = [];
+  if (options.status !== undefined) filters.push({ op: 'eq', field: 'status', value: options.status });
+  if (options.companyID !== undefined) filters.push({ op: 'eq', field: 'companyID', value: options.companyID });
+  const startAfter = options.startAfter ?? options.startDate;
+  if (startAfter) filters.push({ op: 'gte', field: 'startDateTime', value: startAfter });
+  if (options.startBefore) filters.push({ op: 'lte', field: 'startDateTime', value: options.startBefore });
+  if (options.endDate) filters.push({ op: 'lte', field: 'endDateTime', value: options.endDate });
+  if (options.lastModifiedAfter) {
+    filters.push({ op: 'gte', field: 'lastModifiedDateTime', value: options.lastModifiedAfter });
+  }
+  return filters;
+}
 
 /**
  * Push an `eq` filter only when `value` is not `undefined`. Replaces the
@@ -436,6 +526,35 @@ export class AutotaskService {
       return fullDetails ? ticket : this.optimizeTicketData(ticket);
     } catch (error) {
       this.logger.error(`Failed to get ticket ${id}:`, error);
+      throw error;
+    }
+  }
+
+  /**
+   * Batch ticket read: one POST /Tickets/query with `id in [...]` (<= 50 IDs)
+   * instead of one GET per ticket. Results follow the input order; IDs
+   * Autotask didn't return are listed in `missingIds`.
+   */
+  async getTicketsByIds(
+    ticketIds: number[],
+    fullDetails: boolean = false
+  ): Promise<{ tickets: AutotaskTicket[]; missingIds: number[] }> {
+    const ids = normalizeIdList(ticketIds, 'ticketIDs', TICKET_DETAILS_MAX_IDS);
+    if (ids.length === 0) return { tickets: [], missingIds: [] };
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug(`Getting ${ids.length} tickets by ID, fullDetails: ${fullDetails}`);
+      const { items } = await this.queryIn<AutotaskTicket>(http, 'Tickets', 'id', ids, [], ids.length);
+      const byId = new Map(items.map(t => [t.id, t]));
+      const tickets = ids
+        .map(id => byId.get(id))
+        .filter((t): t is AutotaskTicket => !!t)
+        .map(t => (fullDetails ? t : this.optimizeTicketData(t)));
+      const missingIds = ids.filter(id => !byId.has(id));
+      this.logger.info(`Retrieved ${tickets.length} of ${ids.length} tickets by ID`);
+      return { tickets, missingIds };
+    } catch (error) {
+      this.logger.error('Failed to get tickets by ID:', error);
       throw error;
     }
   }
@@ -2967,30 +3086,252 @@ export class AutotaskService {
     }
   }
 
-  async searchServiceCalls(options: AutotaskQueryOptionsExtended = {}): Promise<AutotaskServiceCall[]> {
+  async searchServiceCalls(options: ServiceCallSearchOptions = {}): Promise<AutotaskServiceCall[]> {
+    return (await this.searchServiceCallsDetailed(options)).items;
+  }
+
+  /**
+   * ServiceCalls search with the optional batch/delta filters: ids[] (id in),
+   * lastModifiedAfter (lastModifiedDateTime >= value) and resourceId.
+   * pageSize is the total number of rows returned (1-500; Autotask's
+   * per-page max is 500 and AutotaskHttpClient.query clamps the page body).
+   */
+  async searchServiceCallsDetailed(options: ServiceCallSearchOptions = {}): Promise<ServiceCallSearchResult> {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching service calls with options:', options);
-      const filters: QueryFilter[] = [];
-      if (options.status !== undefined) {
-        filters.push({ op: 'eq', field: 'status', value: options.status });
+      const filters = buildServiceCallFilters(options);
+      const ids = normalizeIdList(options.ids, 'ids', SERVICE_CALL_SEARCH_MAX_IDS);
+      const pageSize = clampPageSize(options.pageSize, 25, AUTOTASK_MAX_PAGE_SIZE);
+
+      if (options.resourceId === undefined) {
+        const items = ids.length > 0
+          ? (await this.queryIn<AutotaskServiceCall>(http, 'ServiceCalls', 'id', ids, filters, pageSize)).items
+          : await http.query<AutotaskServiceCall>('ServiceCalls', filters.length > 0 ? filters : MATCH_ALL, { maxRecords: pageSize });
+        this.logger.info(`Retrieved ${items.length} service calls`);
+        return { items, truncated: false };
       }
-      if (options.startDate) {
-        filters.push({ op: 'gte', field: 'startDateTime', value: options.startDate });
+
+      const hasWindow = ids.length > 0 || !!options.startAfter || !!options.startBefore ||
+        !!options.lastModifiedAfter || !!options.startDate || !!options.endDate;
+      if (!hasWindow) {
+        throw new Error('resourceId needs ids, startAfter/startBefore or lastModifiedAfter: ServiceCalls has no resource field, so candidates are scanned first');
       }
-      if (options.endDate) {
-        filters.push({ op: 'lte', field: 'endDateTime', value: options.endDate });
+      const scanCap = SERVICE_CALL_RESOURCE_SCAN_CAP;
+      let candidates: AutotaskServiceCall[];
+      let scanTruncated: boolean;
+      if (ids.length > 0) {
+        const r = await this.queryIn<AutotaskServiceCall>(http, 'ServiceCalls', 'id', ids, filters, scanCap);
+        candidates = r.items;
+        scanTruncated = r.truncated;
+      } else {
+        const rows = await http.query<AutotaskServiceCall>('ServiceCalls', filters, { maxRecords: scanCap + 1 });
+        scanTruncated = rows.length > scanCap;
+        candidates = rows.slice(0, scanCap);
       }
-      const pageSize = Math.min(options.pageSize || 25, 200);
-      const items = await http.query<AutotaskServiceCall>(
-        'ServiceCalls',
-        filters.length > 0 ? filters : MATCH_ALL,
-        { maxRecords: pageSize }
-      );
-      this.logger.info(`Retrieved ${items.length} service calls`);
-      return items;
+      const match = await this.serviceCallIdsForResource(http, candidates, options.resourceId);
+      const items = candidates.filter(c => typeof c.id === 'number' && match.ids.has(c.id)).slice(0, pageSize);
+      this.logger.info(`Retrieved ${items.length} service calls for resource filter (scanned ${candidates.length})`);
+      return { items, truncated: scanTruncated || match.truncated };
     } catch (error) {
       this.logger.error('Failed to search service calls:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * POST /{entity}/query with `field in ids`, split into IN_FILTER_CHUNK_SIZE
+   * chunks, stopping at `cap` total rows. `truncated` is true when more rows
+   * existed than the cap allowed.
+   */
+  private async queryIn<T>(
+    http: AutotaskHttpClient,
+    entity: string,
+    field: string,
+    ids: number[],
+    extraFilters: QueryFilter[],
+    cap: number,
+    includeFields?: readonly string[]
+  ): Promise<{ items: T[]; truncated: boolean }> {
+    const items: T[] = [];
+    let truncated = false;
+    for (let i = 0; i < ids.length; i += IN_FILTER_CHUNK_SIZE) {
+      const remaining = cap - items.length;
+      if (remaining <= 0) {
+        truncated = true;
+        break;
+      }
+      const chunk = ids.slice(i, i + IN_FILTER_CHUNK_SIZE);
+      // Ask for one extra row so "exactly at the cap" isn't reported as truncated.
+      const rows = await http.query<T>(
+        entity,
+        [{ op: 'in', field, value: chunk }, ...extraFilters],
+        { maxRecords: remaining + 1, ...(includeFields && { includeFields: [...includeFields] }) }
+      );
+      if (rows.length > remaining) {
+        items.push(...rows.slice(0, remaining));
+        truncated = true;
+        break;
+      }
+      items.push(...rows);
+    }
+    return { items, truncated };
+  }
+
+  /** Service call IDs (from `serviceCalls`) that have a ticket assigned to `resourceId`. */
+  private async serviceCallIdsForResource(
+    http: AutotaskHttpClient,
+    serviceCalls: AutotaskServiceCall[],
+    resourceId: number
+  ): Promise<{ ids: Set<number>; truncated: boolean }> {
+    const scIds = serviceCalls.map(c => c.id).filter((id): id is number => typeof id === 'number');
+    if (scIds.length === 0) return { ids: new Set(), truncated: false };
+    const links = await this.queryIn<AutotaskServiceCallTicket>(
+      http, 'ServiceCallTickets', 'serviceCallID', scIds, [], SERVICE_CALL_SCHEDULE_MAX_TICKET_LINKS
+    );
+    const linkIds = links.items.map(l => l.id).filter((id): id is number => typeof id === 'number');
+    if (linkIds.length === 0) return { ids: new Set(), truncated: links.truncated };
+    const assigned = await this.queryIn<AutotaskServiceCallTicketResource>(
+      http, 'ServiceCallTicketResources', 'serviceCallTicketID', linkIds,
+      [{ op: 'eq', field: 'resourceID', value: resourceId }], SERVICE_CALL_SCHEDULE_MAX_RESOURCE_LINKS
+    );
+    const assignedLinkIds = new Set(assigned.items.map(r => r.serviceCallTicketID));
+    const ids = new Set<number>();
+    for (const l of links.items) {
+      if (typeof l.serviceCallID === 'number' && assignedLinkIds.has(l.id)) ids.add(l.serviceCallID);
+    }
+    return { ids, truncated: links.truncated || assigned.truncated };
+  }
+
+  /**
+   * Composite read for dispatch/schedule syncs: service calls plus their
+   * linked tickets (ServiceCallTickets), ticket resource assignments
+   * (ServiceCallTicketResources) and, by default, a short summary of each
+   * ticket (Tickets). Every linked read is batched with `in` filters, so a
+   * schedule of up to IN_FILTER_CHUNK_SIZE service calls costs about four
+   * Autotask requests instead of several per service call.
+   *
+   * Input is either serviceCallIds (<= 50) or a window: startAfter +
+   * startBefore, or lastModifiedAfter for delta polling. resourceId keeps
+   * only service calls with a ticket assigned to that resource.
+   */
+  async getServiceCallSchedule(options: ServiceCallScheduleOptions): Promise<ServiceCallSchedule> {
+    const http = await this.ensureClient();
+    try {
+      this.logger.debug('Getting service call schedule with options:', options);
+      const ids = normalizeIdList(options.serviceCallIds, 'serviceCallIds', SERVICE_CALL_SCHEDULE_MAX_IDS);
+      const filters = buildServiceCallFilters(options);
+      const truncated = { serviceCalls: false, tickets: false, resources: false, ticketSummaries: false };
+      let serviceCalls: AutotaskServiceCall[];
+      let missingServiceCallIds: number[] | undefined;
+      let max: number;
+
+      if (ids.length > 0) {
+        max = ids.length;
+        serviceCalls = (await this.queryIn<AutotaskServiceCall>(http, 'ServiceCalls', 'id', ids, filters, ids.length)).items;
+        const byId = new Map(serviceCalls.map(c => [c.id, c]));
+        serviceCalls = ids.map(id => byId.get(id)).filter((c): c is AutotaskServiceCall => !!c);
+        const missing = ids.filter(id => !byId.has(id));
+        if (missing.length > 0) missingServiceCallIds = missing;
+      } else {
+        const hasWindow = (!!options.startAfter && !!options.startBefore) || !!options.lastModifiedAfter;
+        if (!hasWindow) {
+          throw new Error('Provide serviceCallIds (up to 50), or startAfter and startBefore, or lastModifiedAfter');
+        }
+        max = clampPageSize(options.maxServiceCalls, SERVICE_CALL_SCHEDULE_DEFAULT_MAX, SERVICE_CALL_SCHEDULE_MAX);
+        const scanCap = options.resourceId !== undefined ? Math.max(max, SERVICE_CALL_RESOURCE_SCAN_CAP) : max;
+        const rows = await http.query<AutotaskServiceCall>('ServiceCalls', filters, { maxRecords: scanCap + 1 });
+        truncated.serviceCalls = rows.length > scanCap;
+        serviceCalls = rows.slice(0, scanCap);
+      }
+
+      const scIds = serviceCalls.map(c => c.id).filter((id): id is number => typeof id === 'number');
+      const links = scIds.length > 0
+        ? await this.queryIn<AutotaskServiceCallTicket>(
+          http, 'ServiceCallTickets', 'serviceCallID', scIds, [], SERVICE_CALL_SCHEDULE_MAX_TICKET_LINKS)
+        : { items: [], truncated: false };
+      truncated.tickets = links.truncated;
+      const linkIds = links.items.map(l => l.id).filter((id): id is number => typeof id === 'number');
+      const assignments = linkIds.length > 0
+        ? await this.queryIn<AutotaskServiceCallTicketResource>(
+          http, 'ServiceCallTicketResources', 'serviceCallTicketID', linkIds, [], SERVICE_CALL_SCHEDULE_MAX_RESOURCE_LINKS)
+        : { items: [], truncated: false };
+      truncated.resources = assignments.truncated;
+
+      const resourcesByLink = new Map<number, AutotaskServiceCallTicketResource[]>();
+      for (const r of assignments.items) {
+        if (typeof r.serviceCallTicketID !== 'number') continue;
+        const list = resourcesByLink.get(r.serviceCallTicketID) ?? [];
+        list.push(r);
+        resourcesByLink.set(r.serviceCallTicketID, list);
+      }
+      const linksByServiceCall = new Map<number, AutotaskServiceCallTicket[]>();
+      for (const l of links.items) {
+        if (typeof l.serviceCallID !== 'number') continue;
+        const list = linksByServiceCall.get(l.serviceCallID) ?? [];
+        list.push(l);
+        linksByServiceCall.set(l.serviceCallID, list);
+      }
+
+      if (options.resourceId !== undefined) {
+        const rid = options.resourceId;
+        const matches = serviceCalls.filter(c => (linksByServiceCall.get(c.id as number) ?? [])
+          .some(l => (resourcesByLink.get(l.id as number) ?? []).some(r => r.resourceID === rid)));
+        if (matches.length > max) truncated.serviceCalls = true;
+        serviceCalls = matches.slice(0, max);
+      }
+
+      const keptLinks = serviceCalls.flatMap(c => linksByServiceCall.get(c.id as number) ?? []);
+      let summaries = new Map<number, ServiceCallScheduleTicketSummary>();
+      if (options.includeTicketSummary !== false) {
+        const ticketIds = [...new Set(keptLinks.map(l => l.ticketID).filter((id): id is number => typeof id === 'number'))];
+        if (ticketIds.length > 0) {
+          const tickets = await this.queryIn<ServiceCallScheduleTicketSummary>(
+            http, 'Tickets', 'id', ticketIds, [], SERVICE_CALL_SCHEDULE_MAX_TICKET_LINKS, SCHEDULE_TICKET_SUMMARY_FIELDS
+          );
+          truncated.ticketSummaries = tickets.truncated;
+          summaries = new Map(tickets.items.map(t => {
+            const summary: ServiceCallScheduleTicketSummary = { id: t.id };
+            for (const f of SCHEDULE_TICKET_SUMMARY_FIELDS) {
+              const v = (t as unknown as Record<string, unknown>)[f];
+              if (v !== undefined && v !== null) (summary as unknown as Record<string, unknown>)[f] = v;
+            }
+            return [t.id, summary];
+          }));
+        }
+      }
+
+      let resourceCount = 0;
+      const entries: ServiceCallScheduleEntry[] = serviceCalls.map(c => ({
+        ...c,
+        tickets: (linksByServiceCall.get(c.id as number) ?? []).map(l => {
+          const resources = (resourcesByLink.get(l.id as number) ?? []).map(r => ({
+            serviceCallTicketResourceID: r.id,
+            resourceID: r.resourceID,
+            ...(r.roleID !== undefined && r.roleID !== null && { roleID: r.roleID }),
+          }));
+          resourceCount += resources.length;
+          return {
+            serviceCallTicketID: l.id,
+            ticketID: l.ticketID,
+            ...(options.includeTicketSummary !== false && {
+              ticket: typeof l.ticketID === 'number' ? summaries.get(l.ticketID) ?? null : null,
+            }),
+            resources,
+          };
+        }),
+      }));
+
+      const schedule: ServiceCallSchedule = {
+        serviceCalls: entries,
+        ...(missingServiceCallIds && { missingServiceCallIds }),
+        truncated,
+        counts: { serviceCalls: entries.length, tickets: keptLinks.length, resources: resourceCount },
+      };
+      this.logger.info(`Retrieved service call schedule: ${entries.length} service calls, ${keptLinks.length} tickets, ${resourceCount} resources`);
+      return schedule;
+    } catch (error) {
+      this.logger.error('Failed to get service call schedule:', error);
       throw error;
     }
   }
@@ -3036,23 +3377,30 @@ export class AutotaskService {
   // Service Call Tickets / Resources
   // =====================================================
 
-  async searchServiceCallTickets(options: AutotaskQueryOptionsExtended = {}): Promise<AutotaskServiceCallTicket[]> {
+  async searchServiceCallTickets(options: AutotaskQueryOptionsExtended & {
+    serviceCallId?: number;
+    serviceCallIds?: number[];
+    ticketId?: number;
+  } = {}): Promise<AutotaskServiceCallTicket[]> {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching service call tickets with options:', options);
       const filters: QueryFilter[] = [];
-      if ((options as any).serviceCallId !== undefined) {
-        filters.push({ op: 'eq', field: 'serviceCallID', value: (options as any).serviceCallId });
+      if (options.serviceCallId !== undefined) {
+        filters.push({ op: 'eq', field: 'serviceCallID', value: options.serviceCallId });
       }
-      if ((options as any).ticketId !== undefined) {
-        filters.push({ op: 'eq', field: 'ticketID', value: (options as any).ticketId });
+      if (options.ticketId !== undefined) {
+        filters.push({ op: 'eq', field: 'ticketID', value: options.ticketId });
       }
-      const pageSize = Math.min(options.pageSize || 25, 200);
-      const items = await http.query<AutotaskServiceCallTicket>(
-        'ServiceCallTickets',
-        filters.length > 0 ? filters : MATCH_ALL,
-        { maxRecords: pageSize }
-      );
+      const serviceCallIds = normalizeIdList(options.serviceCallIds, 'serviceCallIds', SERVICE_CALL_SEARCH_MAX_IDS);
+      const pageSize = clampPageSize(options.pageSize, 25, AUTOTASK_MAX_PAGE_SIZE);
+      const items = serviceCallIds.length > 0
+        ? (await this.queryIn<AutotaskServiceCallTicket>(http, 'ServiceCallTickets', 'serviceCallID', serviceCallIds, filters, pageSize)).items
+        : await http.query<AutotaskServiceCallTicket>(
+          'ServiceCallTickets',
+          filters.length > 0 ? filters : MATCH_ALL,
+          { maxRecords: pageSize }
+        );
       this.logger.info(`Retrieved ${items.length} service call tickets`);
       return items;
     } catch (error) {
@@ -3102,24 +3450,32 @@ export class AutotaskService {
   }
 
   async searchServiceCallTicketResources(
-    options: AutotaskQueryOptionsExtended = {}
+    options: AutotaskQueryOptionsExtended & {
+      serviceCallTicketId?: number;
+      serviceCallTicketIds?: number[];
+      resourceId?: number;
+    } = {}
   ): Promise<AutotaskServiceCallTicketResource[]> {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Searching service call ticket resources with options:', options);
       const filters: QueryFilter[] = [];
-      if ((options as any).serviceCallTicketId !== undefined) {
-        filters.push({ op: 'eq', field: 'serviceCallTicketID', value: (options as any).serviceCallTicketId });
+      if (options.serviceCallTicketId !== undefined) {
+        filters.push({ op: 'eq', field: 'serviceCallTicketID', value: options.serviceCallTicketId });
       }
-      if ((options as any).resourceId !== undefined) {
-        filters.push({ op: 'eq', field: 'resourceID', value: (options as any).resourceId });
+      if (options.resourceId !== undefined) {
+        filters.push({ op: 'eq', field: 'resourceID', value: options.resourceId });
       }
-      const pageSize = Math.min(options.pageSize || 25, 200);
-      const items = await http.query<AutotaskServiceCallTicketResource>(
-        'ServiceCallTicketResources',
-        filters.length > 0 ? filters : MATCH_ALL,
-        { maxRecords: pageSize }
-      );
+      const linkIds = normalizeIdList(options.serviceCallTicketIds, 'serviceCallTicketIds', SERVICE_CALL_SEARCH_MAX_IDS);
+      const pageSize = clampPageSize(options.pageSize, 25, AUTOTASK_MAX_PAGE_SIZE);
+      const items = linkIds.length > 0
+        ? (await this.queryIn<AutotaskServiceCallTicketResource>(
+          http, 'ServiceCallTicketResources', 'serviceCallTicketID', linkIds, filters, pageSize)).items
+        : await http.query<AutotaskServiceCallTicketResource>(
+          'ServiceCallTicketResources',
+          filters.length > 0 ? filters : MATCH_ALL,
+          { maxRecords: pageSize }
+        );
       this.logger.info(`Retrieved ${items.length} service call ticket resources`);
       return items;
     } catch (error) {

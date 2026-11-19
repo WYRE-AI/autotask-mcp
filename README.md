@@ -444,7 +444,7 @@ The server provides 101 tools for interacting with Autotask:
 
 #### Ticket Operations
 - `autotask_search_tickets` - Search tickets with filters
-- `autotask_get_ticket_details` - Get a ticket by ID: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs)
+- `autotask_get_ticket_details` - Get a ticket by ID (or up to 50 with `ticketIDs`): description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs)
 - `autotask_create_ticket` - Create new ticket
 
 #### Time Entry Operations
@@ -488,6 +488,13 @@ The server provides 101 tools for interacting with Autotask:
 - `autotask_create_contract` / `autotask_create_contracts_bulk` - Create contract shells, one or many
 - `autotask_update_contract` - Update a contract (e.g. extend/renew end date)
 - `autotask_create_contract_service` / `autotask_update_contract_service` - Manage contract service lines
+
+#### Service Call Operations
+- `autotask_get_service_call_schedule` - Service calls with linked tickets and assigned technicians in one call, by IDs (up to 50) or a start/last-modified window
+- `autotask_search_service_calls` - Search service calls (company, status, start window, `lastModifiedAfter`, `resourceId`, `ids`; up to 500 per call)
+- `autotask_get_service_call` / `autotask_create_service_call` / `autotask_update_service_call` / `autotask_delete_service_call`
+- `autotask_search_service_call_tickets` - Ticket links, by service call (`serviceCallId` or `serviceCallIds`) or ticket
+- `autotask_search_service_call_ticket_resources` - Technician assignments, by link (`serviceCallTicketId` or `serviceCallTicketIds`) or resource
 
 #### Configuration Items
 - `autotask_search_configuration_items` - Search configuration items (assets)

@@ -12,6 +12,7 @@ import { mapWithConcurrency } from '../utils/concurrency.js';
 import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from './tool.definitions.js';
 import { buildTicketCard, fetchRecentTicketNotes, type RecentTicketNotes, type TicketCard } from './card.builder.js';
 import { vendorStatus } from '../utils/vendor-error.js';
+import type { ServiceCallSchedule } from '../types/autotask.js';
 import { buildTicketSearchParams } from './intent-router.js';
 
 // Default concurrency for company/resource name enrichment. Autotask allows
@@ -186,6 +187,39 @@ export class AutotaskToolHandler {
   /**
    * Enhance items by inlining company/resource names from IDs
    */
+  /**
+   * Attach resourceName to every resource assignment in a service call
+   * schedule, and company names to the service calls, from the mapping
+   * cache. Best-effort: a failed lookup leaves the ID only.
+   */
+  private async nameScheduleResources(schedule: ServiceCallSchedule): Promise<void> {
+    try {
+      const mappingService = await this.getMappingService();
+      const resourceIds = new Set<number>();
+      for (const sc of schedule.serviceCalls) {
+        for (const t of sc.tickets) {
+          for (const r of t.resources) if (typeof r.resourceID === 'number') resourceIds.add(r.resourceID);
+        }
+      }
+      const names = new Map<number, string>();
+      await mapWithConcurrency([...resourceIds], this.enhanceConcurrency, async (id) => {
+        const name = await mappingService.getResourceName(id);
+        if (name) names.set(id, name);
+      });
+      for (const sc of schedule.serviceCalls) {
+        for (const t of sc.tickets) {
+          for (const r of t.resources) {
+            const name = typeof r.resourceID === 'number' ? names.get(r.resourceID) : undefined;
+            if (name) r.resourceName = name;
+          }
+        }
+      }
+      schedule.serviceCalls = await this.enhanceItems(schedule.serviceCalls);
+    } catch (error) {
+      this.logger.debug('Schedule resource naming failed, returning IDs only:', error);
+    }
+  }
+
   private async enhanceItems(items: any[]): Promise<any[]> {
     try {
       const mappingService = await this.getMappingService();
@@ -1012,6 +1046,18 @@ export class AutotaskToolHandler {
         return { result: r, message: `Found ${r.length} tickets` };
       }],
       ['autotask_get_ticket_details', async (a) => {
+        // Batch mode: one POST /Tickets/query (id in [...]) for up to 50
+        // tickets. Skips the per-ticket notes/contact/CI lookups and the
+        // ticket card, which would cost several Autotask calls per ticket.
+        if (a.ticketIDs !== undefined) {
+          const ids = Array.isArray(a.ticketIDs) && a.ticketID !== undefined
+            ? [a.ticketID, ...a.ticketIDs]
+            : a.ticketIDs;
+          const { tickets, missingIds } = await s.getTicketsByIds(ids, a.fullDetails);
+          const missing = missingIds.length > 0 ? `; not found: ${missingIds.join(', ')}` : '';
+          return { result: tickets, message: `Retrieved ${tickets.length} tickets${missing}` };
+        }
+        if (a.ticketID === undefined) throw new Error('Provide ticketID, or ticketIDs (up to 50) for a batch read');
         const r = await s.getTicket(a.ticketID, a.fullDetails);
         // WYREAI-527: a ticket only carries configurationItemID, which tells
         // the model nothing on its own. Resolve the linked CI (best-effort —
@@ -1086,8 +1132,31 @@ export class AutotaskToolHandler {
         if (!r) return { result: null, message: `No service call found with ID ${a.serviceCallId}` };
         return { result: r, message: 'Service call retrieved successfully' };
       }],
+      ['autotask_get_service_call_schedule', async (a) => {
+        const schedule = await s.getServiceCallSchedule(a);
+        await this.nameScheduleResources(schedule);
+        const t = schedule.truncated;
+        const truncatedParts = [
+          t.serviceCalls && 'service calls',
+          t.tickets && 'tickets',
+          t.resources && 'resources',
+          t.ticketSummaries && 'ticket summaries',
+        ].filter(Boolean);
+        const notes = [
+          schedule.missingServiceCallIds?.length ? `not found or filtered out: ${schedule.missingServiceCallIds.join(', ')}` : '',
+          truncatedParts.length ? `truncated: ${truncatedParts.join(', ')} (narrow the window or pass serviceCallIds)` : '',
+        ].filter(Boolean).join('; ');
+        const c = schedule.counts;
+        return {
+          result: schedule,
+          message: `Retrieved ${c.serviceCalls} service calls with ${c.tickets} tickets and ${c.resources} resource assignments${notes ? `; ${notes}` : ''}`,
+        };
+      }],
       ['autotask_search_service_calls', async (a) => {
-        const r = await s.searchServiceCalls(a);
+        const { items: r, truncated } = await s.searchServiceCallsDetailed(a);
+        if (truncated) {
+          return { result: r, message: `Found ${r.length} service calls (resource filter scan was truncated; narrow the window to be sure none were missed)` };
+        }
         return { result: r, message: `Found ${r.length} service calls` };
       }],
       ['autotask_create_service_call', async (a) => {
