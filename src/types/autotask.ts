@@ -587,6 +587,119 @@ export interface AutotaskServiceCallTicketResource {
   [key: string]: any;
 }
 
+/**
+ * Filters for ServiceCalls searches. Field names are the Autotask REST ones
+ * (ServiceCalls entity: startDateTime, endDateTime, lastModifiedDateTime,
+ * companyID, status). There is no resource field on ServiceCalls: a resource
+ * is linked through ServiceCallTickets -> ServiceCallTicketResources.
+ */
+export interface ServiceCallSearchOptions {
+  companyID?: number;
+  status?: number;
+  /** startDateTime >= startAfter */
+  startAfter?: string;
+  /** startDateTime <= startBefore */
+  startBefore?: string;
+  /** lastModifiedDateTime >= lastModifiedAfter */
+  lastModifiedAfter?: string;
+  /** Only service calls with a ticket assigned to this resource (via ServiceCallTicketResources). */
+  resourceId?: number;
+  /** Only these service call IDs. */
+  ids?: number[];
+  /** Continuation: only service calls with id > this value (see ServiceCallSchedule.nextAfterServiceCallId). */
+  afterServiceCallId?: number;
+  pageSize?: number;
+  /** Legacy internal aliases: startDateTime >= startDate, endDateTime <= endDate. */
+  startDate?: string;
+  endDate?: string;
+}
+
+export interface ServiceCallSearchResult {
+  items: AutotaskServiceCall[];
+  /** True when a resourceId search hit its scan cap and may have missed matches. */
+  truncated: boolean;
+}
+
+/**
+ * Input for AutotaskService.getServiceCallSchedule. Provide one selector:
+ * `serviceCallIds` (1-50 IDs; window fields then act as extra filters), or a
+ * window of `startAfter` + `startBefore` (both required), or
+ * `lastModifiedAfter` alone for delta polling. An explicit empty
+ * `serviceCallIds` returns an empty schedule. `afterServiceCallId` resumes a
+ * truncated window read.
+ */
+export interface ServiceCallScheduleOptions extends Omit<ServiceCallSearchOptions, 'ids' | 'pageSize' | 'startDate' | 'endDate'> {
+  serviceCallIds?: number[];
+  /** Max service calls returned in window mode (default 100, max 500). */
+  maxServiceCalls?: number;
+  /** Fetch ticketNumber/title/status/companyID for linked tickets (default true). */
+  includeTicketSummary?: boolean;
+}
+
+export interface ServiceCallScheduleTicketSummary {
+  id: number;
+  ticketNumber?: string;
+  title?: string;
+  status?: number;
+  priority?: number;
+  companyID?: number;
+  assignedResourceID?: number;
+  queueID?: number;
+  dueDateTime?: string;
+  lastActivityDate?: string;
+}
+
+export interface ServiceCallScheduleResource {
+  serviceCallTicketResourceID?: number | undefined;
+  resourceID?: number | undefined;
+  roleID?: number | undefined;
+  resourceName?: string | undefined;
+}
+
+/**
+ * One ServiceCallTickets link. `ticket` is omitted entirely when the request
+ * set `includeTicketSummary: false`; it is `null` when summaries were
+ * requested but Autotask did not return that ticket (deleted, no access, or
+ * the summary read was truncated).
+ */
+export interface ServiceCallScheduleTicket {
+  serviceCallTicketID?: number | undefined;
+  ticketID?: number | undefined;
+  ticket?: ServiceCallScheduleTicketSummary | null | undefined;
+  resources: ServiceCallScheduleResource[];
+}
+
+export interface ServiceCallScheduleEntry extends AutotaskServiceCall {
+  tickets: ServiceCallScheduleTicket[];
+}
+
+/**
+ * Result of a schedule read. `counts.tickets` counts ticket links
+ * (ServiceCallTickets rows), not distinct ticket IDs: a ticket linked to two
+ * service calls counts twice. `counts.resources` counts assignment rows.
+ */
+export interface ServiceCallSchedule {
+  serviceCalls: ServiceCallScheduleEntry[];
+  /** serviceCallIds that were requested but not returned by Autotask. */
+  missingServiceCallIds?: number[];
+  /**
+   * Window mode only, set when `truncated.serviceCalls` is true: pass it back
+   * as `afterServiceCallId` with the same filters to read the next page.
+   */
+  nextAfterServiceCallId?: number;
+  truncated: {
+    serviceCalls: boolean;
+    tickets: boolean;
+    resources: boolean;
+    ticketSummaries: boolean;
+  };
+  counts: {
+    serviceCalls: number;
+    tickets: number;
+    resources: number;
+  };
+}
+
 
 export interface AutotaskBillingCode {
   id?: number;

@@ -530,7 +530,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_get_ticket_details',
-    description: 'Get a ticket\'s details: description, status, priority, queue, company, assignee, dates, linked configuration item, resolution and recent notes. Set fullDetails:true for untruncated description/resolution and custom (UDF) fields.',
+    description: 'Get a ticket\'s details: description, status, priority, queue, company, assignee, dates, linked configuration item, resolution and recent notes. Set fullDetails:true for untruncated description/resolution and custom (UDF) fields. Pass ticketID for one ticket, or ticketIDs (up to 50) to fetch many tickets in one call.',
     _meta: TICKET_CARD_META,
     inputSchema: {
       type: 'object',
@@ -539,13 +539,20 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Ticket ID to retrieve'
         },
+        ticketIDs: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0 },
+          minItems: 1,
+          maxItems: 50,
+          description: 'Batch mode: up to 50 ticket IDs fetched in one Autotask query. Returns the ticket records (company/assignee names resolved) without the per-ticket notes, contact and configuration item lookups. Use instead of calling this tool once per ticket.'
+        },
         fullDetails: {
           type: 'boolean',
           description: 'Whether to return full ticket details (default: false for optimized data)',
           default: false
         }
       },
-      required: ['ticketID']
+      required: []
     }
   },
   {
@@ -3011,7 +3018,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
   },
   {
     name: 'autotask_search_service_calls',
-    description: 'Search for service calls in Autotask. Filter by company, status, or date range.',
+    description: 'Search for service calls in Autotask. Filter by company, status, date range, last-modified time (for delta syncs), assigned resource, or a list of IDs. For a schedule with linked tickets and technicians in one call, use autotask_get_service_call_schedule.',
     inputSchema: {
       type: 'object',
       properties: {
@@ -3031,15 +3038,89 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'string',
           description: 'Filter service calls starting on or before this date/time (ISO 8601 format)'
         },
+        lastModifiedAfter: {
+          type: 'string',
+          description: 'Only service calls modified on or after this date/time (ISO 8601, Autotask field lastModifiedDateTime). Use for delta polling.'
+        },
+        resourceId: {
+          type: 'number',
+          description: 'Only service calls with a ticket assigned to this resource (technician) ID. Requires ids, startAfter/startBefore or lastModifiedAfter; at most 1000 candidate service calls are scanned.'
+        },
+        ids: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0 },
+          minItems: 1,
+          maxItems: 500,
+          description: 'Only these service call IDs (up to 500), fetched in batched queries'
+        },
         pageSize: {
           type: 'number',
-          description: 'Number of results to return (default: 25, max: 100)',
+          description: 'Number of results to return (default: 25, max: 500)',
           minimum: 1,
-          maximum: 100
+          maximum: 500
         }
       },
       required: []
-    }
+    },
+    annotations: { readOnlyHint: true }
+  },
+  {
+    name: 'autotask_get_service_call_schedule',
+    description: 'Read service calls together with their linked tickets (ID, number, title, status, company) and assigned resources (technician ID and name) in one call. Pass serviceCallIds (up to 50), or a window: startAfter + startBefore, or lastModifiedAfter for delta polling. Optional resourceId and status filters. Replaces calling autotask_get_service_call, autotask_search_service_call_tickets, autotask_search_service_call_ticket_resources and autotask_get_ticket_details per service call. Read-only.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        serviceCallIds: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0 },
+          minItems: 1,
+          maxItems: 50,
+          description: 'Service call IDs to read (up to 50). When given, the window fields are optional extra filters.'
+        },
+        startAfter: {
+          type: 'string',
+          description: 'Window start: service calls starting on or after this date/time (ISO 8601). Use with startBefore.'
+        },
+        startBefore: {
+          type: 'string',
+          description: 'Window end: service calls starting on or before this date/time (ISO 8601). Use with startAfter.'
+        },
+        lastModifiedAfter: {
+          type: 'string',
+          description: 'Only service calls modified on or after this date/time (ISO 8601, Autotask field lastModifiedDateTime). Can be used alone for delta polling.'
+        },
+        resourceId: {
+          type: 'number',
+          description: 'Only service calls with a ticket assigned to this resource (technician) ID'
+        },
+        status: {
+          type: 'number',
+          description: 'Filter by service call status picklist ID (use autotask_get_field_info with entityType "ServiceCalls")'
+        },
+        companyID: {
+          type: 'number',
+          description: 'Filter by company ID'
+        },
+        includeTicketSummary: {
+          type: 'boolean',
+          description: 'Include each linked ticket\'s number, title, status, priority, company, assignee, queue and dates (default: true). Set false to return ticket IDs only and skip the Tickets lookup.',
+          default: true
+        },
+        maxServiceCalls: {
+          type: 'number',
+          description: 'Window mode: max service calls returned (default: 100, max: 500). The response says when results were truncated.',
+          minimum: 1,
+          maximum: 500
+        },
+        afterServiceCallId: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Window mode continuation: only service calls with an ID above this. When a window read is truncated the response returns nextAfterServiceCallId; repeat the same filters with it until no nextAfterServiceCallId comes back, then advance your delta checkpoint.'
+        }
+      },
+      required: []
+    },
+    annotations: { readOnlyHint: true }
   },
   {
     name: 'autotask_create_service_call',
@@ -3149,19 +3230,27 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by service call ID'
         },
+        serviceCallIds: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0 },
+          minItems: 1,
+          maxItems: 500,
+          description: 'Filter by several service call IDs at once (up to 500), fetched in batched queries'
+        },
         ticketId: {
           type: 'number',
           description: 'Filter by ticket ID'
         },
         pageSize: {
           type: 'number',
-          description: 'Number of results to return (default: 25)',
+          description: 'Number of results to return (default: 25, max: 500)',
           minimum: 1,
-          maximum: 100
+          maximum: 500
         }
       },
       required: []
-    }
+    },
+    annotations: { readOnlyHint: true }
   },
   {
     name: 'autotask_create_service_call_ticket',
@@ -3217,19 +3306,27 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Filter by service call ticket ID'
         },
+        serviceCallTicketIds: {
+          type: 'array',
+          items: { type: 'integer', minimum: 0 },
+          minItems: 1,
+          maxItems: 500,
+          description: 'Filter by several service call ticket IDs at once (up to 500), fetched in batched queries'
+        },
         resourceId: {
           type: 'number',
           description: 'Filter by resource (technician) ID'
         },
         pageSize: {
           type: 'number',
-          description: 'Number of results to return (default: 25)',
+          description: 'Number of results to return (default: 25, max: 500)',
           minimum: 1,
-          maximum: 100
+          maximum: 500
         }
       },
       required: []
-    }
+    },
+    annotations: { readOnlyHint: true }
   },
   {
     name: 'autotask_create_service_call_ticket_resource',
@@ -3466,6 +3563,6 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   service_calls: {
     description: 'Service call dispatching, ticket linking, and resource assignments',
-    tools: ['autotask_search_service_calls', 'autotask_get_service_call', 'autotask_create_service_call', 'autotask_update_service_call', 'autotask_delete_service_call', 'autotask_search_service_call_tickets', 'autotask_create_service_call_ticket', 'autotask_delete_service_call_ticket', 'autotask_search_service_call_ticket_resources', 'autotask_create_service_call_ticket_resource', 'autotask_delete_service_call_ticket_resource']
+    tools: ['autotask_search_service_calls', 'autotask_get_service_call', 'autotask_get_service_call_schedule', 'autotask_create_service_call', 'autotask_update_service_call', 'autotask_delete_service_call', 'autotask_search_service_call_tickets', 'autotask_create_service_call_ticket', 'autotask_delete_service_call_ticket', 'autotask_search_service_call_ticket_resources', 'autotask_create_service_call_ticket_resource', 'autotask_delete_service_call_ticket_resource']
   }
 };

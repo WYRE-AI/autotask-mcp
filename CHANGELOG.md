@@ -1,5 +1,19 @@
 ## [Unreleased]
 
+### Added
+
+- **Batch service-call reads for schedule syncs.** A high-volume service-call sync was reading one service call at a time: `autotask_get_service_call`, then `autotask_search_service_call_tickets`, then `autotask_search_service_call_ticket_resources` per link, then `autotask_get_ticket_details` per ticket, several Autotask requests per service call. These are all read-only and every new parameter is optional:
+  - New `autotask_get_service_call_schedule`: service calls with their linked tickets (ID, number, title, status, company) and assigned resources (resource ID and name from the mapping cache), from `serviceCallIds` (up to 50) or a window (`startAfter` + `startBefore`, or `lastModifiedAfter` alone for delta polling), with optional `resourceId`, `status` and `companyID` filters. Linked reads use `in` filters on `/ServiceCallTickets/query` (`serviceCallID`), `/ServiceCallTicketResources/query` (`serviceCallTicketID`) and `/Tickets/query` (`id`, summary fields only), so when each stage fits in one request (up to 200 IDs per stage) and the technician names are already cached, a schedule costs about four Autotask requests. More linked records cost more: 200 service calls with two tickets each means 400 ticket links, which is at least two requests for assignments and two for ticket summaries, so six or more in total, plus pagination and one batched Resources read per 200 uncached technician names. `in` lists are split into chunks of 200 (Autotask allows at most 500 OR conditions per query), totals are capped (500 service calls, 2,000 ticket links, 4,000 resource assignments), and the response says when anything was truncated. `includeTicketSummary: false` skips the Tickets query. When a window read is truncated, the response returns `nextAfterServiceCallId`; pass it back as `afterServiceCallId` with the same filters to drain the rest before advancing a delta checkpoint. An explicit empty ID list reads nothing instead of falling through to an unfiltered search.
+  - `autotask_search_service_calls`: `lastModifiedAfter` (Autotask `lastModifiedDateTime`), `resourceId` (via ticket resource assignments; needs IDs or a time window, scans at most 1,000 candidates), `ids[]` (up to 500), and `pageSize` up to 500 (was 100).
+  - `autotask_search_service_call_tickets`: `serviceCallIds[]` (up to 500); `pageSize` up to 500.
+  - `autotask_search_service_call_ticket_resources`: `serviceCallTicketIds[]` (up to 500); `pageSize` up to 500.
+  - `autotask_get_ticket_details`: `ticketIDs[]` (up to 50) reads many tickets in one `/Tickets/query` call. Batch mode returns the ticket records with company and assignee names, without the per-ticket notes, contact and configuration item lookups or the ticket card. `ticketID` alone behaves as before.
+  - The four search/schedule tools now carry `readOnlyHint: true`.
+
+### Fixed
+
+- **`autotask_search_service_calls` ignored `companyID`, `startAfter` and `startBefore`.** The service read `startDate`/`endDate`, which the tool schema never offered, so those filters were dropped and the search returned unfiltered service calls. They now filter on `companyID` and `startDateTime`.
+
 ### Documentation
 
 - **Impersonation docs** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). The README's acting-user section now has:
