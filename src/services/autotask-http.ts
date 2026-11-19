@@ -41,19 +41,68 @@ interface QueryResponse<T> {
 const RAW_REQUEST_METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as const;
 
 /**
- * Reduce a raw-request path to its endpoint shape for usage logging:
- * strips the query string and replaces numeric or GUID-like segments with
- * `:id`, e.g. `/Tickets/123/Notes?x=1` -> `/Tickets/:id/Notes`.
+ * Autotask REST entity names the usage log may print verbatim. Anything not
+ * on this list (or the verb list below) is collapsed to `:x`, so free text,
+ * ids, ticket numbers, emails and names never reach the logs.
+ */
+const RAW_LOG_ENTITIES = new Set<string>([
+  'ActionTypes', 'AllocationCodes', 'Appointments', 'BillingCodes', 'BillingItems',
+  'ChangeRequestLinks', 'ChecklistLibraries', 'ClassificationIcons', 'Companies',
+  'CompanyAlerts', 'CompanyAttachments', 'CompanyLocations', 'CompanyNotes',
+  'CompanySiteConfigurations', 'CompanyTeams', 'CompanyToDos', 'ConfigurationItemCategories',
+  'ConfigurationItemNotes', 'ConfigurationItemTypes', 'ConfigurationItems', 'ContactGroups',
+  'Contacts', 'ContractBlocks', 'ContractCharges', 'ContractExclusionBillingCodes',
+  'ContractMilestones', 'ContractNotes', 'ContractRates', 'ContractServices', 'Contracts',
+  'Countries', 'Currencies', 'Departments', 'ExpenseItems', 'ExpenseReports', 'Holidays',
+  'HolidaySets', 'InternalLocations', 'InventoryItems', 'InventoryLocations', 'InvoiceTemplates',
+  'Invoices', 'Modules', 'Notes', 'NotificationHistory', 'Opportunities', 'OrganizationalLevel1s',
+  'OrganizationalLevel2s', 'OrganizationalLevelAssociations', 'PaymentTerms', 'Phases',
+  'PriceListProducts', 'PriceListServices', 'Products', 'ProjectCharges', 'ProjectNotes',
+  'Projects', 'PurchaseOrderItems', 'PurchaseOrders', 'QuoteItems', 'QuoteLocations', 'Quotes',
+  'ResourceRoles', 'ResourceServiceDeskRoles', 'Resources', 'Roles', 'SalesOrders',
+  'ServiceBundles', 'ServiceCallTaskResources', 'ServiceCallTasks', 'ServiceCallTicketResources',
+  'ServiceCallTickets', 'ServiceCalls', 'ServiceLevelAgreementResults', 'Services', 'Skills',
+  'Subscriptions', 'SurveyResults', 'TaskNotes', 'TaskSecondaryResources', 'Tasks', 'Taxes',
+  'TicketAdditionalConfigurationItems', 'TicketAdditionalContacts', 'TicketAttachments',
+  'TicketCategories', 'TicketChangeRequestApprovals', 'TicketChecklistItems', 'TicketCharges',
+  'TicketHistory', 'TicketNotes', 'TicketRmaCredits', 'TicketSecondaryResources', 'Tickets',
+  'TimeEntries', 'TimeOffRequests', 'UserDefinedFieldDefinitions', 'Version', 'WorkTypeModifiers',
+  'ZoneInformation',
+]);
+
+/** Fixed verb/metadata segments that follow an entity in the REST API. */
+const RAW_LOG_VERBS = new Set<string>([
+  'query', 'count', 'entityInformation', 'fields', 'userDefinedFields', 'picklist',
+]);
+
+/**
+ * Reduce a raw-request path to an allowlisted endpoint shape for usage
+ * logging, e.g. `/Tickets/123/Notes?x=1` -> `/Tickets/:x/Notes`. Only known
+ * entity names and fixed verbs are printed; every other segment becomes
+ * `:x`. Control characters and ';' are stripped first, and %-encoded paths
+ * are decoded (or collapsed entirely if decoding fails).
  */
 export function rawRequestPathShape(path: string): string {
-  const noQuery = path.split('?')[0].split('#')[0];
-  return noQuery
-    .split('/')
-    .map((seg) =>
-      /^\d+$/.test(seg) || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(seg) ? ':id' : seg
-    )
-    .join('/')
-    .slice(0, 120);
+  let p = String(path).split('?')[0].split('#')[0];
+  // eslint-disable-next-line no-control-regex
+  p = p.replace(/[\u0000-\u001f\u007f;]/g, '');
+  if (p.includes('%')) {
+    try {
+      p = decodeURIComponent(p);
+    } catch {
+      return '/:x';
+    }
+    // eslint-disable-next-line no-control-regex
+    p = p.replace(/[\u0000-\u001f\u007f;]/g, '');
+  }
+  const segs = p.split('/').filter((seg) => seg.length > 0);
+  if (segs.length === 0) return '/';
+  const out = segs.slice(0, 8).map((seg, i) => {
+    if (RAW_LOG_ENTITIES.has(seg)) return seg;
+    if (i > 0 && RAW_LOG_VERBS.has(seg)) return seg;
+    return ':x';
+  });
+  return '/' + out.join('/');
 }
 
 /**
