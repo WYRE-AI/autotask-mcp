@@ -41,6 +41,22 @@ interface QueryResponse<T> {
 const RAW_REQUEST_METHODS = ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'] as const;
 
 /**
+ * Reduce a raw-request path to its endpoint shape for usage logging:
+ * strips the query string and replaces numeric or GUID-like segments with
+ * `:id`, e.g. `/Tickets/123/Notes?x=1` -> `/Tickets/:id/Notes`.
+ */
+export function rawRequestPathShape(path: string): string {
+  const noQuery = path.split('?')[0].split('#')[0];
+  return noQuery
+    .split('/')
+    .map((seg) =>
+      /^\d+$/.test(seg) || /^[0-9a-f]{8}-[0-9a-f-]{27,}$/i.test(seg) ? ':id' : seg
+    )
+    .join('/')
+    .slice(0, 120);
+}
+
+/**
  * Maximum value Autotask accepts for the per-page `MaxRecords` body param on
  * `/query` endpoints. Anything outside [1, AUTOTASK_MAX_PAGE_SIZE] returns
  * HTTP 500 with the body "maxCountOfRecordsToReturn must be between 1 and 500".
@@ -677,6 +693,9 @@ export class AutotaskHttpClient {
       throw new Error(`Autotask rawRequest: method must be one of ${RAW_REQUEST_METHODS.join(', ')}`);
     }
     assertSafeRelativePath(path);
+    // Usage signal only: method + endpoint shape. IDs, query strings and
+    // bodies are dropped so no customer data reaches the logs.
+    this.logger.info(`Autotask raw request ${upperMethod} ${rawRequestPathShape(path)}`);
 
     let finalPath = path;
     if (queryParams && Object.keys(queryParams).length > 0) {
