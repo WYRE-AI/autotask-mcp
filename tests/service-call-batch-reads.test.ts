@@ -21,6 +21,7 @@ import { TOOL_DEFINITIONS, TOOL_CATEGORIES } from '../src/handlers/tool.definiti
 import { Logger } from '../src/utils/logger';
 import type { McpServerConfig } from '../src/types/mcp';
 import { _resetZoneUrlCache } from '../src/utils/config';
+import { MappingService, _resetTenantCacheStore } from '../src/utils/mapping.service';
 
 const logger = new Logger('error');
 
@@ -48,11 +49,14 @@ function mockFetch(responder: Responder) {
     const path = new URL(url).pathname.replace('/ATServicesRest/v1.0', '');
     const body = init.body ? JSON.parse(init.body as string) : undefined;
     calls.push({ method: init.method as string, path, body });
+    // Evaluate the responder here, not inside text(): a throw for an
+    // unexpected route must fail the request, not read as an empty body.
+    const payload = JSON.stringify(responder(path, body));
     return {
       ok: true,
       status: 200,
       headers: { get: () => null },
-      text: async () => JSON.stringify(responder(path, body)),
+      text: async () => payload,
     } as unknown as Response;
   });
   return { spy, calls };
@@ -63,11 +67,15 @@ function inValues(body: any, field: string): number[] | undefined {
   return body?.filter?.find((f: any) => f.op === 'in' && f.field === field)?.value;
 }
 
-/** Filter rows by the query's `in` and `eq` filters, like Autotask would. */
+/** Filter rows by the query's in/eq/gt/gte/lte filters, like Autotask would. */
 function applyFilters(rows: any[], body: any): any[] {
   return rows.filter(row => (body?.filter ?? []).every((f: any) => {
-    if (f.op === 'in') return f.value.includes(row[f.field]);
-    if (f.op === 'eq') return row[f.field] === f.value;
+    const v = row[f.field];
+    if (f.op === 'in') return f.value.includes(v);
+    if (f.op === 'eq') return v === f.value;
+    if (f.op === 'gt') return v !== undefined && v > f.value;
+    if (f.op === 'gte') return v !== undefined && v >= f.value;
+    if (f.op === 'lte') return v !== undefined && v <= f.value;
     return true;
   }));
 }
@@ -94,9 +102,7 @@ const TICKETS = [
 
 function scheduleResponder(serviceCalls: Array<Record<string, unknown>> = SERVICE_CALLS): Responder {
   return (path, body) => {
-    if (path === '/ServiceCalls/query') {
-      return { items: inValues(body, 'id') ? applyFilters(serviceCalls, body) : serviceCalls, pageDetails: {} };
-    }
+    if (path === '/ServiceCalls/query') return { items: applyFilters(serviceCalls, body), pageDetails: {} };
     if (path === '/ServiceCallTickets/query') return { items: applyFilters(LINKS, body), pageDetails: {} };
     if (path === '/ServiceCallTicketResources/query') return { items: applyFilters(ASSIGNMENTS, body), pageDetails: {} };
     if (path === '/Tickets/query') return { items: applyFilters(TICKETS, body), pageDetails: {} };
@@ -106,6 +112,7 @@ function scheduleResponder(serviceCalls: Array<Record<string, unknown>> = SERVIC
 
 beforeEach(() => {
   _resetZoneUrlCache();
+  _resetTenantCacheStore();
 });
 
 afterEach(() => {
@@ -118,6 +125,9 @@ describe('normalizeIdList', () => {
     expect(normalizeIdList(undefined, 'ids', 10)).toEqual([]);
     expect(() => normalizeIdList([1.5], 'ids', 10)).toThrow(/integer/);
     expect(() => normalizeIdList([-1], 'ids', 10)).toThrow(/integer/);
+    // The error names the position, never the raw value.
+    expect(() => normalizeIdList([1, { email: 'someone@example.com' }], 'ticketIDs', 10)).toThrow('ticketIDs[1] must be a non-negative integer ID');
+    expect(() => normalizeIdList([1, { email: 'someone@example.com' }], 'ticketIDs', 10)).not.toThrow(/example\.com/);
     expect(() => normalizeIdList(7, 'ids', 10)).toThrow(/array/);
     expect(() => normalizeIdList([1, 2, 3], 'ids', 2)).toThrow(/at most 2/);
   });
@@ -196,12 +206,75 @@ describe('getServiceCallSchedule', () => {
     expect(first.body.MaxRecords).toBe(51);
   });
 
-  test('lastModifiedAfter alone is a valid delta window', async () => {
-    mockFetch(scheduleResponder());
+  test('lastModifiedAfter alone is a valid delta window and filters on it', async () => {
+    const stale = { id: 999, description: 'Older than the checkpoint', lastModifiedDateTime: '2026-11-18T09:00:00Z' };
+    mockFetch(scheduleResponder([stale, ...SERVICE_CALLS]));
     const service = new AutotaskService(config, logger);
-    const schedule = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T00:00:00Z', includeTicketSummary: false });
-    expect(schedule.serviceCalls).toHaveLength(2);
+    const schedule = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T10:30:00Z', includeTicketSummary: false });
+    expect(schedule.serviceCalls.map(c => c.id)).toEqual([1002]);
     expect(schedule.serviceCalls[0].tickets[0]).not.toHaveProperty('ticket');
+  });
+
+  test('a truncated window returns a continuation that resumes after the last ID', async () => {
+    const many = Array.from({ length: 5 }, (_, i) => ({ id: 2000 + i, lastModifiedDateTime: '2026-11-19T12:00:00Z' }));
+    const { calls } = mockFetch(scheduleResponder(many));
+    const service = new AutotaskService(config, logger);
+    const first = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T00:00:00Z', maxServiceCalls: 3 });
+    expect(first.serviceCalls.map(c => c.id)).toEqual([2000, 2001, 2002]);
+    expect(first.nextAfterServiceCallId).toBe(2002);
+    const second = await service.getServiceCallSchedule({
+      lastModifiedAfter: '2026-11-19T00:00:00Z', maxServiceCalls: 3, afterServiceCallId: first.nextAfterServiceCallId!,
+    });
+    const secondQuery = calls.filter(c => c.path === '/ServiceCalls/query')[1];
+    expect(secondQuery.body.filter).toEqual(expect.arrayContaining([
+      { op: 'gte', field: 'lastModifiedDateTime', value: '2026-11-19T00:00:00Z' },
+      { op: 'gt', field: 'id', value: 2002 },
+    ]));
+    expect(second.serviceCalls.map(c => c.id)).toEqual([2003, 2004]);
+    expect(second.nextAfterServiceCallId).toBeUndefined();
+    expect(second.truncated.serviceCalls).toBe(false);
+  });
+
+  test('an explicit empty serviceCallIds list reads nothing', async () => {
+    const { spy } = mockFetch(scheduleResponder());
+    const service = new AutotaskService(config, logger);
+    const schedule = await service.getServiceCallSchedule({ serviceCallIds: [] });
+    expect(schedule.serviceCalls).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('resourceId: other technicians cannot crowd out a matching call', async () => {
+    const calls = Array.from({ length: 3 }, (_, i) => ({ id: 4000 + i, lastModifiedDateTime: '2026-11-19T12:00:00Z' }));
+    const links = calls.map((c, i) => ({ id: 6000 + i, serviceCallID: c.id, ticketID: 9001 }));
+    // Many assignments to tech 50 on the first two calls; tech 30 only on the last.
+    const assignments = [
+      ...Array.from({ length: 10 }, (_, i) => ({ id: 8000 + i, serviceCallTicketID: i % 2 === 0 ? 6000 : 6001, resourceID: 50 })),
+      { id: 8100, serviceCallTicketID: 6002, resourceID: 30 },
+      { id: 8101, serviceCallTicketID: 6002, resourceID: 50 },
+    ];
+    const { calls: requests } = mockFetch((path, body) => {
+      if (path === '/ServiceCalls/query') return { items: applyFilters(calls, body), pageDetails: {} };
+      if (path === '/ServiceCallTickets/query') return { items: applyFilters(links, body), pageDetails: {} };
+      if (path === '/ServiceCallTicketResources/query') return { items: applyFilters(assignments, body), pageDetails: {} };
+      if (path === '/Tickets/query') return { items: applyFilters(TICKETS, body), pageDetails: {} };
+      throw new Error(`unexpected route ${path}`);
+    });
+    const service = new AutotaskService(config, logger);
+    const schedule = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T00:00:00Z', resourceId: 30 });
+    expect(schedule.serviceCalls.map(c => c.id)).toEqual([4002]);
+    // Both technicians on the kept call are listed.
+    expect(schedule.serviceCalls[0].tickets[0].resources.map(r => r.resourceID).sort()).toEqual([30, 50]);
+    const resourceQueries = requests.filter(c => c.path === '/ServiceCallTicketResources/query');
+    expect(resourceQueries[0].body.filter).toContainEqual({ op: 'eq', field: 'resourceID', value: 30 });
+    // The full-assignment read covers only the kept call's link.
+    expect(inValues(resourceQueries[1].body, 'serviceCallTicketID')).toEqual([6002]);
+  });
+
+  test('blank startAfter falls back to the legacy startDate bound', async () => {
+    const { calls } = mockFetch(scheduleResponder());
+    const service = new AutotaskService(config, logger);
+    await service.searchServiceCalls({ startAfter: '', startDate: '2026-11-20T00:00:00Z' });
+    expect(calls[0].body.filter).toEqual([{ op: 'gte', field: 'startDateTime', value: '2026-11-20T00:00:00Z' }]);
   });
 
   test('includeTicketSummary:false skips the Tickets query', async () => {
@@ -225,7 +298,7 @@ describe('getServiceCallSchedule', () => {
   });
 
   test('flags truncation when the window holds more service calls than the cap', async () => {
-    const many = Array.from({ length: 4 }, (_, i) => ({ id: 2000 + i, startDateTime: '2026-11-20T15:00:00Z' }));
+    const many = Array.from({ length: 4 }, (_, i) => ({ id: 2000 + i, startDateTime: '2026-11-20T15:00:00Z', lastModifiedDateTime: '2026-11-19T12:00:00Z' }));
     mockFetch(scheduleResponder(many));
     const service = new AutotaskService(config, logger);
     const schedule = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T00:00:00Z', maxServiceCalls: 3 });
@@ -368,6 +441,7 @@ describe('tool handler wiring', () => {
     (handler as any).getMappingService = async () => ({
       getCompanyName: async (id: number) => (id === 11 ? 'Contoso' : null),
       getResourceName: async (id: number) => (id === 30 ? 'Pat Tech' : null),
+      getResourceNames: async (ids: number[]) => new Map(ids.filter(id => id === 30).map(id => [id, 'Pat Tech'])),
     });
     return handler;
   }
@@ -440,5 +514,112 @@ describe('tool definitions', () => {
     expect(props('autotask_search_service_call_ticket_resources')).toHaveProperty('serviceCallTicketIds');
     expect(props('autotask_get_ticket_details').ticketIDs.maxItems).toBe(50);
     expect(byName.get('autotask_search_service_calls')!.inputSchema.required).toEqual([]);
+  });
+});
+
+describe('CodeRabbit follow-ups', () => {
+  test('exact fit across chunks is not reported as truncated; an omitted row is', async () => {
+    // 250 service calls -> two link chunks (200 + 50). Each call has 10 links in
+    // the first chunk only, so the 2,000-link cap is hit exactly by chunk one.
+    const scs = Array.from({ length: 250 }, (_, i) => ({ id: 10000 + i, lastModifiedDateTime: '2026-11-19T12:00:00Z' }));
+    const links = scs.slice(0, 200).flatMap((c, i) =>
+      Array.from({ length: 10 }, (_, j) => ({ id: 100000 + i * 10 + j, serviceCallID: c.id, ticketID: 1 })));
+    const respond = (extra: any[]) => (path: string, body: any) => {
+      if (path === '/ServiceCalls/query') return { items: applyFilters(scs, body), pageDetails: {} };
+      if (path === '/ServiceCallTickets/query') return { items: applyFilters([...links, ...extra], body), pageDetails: {} };
+      if (path === '/ServiceCallTicketResources/query') return { items: [], pageDetails: {} };
+      throw new Error(`unexpected route ${path}`);
+    };
+    const service = new AutotaskService(config, logger);
+
+    mockFetch(respond([]));
+    const exact = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T00:00:00Z', maxServiceCalls: 250, includeTicketSummary: false });
+    expect(exact.truncated.tickets).toBe(false);
+    jest.restoreAllMocks();
+
+    mockFetch(respond([{ id: 999999, serviceCallID: 10249, ticketID: 2 }]));
+    const over = await service.getServiceCallSchedule({ lastModifiedAfter: '2026-11-19T00:00:00Z', maxServiceCalls: 250, includeTicketSummary: false });
+    expect(over.truncated.tickets).toBe(true);
+  });
+
+  test('explicit empty ID lists on the searches read nothing', async () => {
+    const { spy } = mockFetch(scheduleResponder());
+    const service = new AutotaskService(config, logger);
+    expect(await service.searchServiceCalls({ ids: [] })).toEqual([]);
+    expect(await service.searchServiceCallTickets({ serviceCallIds: [] })).toEqual([]);
+    expect(await service.searchServiceCallTicketResources({ serviceCallTicketIds: [] })).toEqual([]);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
+  test('a truncated resource scan with no matches keeps its warning instead of "not found"', async () => {
+    jest.spyOn(AutotaskService.prototype, 'searchServiceCallsDetailed').mockResolvedValue({ items: [], truncated: true });
+    const service = new AutotaskService(config, logger);
+    const handler = new AutotaskToolHandler(service, logger);
+    const result = await handler.callTool('autotask_search_service_calls', { lastModifiedAfter: '2026-11-19T00:00:00Z', resourceId: 30 });
+    expect(result.isError).toBeFalsy();
+    expect(JSON.parse((result.content[0] as any).text).message).toMatch(/scan was truncated/);
+  });
+
+  test('a failed direct resource lookup is not cached as "Unknown Resource"', async () => {
+    const service = new AutotaskService(config, logger);
+    const mapping = new MappingService(service, logger);
+    (mapping as any).cache.resources.set(1, 'Someone Else');
+    (mapping as any).cache.lastUpdated.resources = new Date();
+    (mapping as any).cache.lastUpdated.companies = new Date();
+    const getResource = jest.spyOn(service, 'getResource')
+      .mockRejectedValueOnce(Object.assign(new Error('HTTP 429'), { status: 429 }))
+      .mockResolvedValueOnce({ id: 30, firstName: 'Pat', lastName: 'Tech' } as any);
+    expect(await mapping.getResourceName(30)).toBeNull();
+    expect((mapping as any).cache.resources.has(30)).toBe(false);
+    expect(await mapping.getResourceName(30)).toBe('Pat Tech');
+    expect(getResource).toHaveBeenCalledTimes(2);
+  });
+
+  test('lazy discovery: schedule names technicians with one batched Resources read', async () => {
+    const { calls } = mockFetch((path, body) => {
+      if (path === '/Resources/query') {
+        return { items: applyFilters([{ id: 30, firstName: 'Pat', lastName: 'Tech' }, { id: 31, firstName: 'Sam', lastName: 'Field' }], body), pageDetails: {} };
+      }
+      if (path.startsWith('/Companies/')) return { item: { id: 11, companyName: 'Contoso' } };
+      return scheduleResponder()(path, body);
+    });
+    const service = new AutotaskService(config, logger);
+    const handler = new AutotaskToolHandler(service, logger, true);
+    const listed = await handler.callTool('autotask_list_category_tools', { category: 'service_calls' });
+    expect((listed.content[0] as any).text).toContain('autotask_get_service_call_schedule');
+    const result = await handler.callTool('autotask_execute_tool', {
+      toolName: 'autotask_get_service_call_schedule',
+      arguments: { serviceCallIds: [1001] },
+    });
+    expect(result.isError).toBeFalsy();
+    const sc = JSON.parse((result.content[0] as any).text).data.serviceCalls[0];
+    expect(sc.tickets.map((t: any) => t.resources[0].resourceName)).toEqual(['Pat Tech', 'Sam Field']);
+    const resourceReads = calls.filter(c => c.path.startsWith('/Resources'));
+    expect(resourceReads).toHaveLength(1);
+    expect(inValues(resourceReads[0].body, 'id')).toEqual([30, 31]);
+  });
+
+  test('a 200 whose body cannot be read fails the query instead of looking empty', async () => {
+    jest.spyOn(global, 'fetch' as any).mockImplementation(async () => ({
+      ok: true,
+      status: 200,
+      headers: { get: () => null },
+      text: async () => { throw new Error('socket hang up'); },
+    }) as unknown as Response);
+    const service = new AutotaskService(config, logger);
+    await expect(service.searchServiceCallTickets({ serviceCallId: 1 })).rejects.toThrow(/body could not be read/);
+  });
+
+  test('ID array items are declared as non-negative integers', () => {
+    const props = (name: string) => (TOOL_DEFINITIONS.find(t => t.name === name)!.inputSchema as any).properties;
+    for (const [tool, prop] of [
+      ['autotask_get_ticket_details', 'ticketIDs'],
+      ['autotask_search_service_calls', 'ids'],
+      ['autotask_get_service_call_schedule', 'serviceCallIds'],
+      ['autotask_search_service_call_tickets', 'serviceCallIds'],
+      ['autotask_search_service_call_ticket_resources', 'serviceCallTicketIds'],
+    ]) {
+      expect(props(tool)[prop].items).toEqual({ type: 'integer', minimum: 0 });
+    }
   });
 });

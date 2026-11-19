@@ -5,6 +5,7 @@
 
 import { AutotaskService } from '../services/autotask.service.js';
 import { Logger } from './logger.js';
+import { vendorStatus } from './vendor-error.js';
 
 export interface MappingCache {
   companies: Map<number, string>;
@@ -301,8 +302,10 @@ export class MappingService {
         return cachedName;
       }
       
-      // Check if we have any resources in cache - if not, the endpoint likely isn't available
-      if (this.cache.resources.size === 0) {
+      // Check if we have any resources in cache - if not, the endpoint likely isn't available.
+      // In lazy-loading mode the cache is empty by design, so fall through to
+      // the direct lookup instead.
+      if (this.cache.resources.size === 0 && !this.lazyLoading) {
         this.logger.debug(`Resource ${resourceId} not found - Resources endpoint not available in this Autotask instance`);
         return null; // Gracefully return null instead of attempting individual lookup
       }
@@ -318,7 +321,11 @@ export class MappingService {
           return fullName;
         }
       } catch (directError) {
-        this.logger.debug(`Direct resource lookup failed for ${resourceId}:`, directError);
+        // A failed lookup (e.g. HTTP 429) is not an answer: don't cache a
+        // placeholder that would be served for the whole cache window.
+        const status = vendorStatus(directError);
+        this.logger.warn(`Direct resource lookup failed for ${resourceId}${status !== undefined ? ` (HTTP ${status})` : ''}; leaving the name unset`);
+        return null;
       }
       
       this.cache.resources.set(resourceId, 'Unknown Resource');
@@ -327,6 +334,41 @@ export class MappingService {
       this.logger.error(`Failed to get resource name for ${resourceId}:`, error);
       return null;
     }
+  }
+
+  /**
+   * Resolve many resource names with a bounded number of requests: cache hits
+   * first, then one batched `id in [...]` read per 200 missing IDs (at most
+   * `maxLookups` IDs). IDs that are not resolved are simply absent from the
+   * result, so callers keep the ID only. Works in lazy-loading mode, where the
+   * cache starts empty. Never throws.
+   */
+  public async getResourceNames(resourceIds: number[], maxLookups = 600): Promise<Map<number, string>> {
+    const names = new Map<number, string>();
+    try {
+      await this.waitWithBudget(this.refreshCacheIfNeeded(), 'refresh');
+      const missing: number[] = [];
+      for (const id of new Set(resourceIds)) {
+        const cached = this.cache.resources.get(id);
+        if (cached && cached !== 'Unknown Resource') names.set(id, cached);
+        else if (!cached) missing.push(id);
+      }
+      const toLookUp = missing.slice(0, Math.max(0, maxLookups));
+      if (toLookUp.length > 0) {
+        const resources = await this.autotaskService.getResourcesByIds(toLookUp);
+        for (const r of resources) {
+          if (typeof r.id === 'number' && r.firstName && r.lastName) {
+            const fullName = `${r.firstName} ${r.lastName}`.trim();
+            this.cache.resources.set(r.id, fullName);
+            names.set(r.id, fullName);
+          }
+        }
+      }
+    } catch (error) {
+      const status = vendorStatus(error);
+      this.logger.warn(`Batch resource name lookup failed${status !== undefined ? ` (HTTP ${status})` : ''}; returning IDs only`);
+    }
+    return names;
   }
 
   /**

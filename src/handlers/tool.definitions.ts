@@ -541,7 +541,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         ticketIDs: {
           type: 'array',
-          items: { type: 'number' },
+          items: { type: 'integer', minimum: 0 },
           minItems: 1,
           maxItems: 50,
           description: 'Batch mode: up to 50 ticket IDs fetched in one Autotask query. Returns the ticket records (company/assignee names resolved) without the per-ticket notes, contact and configuration item lookups. Use instead of calling this tool once per ticket.'
@@ -3048,7 +3048,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         ids: {
           type: 'array',
-          items: { type: 'number' },
+          items: { type: 'integer', minimum: 0 },
           minItems: 1,
           maxItems: 500,
           description: 'Only these service call IDs (up to 500), fetched in batched queries'
@@ -3072,7 +3072,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
       properties: {
         serviceCallIds: {
           type: 'array',
-          items: { type: 'number' },
+          items: { type: 'integer', minimum: 0 },
           minItems: 1,
           maxItems: 50,
           description: 'Service call IDs to read (up to 50). When given, the window fields are optional extra filters.'
@@ -3111,6 +3111,11 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           description: 'Window mode: max service calls returned (default: 100, max: 500). The response says when results were truncated.',
           minimum: 1,
           maximum: 500
+        },
+        afterServiceCallId: {
+          type: 'integer',
+          minimum: 0,
+          description: 'Window mode continuation: only service calls with an ID above this. When a window read is truncated the response returns nextAfterServiceCallId; repeat the same filters with it until no nextAfterServiceCallId comes back, then advance your delta checkpoint.'
         }
       },
       required: []
@@ -3227,7 +3232,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         serviceCallIds: {
           type: 'array',
-          items: { type: 'number' },
+          items: { type: 'integer', minimum: 0 },
           minItems: 1,
           maxItems: 500,
           description: 'Filter by several service call IDs at once (up to 500), fetched in batched queries'
@@ -3303,7 +3308,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         serviceCallTicketIds: {
           type: 'array',
-          items: { type: 'number' },
+          items: { type: 'integer', minimum: 0 },
           minItems: 1,
           maxItems: 500,
           description: 'Filter by several service call ticket IDs at once (up to 500), fetched in batched queries'

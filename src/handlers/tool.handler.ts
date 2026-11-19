@@ -189,8 +189,10 @@ export class AutotaskToolHandler {
    */
   /**
    * Attach resourceName to every resource assignment in a service call
-   * schedule, and company names to the service calls, from the mapping
-   * cache. Best-effort: a failed lookup leaves the ID only.
+   * schedule, and company names to the service calls. Resource names come
+   * from the mapping cache plus one batched Resources read per 200 missing
+   * IDs (bounded), never one request per technician. Best-effort: a failed
+   * lookup leaves the ID only.
    */
   private async nameScheduleResources(schedule: ServiceCallSchedule): Promise<void> {
     try {
@@ -201,11 +203,7 @@ export class AutotaskToolHandler {
           for (const r of t.resources) if (typeof r.resourceID === 'number') resourceIds.add(r.resourceID);
         }
       }
-      const names = new Map<number, string>();
-      await mapWithConcurrency([...resourceIds], this.enhanceConcurrency, async (id) => {
-        const name = await mappingService.getResourceName(id);
-        if (name) names.set(id, name);
-      });
+      const names = await mappingService.getResourceNames([...resourceIds]);
       for (const sc of schedule.serviceCalls) {
         for (const t of sc.tickets) {
           for (const r of t.resources) {
@@ -983,9 +981,9 @@ export class AutotaskToolHandler {
   /**
    * Dispatch table: maps tool names to handler functions
    */
-  private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string }>> {
+  private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string; partial?: boolean }>> {
     const s = this.autotaskService;
-    type H = (args: any) => Promise<{ result: any; message: string }>;
+    type H = (args: any) => Promise<{ result: any; message: string; partial?: boolean }>;
     return new Map<string, H>([
       // Connection
       ['autotask_test_connection', async () => {
@@ -1145,6 +1143,9 @@ export class AutotaskToolHandler {
         const notes = [
           schedule.missingServiceCallIds?.length ? `not found or filtered out: ${schedule.missingServiceCallIds.join(', ')}` : '',
           truncatedParts.length ? `truncated: ${truncatedParts.join(', ')} (narrow the window or pass serviceCallIds)` : '',
+          schedule.nextAfterServiceCallId !== undefined
+            ? `more service calls: repeat with afterServiceCallId=${schedule.nextAfterServiceCallId} and the same filters; advance a delta checkpoint only after a page without this note`
+            : '',
         ].filter(Boolean).join('; ');
         const c = schedule.counts;
         return {
@@ -1155,7 +1156,7 @@ export class AutotaskToolHandler {
       ['autotask_search_service_calls', async (a) => {
         const { items: r, truncated } = await s.searchServiceCallsDetailed(a);
         if (truncated) {
-          return { result: r, message: `Found ${r.length} service calls (resource filter scan was truncated; narrow the window to be sure none were missed)` };
+          return { result: r, partial: true, message: `Found ${r.length} service calls (resource filter scan was truncated; narrow the window to be sure none were missed)` };
         }
         return { result: r, message: `Found ${r.length} service calls` };
       }],
@@ -1865,10 +1866,11 @@ export class AutotaskToolHandler {
       const handler = this.getDispatchTable().get(name);
       if (!handler) throw new Error(`Unknown tool: ${name}`);
 
-      const { result, message } = await handler(args);
+      const { result, message, partial } = await handler(args);
 
-      // Check for empty/not-found results and return explicit error to prevent hallucination
-      const notFoundMsg = this.buildNotFoundMessage(name, args, result);
+      // Check for empty/not-found results and return explicit error to prevent hallucination.
+      // A partial (truncated) empty result is not "not found": keep its warning.
+      const notFoundMsg = partial ? null : this.buildNotFoundMessage(name, args, result);
       if (notFoundMsg) {
         this.logger.debug(`Not-found result for ${name}: ${notFoundMsg}`);
         return errorToolResult({ error: notFoundMsg, tool: name });

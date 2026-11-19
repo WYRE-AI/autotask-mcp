@@ -586,7 +586,19 @@ export class AutotaskHttpClient {
       return undefined as unknown as T;
     }
 
-    const text = await response.text().catch(() => '');
+    // A 2xx whose body can't be read must fail: treating it as empty would
+    // make a paginated query stop early and look complete. Non-2xx keeps the
+    // vendor status below even when the body is unreadable.
+    let text: string;
+    try {
+      text = await response.text();
+    } catch (err) {
+      if (response.ok) {
+        const msg = err instanceof Error ? err.message : String(err);
+        throw new Error(`Autotask ${method} ${path} returned ${response.status} but the response body could not be read: ${msg}`, { cause: err });
+      }
+      text = '';
+    }
 
     if (!response.ok) {
       // A 401 against a relative (zone-resolved) path — as opposed to an

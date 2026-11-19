@@ -606,6 +606,8 @@ export interface ServiceCallSearchOptions {
   resourceId?: number;
   /** Only these service call IDs. */
   ids?: number[];
+  /** Continuation: only service calls with id > this value (see ServiceCallSchedule.nextAfterServiceCallId). */
+  afterServiceCallId?: number;
   pageSize?: number;
   /** Legacy internal aliases: startDateTime >= startDate, endDateTime <= endDate. */
   startDate?: string;
@@ -618,6 +620,14 @@ export interface ServiceCallSearchResult {
   truncated: boolean;
 }
 
+/**
+ * Input for AutotaskService.getServiceCallSchedule. Provide one selector:
+ * `serviceCallIds` (1-50 IDs; window fields then act as extra filters), or a
+ * window of `startAfter` + `startBefore` (both required), or
+ * `lastModifiedAfter` alone for delta polling. An explicit empty
+ * `serviceCallIds` returns an empty schedule. `afterServiceCallId` resumes a
+ * truncated window read.
+ */
 export interface ServiceCallScheduleOptions extends Omit<ServiceCallSearchOptions, 'ids' | 'pageSize' | 'startDate' | 'endDate'> {
   serviceCallIds?: number[];
   /** Max service calls returned in window mode (default 100, max 500). */
@@ -646,6 +656,12 @@ export interface ServiceCallScheduleResource {
   resourceName?: string | undefined;
 }
 
+/**
+ * One ServiceCallTickets link. `ticket` is omitted entirely when the request
+ * set `includeTicketSummary: false`; it is `null` when summaries were
+ * requested but Autotask did not return that ticket (deleted, no access, or
+ * the summary read was truncated).
+ */
 export interface ServiceCallScheduleTicket {
   serviceCallTicketID?: number | undefined;
   ticketID?: number | undefined;
@@ -657,10 +673,20 @@ export interface ServiceCallScheduleEntry extends AutotaskServiceCall {
   tickets: ServiceCallScheduleTicket[];
 }
 
+/**
+ * Result of a schedule read. `counts.tickets` counts ticket links
+ * (ServiceCallTickets rows), not distinct ticket IDs: a ticket linked to two
+ * service calls counts twice. `counts.resources` counts assignment rows.
+ */
 export interface ServiceCallSchedule {
   serviceCalls: ServiceCallScheduleEntry[];
   /** serviceCallIds that were requested but not returned by Autotask. */
   missingServiceCallIds?: number[];
+  /**
+   * Window mode only, set when `truncated.serviceCalls` is true: pass it back
+   * as `afterServiceCallId` with the same filters to read the next page.
+   */
+  nextAfterServiceCallId?: number;
   truncated: {
     serviceCalls: boolean;
     tickets: boolean;

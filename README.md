@@ -444,7 +444,7 @@ The server provides 101 tools for interacting with Autotask:
 
 #### Ticket Operations
 - `autotask_search_tickets` - Search tickets with filters
-- `autotask_get_ticket_details` - Get a ticket by ID (or up to 50 with `ticketIDs`): description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs)
+- `autotask_get_ticket_details` - Get a ticket by ID (`ticketID`): description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs). Batch mode (`ticketIDs`, up to 50) returns the ticket records with company and assignee names resolved, in one query; it skips recent notes, contact and configuration item lookups and the ticket card
 - `autotask_create_ticket` - Create new ticket
 
 #### Time Entry Operations
