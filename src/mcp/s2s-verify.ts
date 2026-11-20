@@ -16,8 +16,10 @@
  *
  * Empty secret => always returns false. That is not a production bypass:
  * the HTTP transport refuses to start when CONDUIT_S2S_SECRET is empty or a
- * known placeholder, unless MCP_ALLOW_INSECURE_DEV=1, which is local
- * development only and listens on 127.0.0.1.
+ * known placeholder, unless one of two explicit opt-ins is set:
+ * MCP_ALLOW_INSECURE_DEV=1 (local development, listens on 127.0.0.1 only) or
+ * MCP_ALLOW_UNAUTHENTICATED_HTTP=1 (single-tenant AUTH_MODE=env on a trusted
+ * private network, binds only an explicitly set MCP_HTTP_HOST).
  */
 import { createHmac, timingSafeEqual } from "node:crypto";
 
@@ -105,19 +107,27 @@ export function normalizeBindHost(host: string): string {
  *
  * A usable secret honors `explicitHost` (MCP_HTTP_HOST) when set, otherwise
  * the host already loaded into configuration (default `0.0.0.0` when unset).
- * No usable secret always binds `127.0.0.1`. `overriddenHost` is the explicit
- * MCP_HTTP_HOST that was ignored because it was not `127.0.0.1`.
+ * `allowUnauthenticatedHttp` (MCP_ALLOW_UNAUTHENTICATED_HTTP=1, no secret)
+ * honors only an explicitly set MCP_HTTP_HOST and otherwise binds
+ * `127.0.0.1`, so the unauthenticated mode never widens the bind by default.
+ * Any other case without a usable secret binds `127.0.0.1`. `overriddenHost`
+ * is the explicit MCP_HTTP_HOST that was ignored because it was not
+ * `127.0.0.1`.
  */
 export function resolveHttpListenHost(options: {
   s2sSecret: string;
   configuredHost: string | undefined;
   explicitHost: string | undefined;
+  allowUnauthenticatedHttp?: boolean;
 }): { host: string; overriddenHost: string | undefined } {
   const explicit = options.explicitHost?.trim() ?? "";
   if (options.s2sSecret) {
     if (explicit) return { host: explicit, overriddenHost: undefined };
     const configured = options.configuredHost?.trim() ?? "";
     return { host: configured || "0.0.0.0", overriddenHost: undefined };
+  }
+  if (options.allowUnauthenticatedHttp === true) {
+    return { host: explicit || LOOPBACK_BIND_HOST, overriddenHost: undefined };
   }
   if (explicit && normalizeBindHost(explicit) !== LOOPBACK_BIND_HOST) {
     return { host: LOOPBACK_BIND_HOST, overriddenHost: explicit };

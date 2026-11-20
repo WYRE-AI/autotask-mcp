@@ -3,12 +3,18 @@
  *
  * Startup requires a usable CONDUIT_S2S_SECRET unless MCP_ALLOW_INSECURE_DEV=1.
  * Known placeholders are treated as missing. That flag forces 127.0.0.1.
+ * MCP_ALLOW_UNAUTHENTICATED_HTTP=1 is accepted only with AUTH_MODE=env, no
+ * secret, and no dev flag; it binds only an explicit MCP_HTTP_HOST and
+ * rejects browser Origin requests. In AUTH_MODE=env a usable secret takes
+ * precedence over it; gateway mode refuses it.
  * /mcp rejects a missing or invalid X-Gateway-S2S header.
  * AUTH_MODE=gateway rejects requests that omit credential headers and must
  * not fall back to AUTOTASK_* baked into the server config.
  */
 
 import { createHmac } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { AutotaskMcpServer } from '../src/mcp/server.js';
 import { Logger } from '../src/utils/logger.js';
 import type { EnvironmentConfig } from '../src/utils/config.js';
@@ -22,6 +28,7 @@ const PLACEHOLDER = '${user_config.conduit_s2s_secret}';
 const ENV_KEYS = [
   'CONDUIT_S2S_SECRET',
   'MCP_ALLOW_INSECURE_DEV',
+  'MCP_ALLOW_UNAUTHENTICATED_HTTP',
   'MCP_HTTP_HOST',
   'AUTH_MODE',
   'AUTOTASK_USERNAME',
@@ -154,6 +161,7 @@ afterAll(() => {
 beforeEach(() => {
   delete process.env.CONDUIT_S2S_SECRET;
   delete process.env.MCP_ALLOW_INSECURE_DEV;
+  delete process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP;
   delete process.env.MCP_HTTP_HOST;
   delete process.env.AUTH_MODE;
   delete process.env.AUTOTASK_USERNAME;
@@ -162,14 +170,17 @@ beforeEach(() => {
 });
 
 describe('HTTP startup', () => {
-  async function expectRefusal(assertLog: (text: string) => void): Promise<void> {
+  async function expectRefusal(
+    assertLog: (text: string) => void,
+    mode: 'env' | 'gateway' = 'env',
+  ): Promise<void> {
     const logs = captureStderr();
     const exitSpy = jest.spyOn(process, 'exit').mockImplementation(((code?: number) => {
       throw new Error(`process.exit:${String(code)}`);
     }) as typeof process.exit);
 
     try {
-      await expect(buildServer('0.0.0.0').start()).rejects.toThrow('process.exit:1');
+      await expect(buildServer('0.0.0.0', mode).start()).rejects.toThrow('process.exit:1');
       expect(exitSpy).toHaveBeenCalledWith(1);
       const text = logs.text();
       assertLog(text);
@@ -251,6 +262,111 @@ describe('HTTP startup', () => {
     }
   });
 
+  describe('MCP_ALLOW_UNAUTHENTICATED_HTTP', () => {
+    it('starts in env mode with a security warning and honors an explicit MCP_HTTP_HOST', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      process.env.MCP_HTTP_HOST = '0.0.0.0';
+      const logs = captureStderr();
+      let close: (() => Promise<void>) | undefined;
+      try {
+        const server = await listen('127.0.0.1', 'env');
+        close = server.close;
+        expect(server.address).toBe('0.0.0.0');
+        const text = logs.text();
+        expect(text).toContain('SECURITY WARNING');
+        expect(text).toContain('MCP_ALLOW_UNAUTHENTICATED_HTTP=1');
+        expect(text).toContain('0.0.0.0:');
+        expect(text).toContain('configured Autotask API user');
+        expect(text).not.toContain('MCP_HTTP_HOST is not set');
+        assertNoSecrets(text);
+      } finally {
+        logs.restore();
+        await close?.();
+      }
+    });
+
+    it('binds 127.0.0.1 when MCP_HTTP_HOST is not set explicitly, even if the configured host is 0.0.0.0', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      const logs = captureStderr();
+      let close: (() => Promise<void>) | undefined;
+      try {
+        const server = await listen('0.0.0.0', 'env');
+        close = server.close;
+        expect(server.address).toBe('127.0.0.1');
+        expect(logs.text()).toContain('MCP_HTTP_HOST is not set');
+      } finally {
+        logs.restore();
+        await close?.();
+      }
+    });
+
+    it('container image does not set MCP_HTTP_HOST, so the mode stays on loopback unless the operator opts in', () => {
+      // If the image set MCP_HTTP_HOST, it would count as an explicit host and
+      // silently widen the unauthenticated bind for every container user.
+      const dockerfile = readFileSync(join(process.cwd(), 'Dockerfile'), 'utf8');
+      expect(dockerfile).not.toMatch(/^\s*ENV\s+MCP_HTTP_HOST\b/m);
+    });
+
+    it('is refused in gateway mode', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      await expectRefusal((text) => {
+        expect(text).toContain('requires AUTH_MODE=env');
+        expect(text).toContain('"gateway"');
+      }, 'gateway');
+    });
+
+    it('is refused in gateway mode even when a usable secret is configured', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      process.env.CONDUIT_S2S_SECRET = S2S_SECRET;
+      await expectRefusal((text) => {
+        expect(text).toContain('requires AUTH_MODE=env');
+      }, 'gateway');
+    });
+
+    it('is refused when AUTH_MODE is not exactly env', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      await expectRefusal((text) => {
+        expect(text).toContain('requires AUTH_MODE=env');
+        expect(text).toContain('"GATEWAY"');
+      }, 'GATEWAY' as 'gateway');
+    });
+
+    it('is refused with a placeholder CONDUIT_S2S_SECRET', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      process.env.CONDUIT_S2S_SECRET = 'changeme';
+      await expectRefusal((text) => {
+        expect(text).toContain('known placeholder');
+        expect(text).toContain('remove');
+      });
+    });
+
+    it('is refused with an unresolved template secret and does not log it', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      process.env.CONDUIT_S2S_SECRET = PLACEHOLDER;
+      await expectRefusal((text) => {
+        expect(text).toContain('known placeholder');
+        expect(text).not.toContain(PLACEHOLDER);
+      });
+    });
+
+    it('is refused together with MCP_ALLOW_INSECURE_DEV=1', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+      process.env.MCP_ALLOW_INSECURE_DEV = '1';
+      process.env.MCP_HTTP_HOST = '0.0.0.0';
+      await expectRefusal((text) => {
+        expect(text).toContain('are both set');
+      });
+    });
+
+    it('is ignored unless set to exactly 1', async () => {
+      process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = 'true';
+      await expectRefusal((text) => {
+        expect(text).toContain('Refusing to start HTTP transport');
+        expect(text).toContain('CONDUIT_S2S_SECRET is empty');
+      });
+    });
+  });
+
   it('honors a non-loopback MCP_HTTP_HOST when CONDUIT_S2S_SECRET is set', async () => {
     process.env.CONDUIT_S2S_SECRET = S2S_SECRET;
     process.env.MCP_HTTP_HOST = '0.0.0.0';
@@ -317,6 +433,75 @@ describe('HTTP /mcp authentication', () => {
       assertNoSecrets(logs.text());
     } finally {
       logs.restore();
+      await server.close();
+    }
+  });
+
+  it('keeps enforcing a usable secret when MCP_ALLOW_UNAUTHENTICATED_HTTP=1 is also set', async () => {
+    process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+    const logs = captureStderr();
+    let close: (() => Promise<void>) | undefined;
+    try {
+      const server = await listen('127.0.0.1', 'env');
+      close = server.close;
+      const unsigned = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        method: 'POST',
+        headers: mcpHeaders(),
+        body: toolsList,
+      });
+      expect(unsigned.status).toBe(401);
+      expect(await unsigned.text()).toContain('X-Gateway-S2S');
+      const signed = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        method: 'POST',
+        headers: mcpHeaders({ 'x-gateway-s2s': mintS2sHeader(S2S_SECRET) }),
+        body: toolsList,
+      });
+      expect(signed.status).toBe(200);
+      const text = logs.text();
+      expect(text).toContain('is ignored because CONDUIT_S2S_SECRET is configured');
+      expect(text).not.toContain('SECURITY WARNING');
+      assertNoSecrets(text);
+    } finally {
+      logs.restore();
+      await close?.();
+    }
+  });
+
+  it('serves unsigned server-to-server requests when MCP_ALLOW_UNAUTHENTICATED_HTTP=1 in env mode', async () => {
+    delete process.env.CONDUIT_S2S_SECRET;
+    process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+    const server = await listen('127.0.0.1', 'env');
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        method: 'POST',
+        headers: mcpHeaders(),
+        body: toolsList,
+      });
+      expect(response.status).toBe(200);
+      const body = await mcpBody(response);
+      const tools = (body as { result?: { tools?: unknown[] } }).result?.tools;
+      expect(Array.isArray(tools)).toBe(true);
+      expect((tools ?? []).length).toBeGreaterThan(0);
+    } finally {
+      await server.close();
+    }
+  });
+
+  it('rejects browser requests with an Origin header when MCP_ALLOW_UNAUTHENTICATED_HTTP=1', async () => {
+    delete process.env.CONDUIT_S2S_SECRET;
+    process.env.MCP_ALLOW_UNAUTHENTICATED_HTTP = '1';
+    const server = await listen('127.0.0.1', 'env');
+    try {
+      const response = await fetch(`http://127.0.0.1:${server.port}/mcp`, {
+        method: 'POST',
+        headers: mcpHeaders({ origin: 'https://attacker.example' }),
+        body: toolsList,
+      });
+      expect(response.status).toBe(403);
+      const text = await response.text();
+      expect(text).toContain('browser requests are not accepted');
+      expect(text).not.toContain('tools');
+    } finally {
       await server.close();
     }
   });

@@ -96,6 +96,37 @@ describe('verifyS2sHeader', () => {
     })).toEqual({ host: '10.1.2.3', overriddenHost: undefined });
   });
 
+  it('binds only an explicit MCP_HTTP_HOST in unauthenticated HTTP mode', () => {
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '0.0.0.0',
+      explicitHost: '10.1.2.3',
+      allowUnauthenticatedHttp: true,
+    })).toEqual({ host: '10.1.2.3', overriddenHost: undefined });
+
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '0.0.0.0',
+      explicitHost: undefined,
+      allowUnauthenticatedHttp: true,
+    })).toEqual({ host: '127.0.0.1', overriddenHost: undefined });
+
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '0.0.0.0',
+      explicitHost: '   ',
+      allowUnauthenticatedHttp: true,
+    })).toEqual({ host: '127.0.0.1', overriddenHost: undefined });
+
+    // Without the flag, an empty secret still forces loopback.
+    expect(resolveHttpListenHost({
+      s2sSecret: '',
+      configuredHost: '0.0.0.0',
+      explicitHost: '10.1.2.3',
+      allowUnauthenticatedHttp: false,
+    })).toEqual({ host: '127.0.0.1', overriddenHost: '10.1.2.3' });
+  });
+
   it('rejects a tampered signature', () => {
     const header = mintHeader(ownSubkey, NOW);
     const tampered = header.slice(0, -1) + (header.endsWith('0') ? '1' : '0');
