@@ -16,6 +16,13 @@ export interface McpServerConfig {
      * the entity's read-only `impersonatorCreatorResourceID` field.
      */
     impersonationResourceId?: number;
+    /**
+     * Verified email of the acting Conduit user, from the S2S-authenticated
+     * X-Conduit-Acting-User-Email header. Used only when
+     * impersonationResourceId is unset: writes impersonate the single active
+     * Autotask resource with this email, else run as the API user.
+     */
+    actingUserEmail?: string;
   };
 }
 

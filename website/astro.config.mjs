@@ -36,6 +36,7 @@ export default defineConfig({
 						{ label: 'Tools', slug: 'reference/tools' },
 						{ label: 'Resources', slug: 'reference/resources' },
 						{ label: 'Transports', slug: 'reference/transports' },
+						{ label: 'Impersonation', slug: 'reference/impersonation' },
 					],
 				},
 			],
