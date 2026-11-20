@@ -108,6 +108,19 @@ function classifyPriceBasis(price: number, units: number, catalogRate: number | 
   return 'assumed-extended';
 }
 
+/**
+ * Guard an id that is interpolated into a URL path, so a string like
+ * "5/../Resources" or 1.5 can't reach the request. `allowZero` is for
+ * companyID, where 0 is the root company (WYREAI-373).
+ */
+function assertPathId(name: string, value: unknown, allowZero = false): number {
+  const n = typeof value === 'number' || (typeof value === 'string' && value.trim() !== '') ? Number(value) : NaN;
+  if (!Number.isInteger(n) || n < (allowZero ? 0 : 1)) {
+    throw new Error(`${name} is required and must be a ${allowZero ? 'non-negative' : 'positive'} integer`);
+  }
+  return n;
+}
+
 function pushEq(filters: QueryFilter[], field: string, value: unknown): void {
   if (value !== undefined) {
     filters.push({ op: 'eq', field, value });
@@ -371,7 +384,13 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating contact:', contact);
-      const id = await http.create('Contacts', contact);
+      // companyID 0 is the root company (WYREAI-373), so test for absence only.
+      const companyID = assertPathId('companyID', contact.companyID, true);
+      // Contacts are a child of Companies: Autotask documents creating them
+      // via POST /Companies/{companyID}/Contacts. The top-level POST /Contacts
+      // returns an HTML 404 on some zones (WYREAI-1579). No 404 fallback: on a
+      // write, 404 can also mean the company doesn't exist.
+      const id = await http.childCreate('Companies', companyID, 'Contacts', contact);
       this.logger.info(`Contact created with ID: ${id}`);
       return id;
     } catch (error) {
@@ -1685,12 +1704,11 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Updating task ${id}:`, updates);
-      if (!updates.projectID) {
-        throw new Error('projectID is required to update a task');
-      }
+      const taskId = assertPathId('taskId', id);
+      const projectID = assertPathId('projectID', updates.projectID);
       // Update via PATCH on the collection endpoint: /Projects/{projectID}/Tasks
       // with the task ID in the body.
-      await http.childUpdate('Projects', updates.projectID, 'Tasks', id, updates as Record<string, any>);
+      await http.childUpdate('Projects', projectID, 'Tasks', taskId, updates as Record<string, any>);
       this.logger.info(`Task ${id} updated successfully`);
     } catch (error) {
       this.logger.error(`Failed to update task ${id}:`, error);

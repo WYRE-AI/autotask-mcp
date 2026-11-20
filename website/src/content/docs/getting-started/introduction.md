@@ -18,7 +18,7 @@ The MCP server acts as a bridge between your AI assistant and the Autotask REST 
 
 ## Key Features
 
-- **39 tools** covering companies, contacts, tickets, projects, time entries, notes, attachments, and financial data
+- **111 tools** covering companies, contacts, tickets, projects, time entries, notes, attachments, and financial data
 - **Automatic ID-to-name mapping** — results include human-readable company and resource names
 - **Compact response format** — search results are optimized for AI context windows
 - **Pagination support** — handle large result sets efficiently

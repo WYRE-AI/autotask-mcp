@@ -712,6 +712,10 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         subIssueType: {
           type: 'number',
           description: 'Sub issue type ID (picklist). Must be valid for the selected issueType. Use autotask_get_field_info (entityType "Tickets", fieldName "subIssueType") to discover valid values.'
+        },
+        serviceLevelAgreementID: {
+          type: ['number', 'null'],
+          description: 'Service Level Agreement (SLA) ID for the ticket. Pass null to clear the SLA: Autotask recalculates dueDateTime from the SLA, so a dueDateTime change springs back unless the SLA is cleared first (clear it in one call, then set dueDateTime in the next).'
         }
       },
       required: ['ticketId']
@@ -2637,9 +2641,21 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           type: 'number',
           description: 'Task status (1=New, 2=In Progress, 5=Complete)'
         },
+        phaseID: {
+          type: 'number',
+          description: 'Phase ID to place the task in (see autotask_list_phases). Omit to create the task at the project root.'
+        },
         assignedResourceID: {
           type: 'number',
-          description: 'Assigned resource ID'
+          description: 'Assigned resource ID. Autotask also requires that resource\'s role: pass assignedResourceRoleID or assignedResourceRoleName, or omit both and the resource\'s only active role is used (several roles = an error naming them).'
+        },
+        assignedResourceRoleID: {
+          type: 'number',
+          description: 'Role ID for the assigned resource — one of that resource\'s roles (see autotask_search_resource_roles). Resolved automatically when omitted.'
+        },
+        assignedResourceRoleName: {
+          type: 'string',
+          description: 'Name of the assigned resource\'s role, e.g. "Engineer", used instead of assignedResourceRoleID when the resource holds several roles.'
         },
         estimatedHours: {
           type: 'number',
@@ -2659,6 +2675,68 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         }
       },
       required: ['projectID', 'title', 'status']
+    }
+  },
+  {
+    name: 'autotask_update_task',
+    description: 'Update a project task. Only provided fields are changed.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        taskId: {
+          type: 'number',
+          description: 'The ID of the task to update'
+        },
+        projectID: {
+          type: 'number',
+          description: 'Project the task belongs to. Optional: looked up from the task when omitted.'
+        },
+        title: {
+          type: 'string',
+          description: 'Task title'
+        },
+        description: {
+          type: 'string',
+          description: 'Task description'
+        },
+        status: {
+          type: 'number',
+          description: 'Task status (1=New, 2=In Progress, 5=Complete)'
+        },
+        priority: {
+          type: 'number',
+          description: 'Task priority ID (picklist)'
+        },
+        phaseID: {
+          type: 'number',
+          description: 'Phase ID to move the task to (see autotask_list_phases)'
+        },
+        assignedResourceID: {
+          type: 'number',
+          description: 'Assigned resource ID. Autotask also requires that resource\'s role: pass assignedResourceRoleID or assignedResourceRoleName, or omit both and the resource\'s only active role is used (several roles = an error naming them).'
+        },
+        assignedResourceRoleID: {
+          type: 'number',
+          description: 'Role ID for the assigned resource — one of that resource\'s roles (see autotask_search_resource_roles). Resolved automatically when omitted.'
+        },
+        assignedResourceRoleName: {
+          type: 'string',
+          description: 'Name of the assigned resource\'s role, used instead of assignedResourceRoleID when the resource holds several roles.'
+        },
+        estimatedHours: {
+          type: 'number',
+          description: 'Estimated hours for the task'
+        },
+        startDateTime: {
+          type: 'string',
+          description: 'Task start date/time (ISO format)'
+        },
+        endDateTime: {
+          type: 'string',
+          description: 'Task end date/time (ISO format)'
+        }
+      },
+      required: ['taskId']
     }
   },
 
@@ -3438,7 +3516,7 @@ export const TOOL_CATEGORIES: Record<string, { description: string; tools: strin
   },
   projects: {
     description: 'Search and create projects, tasks, phases, and project notes',
-    tools: ['autotask_search_projects', 'autotask_create_project', 'autotask_search_tasks', 'autotask_create_task', 'autotask_list_phases', 'autotask_create_phase', 'autotask_get_project_note', 'autotask_search_project_notes', 'autotask_create_project_note']
+    tools: ['autotask_search_projects', 'autotask_create_project', 'autotask_search_tasks', 'autotask_create_task', 'autotask_update_task', 'autotask_list_phases', 'autotask_create_phase', 'autotask_get_project_note', 'autotask_search_project_notes', 'autotask_create_project_note']
   },
   time_and_billing: {
     description: 'Time entries, billing items, and expense management',

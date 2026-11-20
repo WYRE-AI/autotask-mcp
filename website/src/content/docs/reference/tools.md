@@ -1,9 +1,9 @@
 ---
 title: Tools Reference
-description: Complete reference for all 39 MCP tools available in the Autotask MCP Server.
+description: Complete reference for all 111 MCP tools available in the Autotask MCP Server.
 ---
 
-The Autotask MCP Server exposes 39 tools organized by entity type.
+The Autotask MCP Server exposes 111 tools organized by entity type.
 
 ## Connection
 
@@ -112,7 +112,8 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `autotask_search_tasks` | Search project tasks | `projectID`, `assignedResourceID` |
-| `autotask_create_task` | Create a project task | `title`, `projectID` (required), `assignedResourceID` |
+| `autotask_create_task` | Create a project task | `title`, `projectID` (required), `phaseID`, `assignedResourceID`, `assignedResourceRoleID` |
+| `autotask_update_task` | Update a project task | `taskId` (required), `status`, `assignedResourceID`, `assignedResourceRoleID`, `endDateTime`, `phaseID` |
 
 ## Picklist Discovery
 

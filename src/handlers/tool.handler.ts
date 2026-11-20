@@ -100,6 +100,43 @@ const OPPORTUNITY_WRITABLE_FIELDS = [
   'userDefinedFields'
 ] as const;
 
+// Fields accepted by autotask_update_task. Keep in sync with the tool definition.
+const TASK_WRITABLE_FIELDS = [
+  'title',
+  'description',
+  'status',
+  'priority',
+  'phaseID',
+  'assignedResourceID',
+  'assignedResourceRoleID',
+  'estimatedHours',
+  'startDateTime',
+  'endDateTime'
+] as const;
+
+/** Id arguments that end up in a URL path; a missing one becomes "undefined". */
+const REQUIRED_ID_KEYS = ['ticketId', 'ticketID', 'taskId'] as const;
+
+/**
+ * Fail fast on a missing/invalid id the tool's schema requires. Without this
+ * the id flows into the URL as "undefined" (PATCH /Tickets with no id,
+ * /Tickets/undefined/Notes) and Autotask answers with a misleading
+ * permissions-style 500 (WYREAI-1579).
+ */
+function assertRequiredIds(toolName: string, args: Record<string, any>): void {
+  const required = TOOL_DEFINITIONS.find(t => t.name === toolName)?.inputSchema.required;
+  for (const key of REQUIRED_ID_KEYS) {
+    if (!required?.includes(key)) continue;
+    const id = args[key];
+    const isValid =
+      (typeof id === 'number' && Number.isInteger(id) && id > 0) ||
+      (typeof id === 'string' && /^\d+$/.test(id) && Number(id) > 0);
+    if (!isValid) {
+      throw new Error(`${key} is required and must be a positive integer (got ${JSON.stringify(id)}).`);
+    }
+  }
+}
+
 function buildTicketPayload(args: Record<string, any>): Record<string, any> {
   const payload: Record<string, any> = {};
   for (const field of TICKET_WRITABLE_FIELDS) {
@@ -917,6 +954,17 @@ export class AutotaskToolHandler {
     return parent as { assignedResourceID?: number | null; assignedResourceRoleID?: number | null };
   }
 
+  private async loadTaskProjectID(taskId: number): Promise<number> {
+    const task = await this.autotaskService.getTask(taskId);
+    if (task === null) {
+      throw new Error(`No Task found matching "${taskId}"`);
+    }
+    if (typeof task.projectID !== 'number') {
+      throw new Error(`Task ${taskId} has no projectID; pass projectID explicitly.`);
+    }
+    return task.projectID;
+  }
+
   /**
    * The roleID for a ticket/task time entry when the caller named none.
    *
@@ -940,6 +988,9 @@ export class AutotaskToolHandler {
    * the caller's role name) so a caller need not know role ids.
    */
   private async fillAssignedResourceRole(payload: Record<string, any>, roleName?: string): Promise<void> {
+    if (roleName && payload.assignedResourceID == null) {
+      throw new Error('assignedResourceRoleName requires assignedResourceID.');
+    }
     if (payload.assignedResourceID == null || payload.assignedResourceRoleID != null) {
       return;
     }
@@ -1326,8 +1377,24 @@ export class AutotaskToolHandler {
         const r = await s.searchTasks(a); return { result: r, message: `Found ${r.length} tasks` };
       }],
       ['autotask_create_task', async (a) => {
-        const taskData = { ...a, taskType: a.taskType ?? 1 };
+        const { assignedResourceRoleName, ...rest } = a;
+        const taskData = { ...rest, taskType: a.taskType ?? 1 };
+        await this.fillAssignedResourceRole(taskData, assignedResourceRoleName);
         const id = await s.createTask(taskData); return { result: id, message: `Successfully created task with ID: ${id}` };
+      }],
+      ['autotask_update_task', async (a) => {
+        const payload: Record<string, any> = {};
+        for (const field of TASK_WRITABLE_FIELDS) {
+          if (a[field] !== undefined) payload[field] = a[field];
+        }
+        await this.fillAssignedResourceRole(payload, a.assignedResourceRoleName);
+        if (Object.keys(payload).length === 0) {
+          throw new Error('autotask_update_task: no updatable fields provided.');
+        }
+        // Tasks update through their parent project; look it up when not given.
+        const projectID = a.projectID ?? (await this.loadTaskProjectID(a.taskId));
+        await s.updateTask(a.taskId, { ...payload, projectID });
+        return { result: a.taskId, message: `Successfully updated task ${a.taskId}` };
       }],
 
       // Phases
@@ -1731,6 +1798,7 @@ export class AutotaskToolHandler {
         if (!handler) throw new Error(`Unknown tool: ${toolName}`);
         // Prevent recursive meta-tool calls
         if (toolName === 'autotask_execute_tool') throw new Error('Cannot recursively execute autotask_execute_tool');
+        assertRequiredIds(toolName, toolArgs);
         return handler(toolArgs);
       }],
 
@@ -1795,6 +1863,7 @@ export class AutotaskToolHandler {
     try {
       const handler = this.getDispatchTable().get(name);
       if (!handler) throw new Error(`Unknown tool: ${name}`);
+      assertRequiredIds(name, args);
 
       const { result, message } = await handler(args);
 
