@@ -494,7 +494,8 @@ The server provides 101 tools for interacting with Autotask:
 
 #### Task Operations
 - `autotask_search_tasks` - Search project tasks
-- `autotask_create_task` - Create project task
+- `autotask_create_task` - Create project task (optionally in a phase, with an assigned resource and role)
+- `autotask_update_task` - Update a project task (status, assignment and role, dates, phase)
 
 #### Utility Operations
 - `autotask_test_connection` - Test API connectivity

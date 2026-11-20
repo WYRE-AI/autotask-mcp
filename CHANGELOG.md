@@ -18,6 +18,17 @@
 
 ### Added
 
+- **`autotask_create_task` takes `phaseID` and an assigned resource role** ([WYREAI-576](https://linear.app/wyre-ai/issue/WYREAI-576)). `phaseID` places the task in a phase instead of the project root. `assignedResourceRoleID` or `assignedResourceRoleName` set the role Autotask requires alongside `assignedResourceID`; when both are omitted the resource's only active role is used (the same resolution as `autotask_create_ticket`).
+- **New `autotask_update_task`** ([WYREAI-576](https://linear.app/wyre-ai/issue/WYREAI-576)). Updates a project task's status, title, description, priority, phase, assignment and role, estimated hours, and start/end dates. The parent project is looked up from the task unless `projectID` is passed.
+- **`autotask_update_ticket` accepts `serviceLevelAgreementID`** ([WYREAI-576](https://linear.app/wyre-ai/issue/WYREAI-576)). Pass `null` to clear the SLA, which is needed before a `dueDateTime` change will stick.
+
+### Fixed
+
+- **`autotask_create_contact` returned an HTML 404 on some zones** ([WYREAI-1579](https://linear.app/wyre-ai/issue/WYREAI-1579)). It posted to the top-level `/Contacts`. It now creates through the documented child route `POST /Companies/{companyID}/Contacts`, like `autotask_update_contact`'s fallback. `companyID` 0 (the root company) is valid.
+- **Ticket tools sent `undefined` when `ticketId` was missing** ([WYREAI-1579](https://linear.app/wyre-ai/issue/WYREAI-1579)). `autotask_update_ticket` sent `PATCH /Tickets` with no id, and note, attachment and checklist tools requested `/Tickets/undefined/...`. Autotask answered with a permissions-style 500 that hid the cause. Every tool whose schema requires `ticketId` now returns "ticketId is required and must be a positive integer" before any request, including through `autotask_execute_tool`.
+
+### Added
+
 - **Per-connection opt-in to acting-user impersonation** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). In gateway mode, `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) turns on acting-user impersonation for that request's connection, alongside the global `AUTOTASK_IMPERSONATE_ACTING_USER`. Conduit sets it from the Autotask connection's stored setting. Like `X-Conduit-Acting-User-Email`, it is honored only after `X-Gateway-S2S` verifies. Without it (and without the env flag) writes run as the API user. The permission-500 retry as the API user still applies.
 
 ### Added

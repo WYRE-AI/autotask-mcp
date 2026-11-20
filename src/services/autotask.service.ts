@@ -371,7 +371,15 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating contact:', contact);
-      const id = await http.create('Contacts', contact);
+      // companyID 0 is the root company (WYREAI-373), so test for absence only.
+      if (contact.companyID === undefined || contact.companyID === null) {
+        throw new Error('companyID is required to create a contact');
+      }
+      // Contacts are a child of Companies: Autotask documents creating them
+      // via POST /Companies/{companyID}/Contacts. The top-level POST /Contacts
+      // returns an HTML 404 on some zones (WYREAI-1579). No 404 fallback: on a
+      // write, 404 can also mean the company doesn't exist.
+      const id = await http.childCreate('Companies', contact.companyID, 'Contacts', contact);
       this.logger.info(`Contact created with ID: ${id}`);
       return id;
     } catch (error) {
