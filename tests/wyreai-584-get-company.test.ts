@@ -116,6 +116,16 @@ describe('WYREAI-584 autotask_get_company', () => {
     expect(body.data.picklistLabels).toBeUndefined();
   });
 
+  it('logs a best-effort warning with the HTTP status and does not return isError when the lookup fails', async () => {
+    const err = Object.assign(new Error('Autotask GET failed'), { status: 503 });
+    const { handler } = setup(COMPANY, err);
+    const warn = jest.spyOn((handler as any).logger, 'warn').mockImplementation(() => undefined);
+    const result = await handler.callTool('autotask_get_company', { companyID: 77 });
+    expect(result.isError).toBeFalsy();
+    expect(parse(result).data.id).toBe(77);
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('HTTP 503'));
+  });
+
   it('still succeeds when field info is empty', async () => {
     const { handler } = setup(COMPANY, []);
     const body = parse(await handler.callTool('autotask_get_company', { companyID: 77 }));

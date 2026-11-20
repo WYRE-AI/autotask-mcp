@@ -22,9 +22,23 @@ export function withTimeout(signal: AbortSignal, ms: number): AbortSignal {
   const any = (AbortSignal as unknown as { any?: (s: AbortSignal[]) => AbortSignal }).any;
   if (typeof any === 'function') return any.call(AbortSignal, [signal, timeout]);
   const linked = new AbortController();
-  const abort = (src: AbortSignal) => () => linked.abort(src.reason);
-  if (signal.aborted) linked.abort(signal.reason);
-  signal.addEventListener('abort', abort(signal), { once: true });
-  timeout.addEventListener('abort', abort(timeout), { once: true });
+  if (signal.aborted) {
+    linked.abort(signal.reason);
+    return linked.signal;
+  }
+  const onCaller = (): void => {
+    cleanup();
+    linked.abort(signal.reason);
+  };
+  const onTimeout = (): void => {
+    cleanup();
+    linked.abort(timeout.reason);
+  };
+  const cleanup = (): void => {
+    signal.removeEventListener('abort', onCaller);
+    timeout.removeEventListener('abort', onTimeout);
+  };
+  signal.addEventListener('abort', onCaller, { once: true });
+  timeout.addEventListener('abort', onTimeout, { once: true });
   return linked.signal;
 }

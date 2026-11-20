@@ -255,6 +255,9 @@ function abortError(method: string, path: string): Error {
 export { isAbortError };
 
 async function acquireTenantSlot(key: string, signal?: AbortSignal, onAbort?: () => Error): Promise<() => void> {
+  // Already cancelled (e.g. aborted while suspended on impersonation lookup):
+  // never take or queue a slot.
+  if (signal?.aborted) throw onAbort ? onAbort() : new Error('aborted');
   const sem = semaphoreFor(key);
   let released = false;
   const release = (): void => {

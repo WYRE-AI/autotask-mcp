@@ -132,10 +132,12 @@ export class PicklistCache {
       this.logger.debug(`Loaded ${fields.length} fields for ${entityType}`);
       return fields;
     } catch (error) {
-      // An abort is not a vendor failure: never turn it into a cached [].
-      if (error instanceof Error && error.name === 'AbortError') throw error;
-      this.logger.error(`Failed to load field info for ${entityType}:`, error);
-      return [];
+      // Rethrow every failure (abort or vendor) so getFields never caches an
+      // empty result; the next call retries. Callers decide how to degrade.
+      if (!(error instanceof Error && error.name === 'AbortError')) {
+        this.logger.error(`Failed to load field info for ${entityType}:`, error);
+      }
+      throw error;
     }
   }
 }

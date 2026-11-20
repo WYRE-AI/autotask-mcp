@@ -276,7 +276,13 @@ export class AutotaskToolHandler {
         if (match?.label) labels[field.name] = match.label;
       }
     } catch (error) {
-      this.logger.debug('Company picklist label lookup failed:', error);
+      const status = (error as { status?: number } | null)?.status;
+      const detail = error instanceof Error ? error.message : String(error);
+      // Best-effort enrichment: warn (with HTTP status when known) and still
+      // return the raw record; never surface this as an isError result.
+      this.logger.warn(
+        `Company picklist label lookup failed${status !== undefined ? ` (HTTP ${status})` : ''}: ${detail}`
+      );
     } finally {
       if (timer) clearTimeout(timer);
     }

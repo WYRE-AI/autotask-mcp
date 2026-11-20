@@ -143,6 +143,26 @@ describe('abortable requests', () => {
   });
 });
 
+describe('abort while suspended before slot acquisition', () => {
+  it('does not take a tenant slot when aborted during impersonation lookup', async () => {
+    const fetchMock = jest.fn(async () => jsonResponse(200, { fields: [] }));
+    global.fetch = fetchMock as any;
+    const client = makeClient();
+    const controller = new AbortController();
+    jest.spyOn(client as any, 'impersonationFor').mockImplementation(async () => {
+      controller.abort();
+      return undefined;
+    });
+    const err = await client.fieldInfo('Companies', { signal: controller.signal }).then(() => null, (e) => e);
+    expect(isAbortError(err)).toBe(true);
+    expect(fetchMock).not.toHaveBeenCalled();
+
+    // The slot (max in flight = 1) was never taken, so a fresh call proceeds.
+    (client as any).impersonationFor.mockRestore();
+    await expect(makeClient().fieldInfo('Companies')).resolves.toBeDefined();
+  });
+});
+
 describe('abortable zone resolution', () => {
   const ZONE_LOOKUP = 'zoneInformation';
   const zoneOk = () => ({

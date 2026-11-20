@@ -62,11 +62,25 @@ describe('PicklistCache signalled loads', () => {
     expect(fn.mock.calls[0]?.[1]).toBeUndefined();
   });
 
-  it('keeps swallowing non-abort failures as [] for signalled loads', async () => {
+  it('rethrows non-abort failures for signalled loads', async () => {
     const fn = jest.fn(async () => {
       throw new Error('boom');
     });
     const cache = new PicklistCache(logger as any, fn);
-    await expect(cache.getFields('Companies', { signal: new AbortController().signal })).resolves.toEqual([]);
+    await expect(cache.getFields('Companies', { signal: new AbortController().signal })).rejects.toThrow('boom');
+  });
+});
+
+describe('PicklistCache vendor failures', () => {
+  it('rethrows a vendor failure and does not cache an empty result', async () => {
+    const vendorErr = Object.assign(new Error('HTTP 500'), { status: 500 });
+    const fn = jest.fn(async (_e: string, _o?: { signal?: AbortSignal }) => {
+      if (fn.mock.calls.length === 1) throw vendorErr;
+      return FIELDS;
+    });
+    const cache = new PicklistCache(logger as any, fn);
+    await expect(cache.getFields('Companies')).rejects.toBe(vendorErr);
+    await expect(cache.getFields('Companies')).resolves.toEqual(FIELDS);
+    expect(fn).toHaveBeenCalledTimes(2);
   });
 });
