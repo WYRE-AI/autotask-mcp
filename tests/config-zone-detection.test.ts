@@ -1,6 +1,7 @@
 // Unit tests for Autotask zone auto-detection in config.ts
 
 import { resolveAutotaskApiUrl, _resetZoneUrlCache } from '../src/utils/config';
+import { isAbortError } from '../src/utils/abort';
 
 describe('resolveAutotaskApiUrl', () => {
   const logger = {
@@ -119,5 +120,50 @@ describe('resolveAutotaskApiUrl', () => {
       resolveAutotaskApiUrl('user@example.com', undefined, logger, fetchMock as any)
     ).rejects.toThrow(/network error: ECONNREFUSED/);
     expect(logger.error).toHaveBeenCalled();
+  });
+
+  describe('abort signal', () => {
+    const zoneResponse = {
+      ok: true,
+      status: 200,
+      json: async () => ({ zoneName: 'Z', url: 'https://webservices2.autotask.net/atservicesrest/' })
+    };
+
+    it('throws an AbortError without fetching when already aborted, and caches nothing', async () => {
+      const fetchMock = jest.fn().mockResolvedValue(zoneResponse);
+      const controller = new AbortController();
+      controller.abort();
+      const err = await resolveAutotaskApiUrl('user@example.com', undefined, logger, fetchMock as any, {
+        signal: controller.signal
+      }).then(() => null, (e) => e);
+      expect(isAbortError(err)).toBe(true);
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await resolveAutotaskApiUrl('user@example.com', undefined, logger, fetchMock as any);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('throws an AbortError mid-fetch without logging an error or writing the cache', async () => {
+      const controller = new AbortController();
+      const stalledFetch = jest.fn(
+        (_url: string, init?: RequestInit) =>
+          new Promise<Response>((_resolve, reject) => {
+            (init!.signal as AbortSignal).addEventListener('abort', () => reject(new Error('fetch aborted')), {
+              once: true
+            });
+          })
+      );
+      const pending = resolveAutotaskApiUrl('user@example.com', undefined, logger, stalledFetch as any, {
+        signal: controller.signal
+      }).then(() => null, (e) => e);
+      await new Promise((resolve) => setImmediate(resolve));
+      controller.abort();
+      expect(isAbortError(await pending)).toBe(true);
+      expect(logger.error).not.toHaveBeenCalled();
+
+      const fetchMock = jest.fn().mockResolvedValue(zoneResponse);
+      await resolveAutotaskApiUrl('user@example.com', undefined, logger, fetchMock as any);
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
   });
 });
