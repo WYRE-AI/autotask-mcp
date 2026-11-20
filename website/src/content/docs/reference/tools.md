@@ -1,9 +1,9 @@
 ---
 title: Tools Reference
-description: Complete reference for all 39 MCP tools available in the Autotask MCP Server.
+description: Complete reference for all 111 MCP tools available in the Autotask MCP Server.
 ---
 
-The Autotask MCP Server exposes 39 tools organized by entity type.
+The Autotask MCP Server exposes 111 tools organized by entity type.
 
 ## Connection
 

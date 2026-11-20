@@ -85,6 +85,19 @@ describe('autotask_create_task (WYREAI-576)', () => {
     expect(sent).not.toHaveProperty('assignedResourceRoleName');
   });
 
+  test('assignedResourceRoleName without assignedResourceID is an explicit error', async () => {
+    const { service, handler } = setup();
+    const create = jest.spyOn(service, 'createTask').mockResolvedValue(9);
+
+    const result = await handler.callTool('autotask_create_task', {
+      projectID: 5, title: 'T', status: 1, assignedResourceRoleName: 'Engineer',
+    });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('assignedResourceRoleName requires assignedResourceID');
+    expect(create).not.toHaveBeenCalled();
+  });
+
   test('does not resolve a role for an unassigned task', async () => {
     const { service, handler } = setup();
     const create = jest.spyOn(service, 'createTask').mockResolvedValue(9);
@@ -138,6 +151,46 @@ describe('autotask_update_task (WYREAI-576)', () => {
 
     expect(result.isError).toBe(true);
     expect(result.content[0].text).toContain('no updatable fields');
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test('without taskId errors before any request, directly and through autotask_execute_tool', async () => {
+    const { service, handler } = setup();
+    const get = jest.spyOn(service, 'getTask');
+    const update = jest.spyOn(service, 'updateTask').mockResolvedValue(undefined);
+
+    for (const call of [
+      () => handler.callTool('autotask_update_task', { projectID: 6, status: 2 }),
+      () => handler.callTool('autotask_update_task', { status: 2 }),
+      () => handler.callTool('autotask_execute_tool', { toolName: 'autotask_update_task', arguments: { projectID: 6, status: 2 } }),
+    ]) {
+      const result = await call();
+      expect(result.isError).toBe(true);
+      expect(result.content[0].text).toContain('taskId is required');
+    }
+    expect(get).not.toHaveBeenCalled();
+    expect(update).not.toHaveBeenCalled();
+  });
+
+  test('rejects a non-integer projectID before any request', async () => {
+    const fetchMock = jest.spyOn(global, 'fetch' as any);
+    const { handler } = setup();
+
+    const result = await handler.callTool('autotask_update_task', { taskId: 88, projectID: '5/../Resources', status: 2 });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('projectID is required');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  test('assignedResourceRoleName without assignedResourceID is an explicit error', async () => {
+    const { service, handler } = setup();
+    const update = jest.spyOn(service, 'updateTask').mockResolvedValue(undefined);
+
+    const result = await handler.callTool('autotask_update_task', { taskId: 88, assignedResourceRoleName: 'Engineer' });
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('assignedResourceRoleName requires assignedResourceID');
     expect(update).not.toHaveBeenCalled();
   });
 
@@ -211,6 +264,17 @@ describe('autotask_create_contact (WYREAI-1579)', () => {
   });
 });
 
+describe('createContact companyID hardening (WYREAI-1579)', () => {
+  test.each(['5/../Resources', 1.5, -1, 'abc', '', null])('rejects companyID %p without a request', async (bad) => {
+    const fetchMock = jest.spyOn(global, 'fetch' as any);
+    const { service } = setup();
+
+    await expect(service.createContact({ companyID: bad as any, firstName: 'J', lastName: 'D' }))
+      .rejects.toThrow('companyID is required and must be a non-negative integer');
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+});
+
 describe('ticketId validation (WYREAI-1579)', () => {
   test.each([
     ['autotask_update_ticket', { title: 'x' }],
@@ -262,5 +326,19 @@ describe('ticketId validation (WYREAI-1579)', () => {
     await handler.callTool('autotask_update_ticket', { ticketId: '11', title: 'x' });
 
     expect(update).toHaveBeenCalledTimes(2);
+  });
+
+  test.each([
+    ['autotask_get_ticket_details', {}],
+    ['autotask_create_ticket_charge', { chargeType: 'x' }],
+  ])('%s without ticketID errors before any request', async (name, args) => {
+    const fetchMock = jest.spyOn(global, 'fetch' as any);
+    const { handler } = setup();
+
+    const result = await handler.callTool(name, args);
+
+    expect(result.isError).toBe(true);
+    expect(result.content[0].text).toContain('ticketID is required');
+    expect(fetchMock).not.toHaveBeenCalled();
   });
 });
