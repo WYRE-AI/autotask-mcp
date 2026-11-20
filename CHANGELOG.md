@@ -1,6 +1,36 @@
 ## [Unreleased]
 
+### Documentation
+
+- **Impersonation docs** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). The README's acting-user section now has:
+  - a precedence table: explicit resource ID, then acting-user email (opt-in), then the API user;
+  - the permission-500 retry as the API user;
+  - a note on the v2.40.0 regression;
+  - `AUTOTASK_IMPERSONATE_ACTING_USER` in the environment-variable table.
+
+  The docs site has a new **Impersonation** reference page, and its configuration page lists the impersonation variables.
+
+### Impersonation release notes (v2.40.0 to v2.42.0)
+
+- **v2.40.0: regression, don't use.** Acting-user impersonation was on for every gateway request. Tenants whose API user can't impersonate got HTTP 500 "The logged in Resource does not have the adequate permissions to create this entity type." on every ticket note, with no fallback.
+- **v2.41.1: fix.** Acting-user impersonation is opt-in (`AUTOTASK_IMPERSONATE_ACTING_USER`), and that 500 retries once as the API user (#384).
+- **v2.42.0: per-connection opt-in.** `X-Autotask-Impersonate-Acting-User: on`, trusted only after `X-Gateway-S2S` verifies (#385).
+
+### Added
+
+- **Per-connection opt-in to acting-user impersonation** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). In gateway mode, `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) turns on acting-user impersonation for that request's connection, alongside the global `AUTOTASK_IMPERSONATE_ACTING_USER`. Conduit sets it from the Autotask connection's stored setting. Like `X-Conduit-Acting-User-Email`, it is honored only after `X-Gateway-S2S` verifies. Without it (and without the env flag) writes run as the API user. The permission-500 retry as the API user still applies.
+
+### Added
+
+- **Company classification in `autotask_search_companies`.** Compact company results now include `companyType` and `classification` (picklist IDs, resolvable with `autotask_get_field_info` for entity `Companies`), and a new optional `classification` argument filters by classification ID (including 0). Previously the compact format kept only id, name, active, phone, city and state, so classifications could not be read through the MCP.
+
+- **Acting-user impersonation by email.** In gateway mode, `X-Conduit-Acting-User-Email` (honored only after `X-Gateway-S2S` verifies, never on the Worker) makes writes impersonate the single active Autotask resource with that exact email. Notes, time entries and other writes are then attributed to the person instead of the API user. The lookup runs as the API user, only on writes, and is cached per tenant and email (15 min hits, 5 min misses, 1 min errors; raw emails are never stored). No match, an ambiguous match or an inactive match falls back to the API user. If Autotask refuses the impersonation, it is switched off for that user and operation for 6 hours. A 4xx refusal (403, or an impersonation-mentioning 4xx) retries the write once as the API user. A structured 500 that mentions impersonation is not retried, because a 500 may have been applied; the call fails with a hint, and the next attempt runs as the API user. Suppression is rechecked after waiting for an in-flight slot so queued writes fall back to the API user. An explicit `X-Impersonation-Resource-Id` still wins and stays strict.
+
 ### Fixed
+
+- **Ticket notes failed for tenants whose API user can't impersonate.** v2.40.0 turned acting-user impersonation on for every gateway request, so note creates carried `ImpersonationResourceId` for the signed-in user. Autotask answers that with HTTP 500 "The logged in Resource does not have the adequate permissions to create this entity type." when the API user's security level doesn't allow impersonation, and that 500 was neither retried nor suppressed, so every note failed. Acting-user impersonation is now opt-in with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (default off: writes run as the API user, as before v2.40.0). When it is on, that permission 500 is treated as a rejection and the write is retried once as the API user. An explicit `X-Impersonation-Resource-Id` is unchanged.
+
+- **`AUTOTASK_IMPERSONATION_RESOURCE_ID` was ignored in env mode** ([#364](https://github.com/WYRE-AI/autotask-mcp/issues/364)). `loadEnvironmentConfig()` parsed it, but `mergeWithMcpConfig()` rebuilt the Autotask config from username, secret, integration code and API URL only, so writes ran as the API user with no `ImpersonationResourceId` header and no warning. The value is now carried through (an explicit MCP arg still overrides it), the Cloudflare Worker reads it too, and env-mode Node HTTP (which requires `X-Gateway-S2S`) accepts a per-request `X-Impersonation-Resource-Id` that overrides it for that request only. The Cloudflare Worker has no S2S check on `/mcp`, so it ignores that header and uses only the env default. Invalid IDs from headers or env vars are logged as warnings. Gateway mode is unchanged: it uses only the request header and never an env default, because resource IDs are tenant-specific. Tests cover the merge, the per-request override, the no-bleed rule in gateway mode, and the header on ticket, project and company note creates.
 
 - **`autotask_get_ticket_details` showed the assistant only the title, status and priority** ([WYREAI-527](https://linear.app/wyre-ai/issue/WYREAI-527)). Since the MCP Apps ticket card shipped, the tool's text content was a one-line summary and the ticket itself sat only in `structuredContent`, which assistants such as Claude don't read. That happened whenever the card was attached, with or without the note-writing defaults, and regardless of `fullDetails`. The text now has a readable header (status, priority, queue, company, contact name, assignee, dates, linked configuration item, description, resolution, custom fields (UDFs) with values, and recent notes) followed by the full ticket record as JSON. Tickets that can't get a card (no title or ticket number) get the same text, with raw status/priority/queue IDs and their notes fetched separately. The contact and configuration item are looked up best-effort: a failed lookup falls back to the ID and logs a warning with the vendor HTTP status. A failed notes lookup is shown as "Recent notes: unavailable" with the HTTP status, never as "none", and is logged the same way. With `fullDetails: false`, non-empty UDFs are now kept, with each value capped at 200 characters (including the `... [truncated]` marker), instead of being blanked. The card and `structuredContent` are unchanged.
 

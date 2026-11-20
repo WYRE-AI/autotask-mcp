@@ -221,6 +221,8 @@ AUTOTASK_INTEGRATION_CODE=your-integration-code
 # unauthenticated zoneInformation endpoint on first connect. Only set this
 # explicitly to override auto-detection (e.g. for an on-prem proxy).
 # AUTOTASK_API_URL=https://webservices2.autotask.net/atservicesrest/
+# Attribute notes and other supported writes to this Autotask resource (env mode)
+# AUTOTASK_IMPERSONATION_RESOURCE_ID=29682886
 MCP_SERVER_NAME=autotask-mcp
 
 # Authentication mode
@@ -280,7 +282,61 @@ Every `/mcp` request must include a valid `X-Gateway-S2S` header and the three A
 | `X-API-Secret` | Autotask API secret key |
 | `X-Integration-Code` | Autotask integration code |
 | `X-API-URL` | (Optional) Custom Autotask API URL |
+| `X-Conduit-Acting-User-Email` | (Optional) Verified email of the Conduit user making the call. Honored only on Node HTTP with a usable `CONDUIT_S2S_SECRET` (so only after `X-Gateway-S2S` verifies), never on the Cloudflare Worker. Writes impersonate the single active Autotask resource with that exact email; see [Acting-user impersonation](#acting-user-impersonation). Ignored when `X-Impersonation-Resource-Id` is present. |
+| `X-Autotask-Impersonate-Acting-User` | (Optional) `on` (or `true`/`1`) opts this connection in to acting-user impersonation. Conduit sends it from the Autotask connection's "Post writes as the signed-in person" setting. Honored only after `X-Gateway-S2S` verifies. Absent or anything else means writes run as the API user (unless `AUTOTASK_IMPERSONATE_ACTING_USER` is set). |
 | `X-Impersonation-Resource-Id` | (Optional) Autotask resource ID to act on behalf of. Forwarded to Autotask as its `ImpersonationResourceId` header, so actions are attributed to that resource instead of the API user, and recorded in the entity's read-only `impersonatorCreatorResourceID` field. Must be a positive integer; anything else is ignored with a warning. The impersonated resource must itself have permission for the action, and the API user's security level must permit impersonation. |
+
+### Impersonation
+
+Autotask attributes writes to another resource when a request carries the [`ImpersonationResourceId` header](https://ww1.autotask.net/help/developerhelp/Content/APIs/REST/General_Topics/REST_Swagger_UI.htm). The server sends it on every Autotask call when a resource is set; Autotask applies it only to entities and actions that support impersonation and ignores it elsewhere. The supported list (see [Entities that support impersonation](https://autotask.net/help/developerhelp/content/apis/REST/Entities/_EntitiesOverview.htm)) includes the note entities this server writes (`TicketNote`, `ProjectNote`, `CompanyNote`), plus `TimeEntry`, `Ticket`, `Projects`, `Company`, `Contact`, `ServiceCall`, `Opportunity` and `Quote`. Autotask records the impersonated resource as the creator and fills the read-only `impersonatorCreatorResourceID`; setting that field in a body does nothing.
+
+Autotask's requirements:
+
+- The API-only user's security level must allow impersonation on the entity type.
+- The impersonated resource's security level must allow it to be impersonated ("Allow impersonation of resources with this security level").
+- Both must have permission to add or edit the entity.
+
+Where the resource ID comes from:
+
+| Mode | Source | Fallback |
+|------|--------|----------|
+| `AUTH_MODE=gateway` | `X-Impersonation-Resource-Id` on that request | None. Resource IDs are tenant-specific, so an env default is never applied to gateway requests. |
+| `AUTH_MODE=env`, HTTP | `X-Impersonation-Resource-Id` on that request | `AUTOTASK_IMPERSONATION_RESOURCE_ID` |
+| `AUTH_MODE=env`, Cloudflare Worker | `AUTOTASK_IMPERSONATION_RESOURCE_ID` only | None. The Worker route has no `X-Gateway-S2S` check, so a caller-supplied header is not honored there. |
+| `AUTH_MODE=env`, stdio | `AUTOTASK_IMPERSONATION_RESOURCE_ID` | None |
+
+A per-request value builds a fresh service for that request only, so it never carries over to another request. Values that aren't positive integers are ignored with a warning. If Autotask rejects an impersonated call, the error says which resource was being impersonated and the call is not retried as the API user.
+
+### Acting-user impersonation
+
+> **Default off. Note on v2.40.0:** v2.40.0 turned acting-user impersonation on for every gateway request. On tenants whose Autotask API user isn't allowed to impersonate, every ticket note then failed with HTTP 500 "The logged in Resource does not have the adequate permissions to create this entity type.", and that response wasn't retried. v2.41.1 made the feature opt-in and retries that 500 once as the API user, and v2.42.0 added the per-connection opt-in header. Don't run v2.40.0.
+
+**Ways to impersonate, from highest precedence:**
+
+| Source | Scope | Behavior on refusal |
+|---|---|---|
+| Explicit resource ID: `X-Impersonation-Resource-Id` header, or `AUTOTASK_IMPERSONATION_RESOURCE_ID` in env mode (see [Impersonation](#impersonation)) | Every call on that request or server | Strict: the call fails, and is never retried as the API user |
+| Acting-user email (`X-Conduit-Acting-User-Email`), when opted in with `X-Autotask-Impersonate-Acting-User: on` for the connection, or `AUTOTASK_IMPERSONATE_ACTING_USER=true` for every tenant | Writes only | Best-effort: falls back to the API user as described below |
+| Neither | | Every call runs as the API user (the default) |
+
+**Opt-in:** this is off unless the sidecar runs with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (or `1`) for every tenant, or the request carries `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) for that connection. Conduit sets that header from the Autotask connection's "Post writes as the signed-in person" setting. Both are honored only after `X-Gateway-S2S` verifies. When off, the email header is ignored and writes run as the tenant's API user.
+
+In gateway mode, Conduit sends the acting user's verified email in `X-Conduit-Acting-User-Email`, and the sidecar attributes that person's writes to their own Autotask resource:
+
+1. On the first write of a request (POST create, PATCH, PUT or DELETE; never a GET or a `/query` read), the sidecar queries active `Resources` by `email` with the tenant's own API credentials, as the API user.
+2. Exactly one **active** resource with that exact email (case-insensitive) is a match. The write carries `ImpersonationResourceId: <id>`.
+3. No match, more than one active match, or only inactive matches mean the write runs as the API user, as it did before.
+4. If Autotask refuses the impersonation, attribution for that user and operation (method and entity route) is switched off for 6 hours (`AUTOTASK_IMPERSONATION_REJECTED_TTL_MS`). Other operations keep impersonating. What happens to the refused write depends on the response:
+   - A 403, or another 4xx (except 429) that mentions impersonation: the write is retried once as the API user. A rejected 4xx request was not applied, so the retry can't double-write.
+   - A structured 500 saying the logged-in resource "does not have the adequate permissions to create this entity type": the write is retried once as the API user. This is Autotask's permission check, so nothing was written. It's what Autotask returns when the API user's security level doesn't allow impersonation (see the v2.40.0 note below).
+   - Any other 500 whose structured `errors` list mentions impersonation: the write is **not** retried, because Autotask doesn't guarantee that a 500 wasn't applied. The call fails with a hint, and the next attempt runs as the API user.
+   - Gateway 5xx responses and unstructured 500s are not treated as refusals at all.
+
+   Usually a refusal means the tenant hasn't enabled impersonation in the security levels (see [Impersonation](#impersonation)).
+
+Lookups are cached per tenant (API username) and email: matches for 15 minutes, misses for 5 minutes, lookup errors for 1 minute. You can tune this with `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` and `AUTOTASK_IMPERSONATION_MISS_TTL_MS`. Cache keys are SHA-256 hashes, so raw emails are never stored. Lookup outcomes are logged at debug level, without the email.
+
+Both headers (`X-Conduit-Acting-User-Email` and `X-Autotask-Impersonate-Acting-User`) are trusted only because Conduit is the only caller that can pass `X-Gateway-S2S`. Conduit sets the email from the user's verified login and the opt-in from the connection's stored setting, and strips any client-supplied copy. The sidecar ignores it on the Cloudflare Worker (no S2S check) and on an insecure-dev listener. An explicit `X-Impersonation-Resource-Id` always wins and keeps its strict behavior: it applies to every call, and a rejection fails the call.
 
 ### X-Gateway-S2S signing
 
@@ -680,6 +736,11 @@ npm test -- tests/autotask-service.test.ts
 | `AUTOTASK_SECRET` | ✅ | - | Autotask API secret key |
 | `AUTOTASK_INTEGRATION_CODE` | ✅ | - | Autotask integration code |
 | `AUTOTASK_API_URL` | ❌ | Auto-detected | Autotask API endpoint URL |
+| `AUTOTASK_IMPERSONATE_ACTING_USER` | ❌ | unset (off) | Gateway mode. `true` or `1` turns on [acting-user impersonation](#acting-user-impersonation) for **every** tenant. Leave it unset and opt in per connection with `X-Autotask-Impersonate-Acting-User: on`. |
+| `AUTOTASK_IMPERSONATION_CACHE_TTL_MS` | ❌ | `900000` | How long an acting-user email → resource match is cached (per tenant and email). |
+| `AUTOTASK_IMPERSONATION_MISS_TTL_MS` | ❌ | `300000` | How long a no-match, ambiguous or inactive lookup is cached. |
+| `AUTOTASK_IMPERSONATION_REJECTED_TTL_MS` | ❌ | `21600000` | How long acting-user impersonation stays off for a user and operation after Autotask refuses it. |
+| `AUTOTASK_IMPERSONATION_RESOURCE_ID` | ❌ | unset | Env mode only. Default Autotask resource ID to impersonate, sent as Autotask's `ImpersonationResourceId` header on every call so notes, time entries and other supported writes are attributed to that resource. Must be a positive integer; anything else is ignored with a warning. Over HTTP, a per-request `X-Impersonation-Resource-Id` header overrides it for that request only. Ignored in gateway mode, where each request supplies its own. See [Impersonation](#impersonation). |
 | `MCP_SERVER_NAME` | ❌ | `autotask-mcp` | MCP server name |
 | `MCP_TRANSPORT` | ❌ | `stdio` | Transport type (`stdio` or `http`) |
 | `MCP_HTTP_PORT` | ❌ | `8080` | HTTP transport port |

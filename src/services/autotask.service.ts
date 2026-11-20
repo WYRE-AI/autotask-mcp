@@ -163,7 +163,7 @@ export class AutotaskService {
    */
   async initialize(): Promise<void> {
     try {
-      const { username, secret, integrationCode, apiUrl, impersonationResourceId } = this.config.autotask;
+      const { username, secret, integrationCode, apiUrl, impersonationResourceId, actingUserEmail } = this.config.autotask;
 
       if (!username || !secret || !integrationCode) {
         throw new Error('Missing required Autotask credentials: username, secret, and integrationCode are required');
@@ -179,7 +179,8 @@ export class AutotaskService {
         integrationCode,
         apiUrl,
         this.logger,
-        impersonationResourceId
+        impersonationResourceId,
+        impersonationResourceId === undefined ? actingUserEmail : undefined
       );
       this.logger.info('Autotask HTTP client initialized successfully');
     } catch (error) {
@@ -234,6 +235,9 @@ export class AutotaskService {
       }
       if (options.isActive !== undefined) {
         filters.push({ op: 'eq', field: 'isActive', value: options.isActive });
+      }
+      if (options.classification !== undefined && options.classification !== null) {
+        filters.push({ op: 'eq', field: 'classification', value: options.classification });
       }
 
       const page = Math.max(1, options.page || 1);
@@ -3061,7 +3065,13 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating service call ticket:', data);
-      const id = await http.create('ServiceCallTickets', data);
+      // ServiceCallTickets is a child of ServiceCalls: Autotask only accepts creates
+      // on the parent route. The flat POST /ServiceCallTickets returns an IIS HTML 404.
+      const serviceCallID = data.serviceCallID;
+      if (typeof serviceCallID !== 'number') {
+        throw new Error('serviceCallID is required to link a ticket to a service call');
+      }
+      const id = await http.childCreate('ServiceCalls', serviceCallID, 'Tickets', data);
       this.logger.info(`Service call ticket created with ID: ${id}`);
       return id;
     } catch (error) {
@@ -3074,7 +3084,16 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Deleting service call ticket ${id}`);
-      await http.delete('ServiceCallTickets', id);
+      // Child entity: deletes go through DELETE /ServiceCalls/{serviceCallID}/Tickets/{id}.
+      const [row] = await http.query<AutotaskServiceCallTicket>(
+        'ServiceCallTickets',
+        [{ op: 'eq', field: 'id', value: id }],
+        { maxRecords: 1 }
+      );
+      if (!row || typeof row.serviceCallID !== 'number') {
+        throw new Error(`Service call ticket ${id} not found`);
+      }
+      await http.childDelete('ServiceCalls', row.serviceCallID, 'Tickets', id);
       this.logger.info(`Service call ticket ${id} deleted`);
     } catch (error) {
       this.logger.error(`Failed to delete service call ticket ${id}:`, error);
@@ -3113,7 +3132,13 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug('Creating service call ticket resource:', data);
-      const id = await http.create('ServiceCallTicketResources', data);
+      // ServiceCallTicketResources is a child of ServiceCallTickets:
+      // POST /ServiceCallTickets/{serviceCallTicketID}/Resources.
+      const serviceCallTicketID = data.serviceCallTicketID;
+      if (typeof serviceCallTicketID !== 'number') {
+        throw new Error('serviceCallTicketID is required to assign a resource to a service call ticket');
+      }
+      const id = await http.childCreate('ServiceCallTickets', serviceCallTicketID, 'Resources', data);
       this.logger.info(`Service call ticket resource created with ID: ${id}`);
       return id;
     } catch (error) {
@@ -3126,7 +3151,16 @@ export class AutotaskService {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Deleting service call ticket resource ${id}`);
-      await http.delete('ServiceCallTicketResources', id);
+      // Child entity: DELETE /ServiceCallTickets/{serviceCallTicketID}/Resources/{id}.
+      const [row] = await http.query<AutotaskServiceCallTicketResource>(
+        'ServiceCallTicketResources',
+        [{ op: 'eq', field: 'id', value: id }],
+        { maxRecords: 1 }
+      );
+      if (!row || typeof row.serviceCallTicketID !== 'number') {
+        throw new Error(`Service call ticket resource ${id} not found`);
+      }
+      await http.childDelete('ServiceCallTickets', row.serviceCallTicketID, 'Resources', id);
       this.logger.info(`Service call ticket resource ${id} deleted`);
     } catch (error) {
       this.logger.error(`Failed to delete service call ticket resource ${id}:`, error);
