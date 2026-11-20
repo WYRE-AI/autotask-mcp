@@ -451,7 +451,17 @@ export class AutotaskMcpServer {
     });
 
     this.httpServer = createServer((req: IncomingMessage, res: ServerResponse) => {
-      const url = new URL(req.url || '/', `http://${req.headers.host || 'localhost'}`);
+      // Only the path is used, so parse against a fixed base rather than the
+      // client-supplied Host header. A target that still cannot be parsed (e.g. "//")
+      // must answer 400, never throw out of the listener.
+      let url: URL;
+      try {
+        url = new URL(req.url || '/', 'http://localhost');
+      } catch {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: 'Bad request' }));
+        return;
+      }
 
       // CORS headers applied to every response so browser-based MCP clients
       // (e.g. claude.ai custom connectors) can reach the server. '*' is safe

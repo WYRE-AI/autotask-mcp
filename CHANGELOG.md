@@ -28,6 +28,12 @@
 
 ### Fixed
 
+- **The HTTP transport no longer exits on a malformed request (WYREAI-741).** The request
+  target was parsed against the client-supplied `Host` header, and a value that does not parse
+  (or a target such as `//`) threw inside the request listener before authentication. The
+  target is now parsed against a fixed base, so `Host` is no longer consulted, and a target
+  that still cannot be parsed gets a `400` JSON response while the server keeps running.
+
 - **Ticket notes failed for tenants whose API user can't impersonate.** v2.40.0 turned acting-user impersonation on for every gateway request, so note creates carried `ImpersonationResourceId` for the signed-in user. Autotask answers that with HTTP 500 "The logged in Resource does not have the adequate permissions to create this entity type." when the API user's security level doesn't allow impersonation, and that 500 was neither retried nor suppressed, so every note failed. Acting-user impersonation is now opt-in with `AUTOTASK_IMPERSONATE_ACTING_USER=true` (default off: writes run as the API user, as before v2.40.0). When it is on, that permission 500 is treated as a rejection and the write is retried once as the API user. An explicit `X-Impersonation-Resource-Id` is unchanged.
 
 - **`AUTOTASK_IMPERSONATION_RESOURCE_ID` was ignored in env mode** ([#364](https://github.com/WYRE-AI/autotask-mcp/issues/364)). `loadEnvironmentConfig()` parsed it, but `mergeWithMcpConfig()` rebuilt the Autotask config from username, secret, integration code and API URL only, so writes ran as the API user with no `ImpersonationResourceId` header and no warning. The value is now carried through (an explicit MCP arg still overrides it), the Cloudflare Worker reads it too, and env-mode Node HTTP (which requires `X-Gateway-S2S`) accepts a per-request `X-Impersonation-Resource-Id` that overrides it for that request only. The Cloudflare Worker has no S2S check on `/mcp`, so it ignores that header and uses only the env default. Invalid IDs from headers or env vars are logged as warnings. Gateway mode is unchanged: it uses only the request header and never an env default, because resource IDs are tenant-specific. Tests cover the merge, the per-request override, the no-bleed rule in gateway mode, and the header on ticket, project and company note creates.
