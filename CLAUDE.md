@@ -3,6 +3,17 @@
 Task management: Task Master (`task-master` CLI; config in `.taskmaster/`).
 Workflow defaults (commits, changelog, memory) come from the global `~/.claude/CLAUDE.md`.
 
+## Things agents get wrong here
+
+- **No top-level `anyOf` / `oneOf` / `allOf` in tool input schemas** (`src/handlers/tool.definitions.ts`). Anthropic's API rejects them. Express alternatives in the description or validate in the handler.
+- **Commit prefixes drive semantic-release** (`.releaserc.json`, `.github/workflows/release.yml`). `feat:` cuts a minor and `fix:` a patch; `docs:`, `chore:`, `test:`, `ci:` and `refactor:` do not release. Pick the prefix deliberately, and never hand-edit `CHANGELOG.md` or version fields.
+- **No customer names** in code, tests, fixtures, commits or PR text. Use neutral placeholders.
+- **New or renamed tools also need entries in the Conduit repo**: `src/proxy/result-cache.ts` and `tests/mcp/manifests/container-tools.json` (neither lives here). Say so in the PR body so the Conduit follow-up is not lost.
+- **Verify before reporting done.** Run all of these and paste the output; fix the code, not the tests:
+  - `npm run lint`
+  - `npm run build` (also runs as `pretest`)
+  - `npm run test:coverage` (or `npm test`)
+
 ## Learnings
 <!-- Record non-obvious discoveries as dated entries: "## Learnings - YYYY-MM-DD" -->
 
