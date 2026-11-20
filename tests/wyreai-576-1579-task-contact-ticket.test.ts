@@ -295,7 +295,7 @@ describe('ticketId validation (WYREAI-1579)', () => {
     expect(attachments).not.toHaveBeenCalled();
   });
 
-  test.each([0, -4, 1.5, 'abc', null, ''])('rejects ticketId %p', async (bad) => {
+  test.each([0, -4, 1.5, 'abc', null, '', true, [11], {}])('rejects ticketId %p', async (bad) => {
     const { service, handler } = setup();
     const update = jest.spyOn(service, 'updateTicket').mockResolvedValue(undefined);
 

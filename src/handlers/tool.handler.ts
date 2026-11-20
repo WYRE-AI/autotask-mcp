@@ -128,7 +128,10 @@ function assertRequiredIds(toolName: string, args: Record<string, any>): void {
   for (const key of REQUIRED_ID_KEYS) {
     if (!required?.includes(key)) continue;
     const id = args[key];
-    if (id === undefined || id === null || id === '' || !Number.isInteger(Number(id)) || Number(id) <= 0) {
+    const isValid =
+      (typeof id === 'number' && Number.isInteger(id) && id > 0) ||
+      (typeof id === 'string' && /^\d+$/.test(id) && Number(id) > 0);
+    if (!isValid) {
       throw new Error(`${key} is required and must be a positive integer (got ${JSON.stringify(id)}).`);
     }
   }
