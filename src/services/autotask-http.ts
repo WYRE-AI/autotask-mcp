@@ -158,14 +158,19 @@ const REQUEST_TIMEOUT_MS = 60_000;
 // re-tripping while still over.
 const DEFAULT_RETRY_AFTER_SECONDS = 60;
 
-function parseRetryAfter(headerValue: string | null): number {
+/**
+ * Whole seconds to wait, never less than 1: `Retry-After: 0` or an HTTP-date
+ * in the past gives 1, so `retryAfterSeconds`, the "Try again in N s."
+ * message and the cooldown deadline all carry the same N.
+ */
+export function parseRetryAfter(headerValue: string | null): number {
   if (!headerValue) return DEFAULT_RETRY_AFTER_SECONDS;
   // RFC 7231: either an integer count of seconds, or an HTTP-date.
   const asInt = Number.parseInt(headerValue, 10);
-  if (Number.isFinite(asInt) && asInt >= 0) return asInt;
+  if (Number.isFinite(asInt) && asInt >= 0) return Math.max(1, asInt);
   const asDate = Date.parse(headerValue);
   if (Number.isFinite(asDate)) {
-    return Math.max(0, Math.ceil((asDate - Date.now()) / 1000));
+    return Math.max(1, Math.ceil((asDate - Date.now()) / 1000));
   }
   return DEFAULT_RETRY_AFTER_SECONDS;
 }
@@ -185,7 +190,14 @@ function parseRetryAfter(headerValue: string | null): number {
  * the zone cache): in gateway mode client instances are per-request, so an
  * instance-level gate would never trip across calls.
  */
-const rateLimitCooldowns = new Map<string, number>();
+const rateLimitCooldowns = new Map<string, Cooldown>();
+
+interface Cooldown {
+  /** When the local gate opens again (Retry-After capped at MAX_COOLDOWN_MS). */
+  gateUntil: number;
+  /** When Autotask said to try again (uncapped Retry-After), reported to callers. */
+  retryAt: number;
+}
 
 /** Cap a bad/hostile Retry-After header so it can't lock a tenant out for long. */
 const MAX_COOLDOWN_MS = 5 * 60 * 1000;
@@ -432,20 +444,23 @@ function threadLimitError(detail: string, retriesUsed: number): AutotaskRateLimi
       : 'Create/update calls are not retried automatically.';
   return new AutotaskRateLimitError(
     `Autotask concurrent thread threshold exceeded (HTTP 429). This call was rejected before Autotask processed it, so it was NOT applied. ${retryNote} ` +
-      `Do not fan out parallel calls; in-flight requests are already capped per tenant. Detail: ${detail}`,
+      `Try again in 1 s. Do not fan out parallel calls; in-flight requests are already capped per tenant. Detail: ${detail}`,
     1,
   );
 }
 
 function assertNotCoolingDown(cooldownKey: string): void {
-  const cooldownUntil = rateLimitCooldowns.get(cooldownKey);
-  if (cooldownUntil === undefined) return;
-  const remainingSeconds = Math.ceil((cooldownUntil - Date.now()) / 1000);
-  if (remainingSeconds > 0) {
+  const cooldown = rateLimitCooldowns.get(cooldownKey);
+  if (cooldown === undefined) return;
+  const now = Date.now();
+  if (cooldown.gateUntil > now) {
+    // The gate uses the capped deadline; the caller is told Autotask's own
+    // (possibly longer) Retry-After.
+    const remainingSeconds = Math.max(1, Math.ceil((Math.max(cooldown.retryAt, cooldown.gateUntil) - now) / 1000));
     throw new AutotaskRateLimitError(
       `Autotask API threshold exceeded (HTTP 429) — this tenant is in a ${remainingSeconds}s cooldown and this call was NOT sent upstream. ` +
         `Do NOT retry until the cooldown passes; retries cannot succeed and querying again immediately only delays recovery. ` +
-        `Wait ${remainingSeconds}s, or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
+        `Try again in ${remainingSeconds} s. Or ask the user to narrow the workload (smaller date ranges, specific IDs).`,
       remainingSeconds,
     );
   }
@@ -682,10 +697,11 @@ export class AutotaskHttpClient {
         // Arm the per-tenant cooldown gate so any further calls (including
         // LLM retry-spam and mapping-cache lookups) fail fast locally until
         // the window passes instead of piling onto the throttled tenant.
-        rateLimitCooldowns.set(
-          cooldownKey,
-          Date.now() + Math.min(retryAfter * 1000, MAX_COOLDOWN_MS),
-        );
+        const armedAt = Date.now();
+        rateLimitCooldowns.set(cooldownKey, {
+          gateUntil: armedAt + Math.min(retryAfter * 1000, MAX_COOLDOWN_MS),
+          retryAt: armedAt + retryAfter * 1000,
+        });
         // Single-line message that LLMs will read verbatim — instruct against
         // retry, surface the wait, point at the underlying issue. The structured
         // `retryAfterSeconds` field lets handlers do programmatic things too.
@@ -693,7 +709,7 @@ export class AutotaskHttpClient {
           `Autotask API threshold exceeded (HTTP 429). Do NOT retry this call automatically — ` +
           `the next ${retryAfter}s will likely hit 429 again, and repeated retries can extend the ` +
           `cooldown. Ask the user to scope the query (e.g. narrow date range, filter by company/ticket ID) ` +
-          `or wait ${retryAfter}s before trying again. Detail: ${detail}`,
+          `or wait before trying again. Try again in ${retryAfter} s. Detail: ${detail}`,
           retryAfter,
         );
       }
