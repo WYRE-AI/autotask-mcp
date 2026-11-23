@@ -7,7 +7,7 @@
 
 **Give your AI assistant direct access to Autotask.** Search tickets, create time entries, look up companies, manage projects — all through natural language. No more copy-pasting between browser tabs and chat windows.
 
-This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that connects Claude (or any MCP-compatible AI) to your Autotask PSA environment. Your AI assistant gets 102 tools covering the operations MSP teams use daily: ticket triage, time logging, company lookups, project management, billing review, and more.
+This is a [Model Context Protocol (MCP)](https://modelcontextprotocol.io/) server that connects Claude (or any MCP-compatible AI) to your Autotask PSA environment. Your AI assistant gets 112 tools covering the operations MSP teams use daily: ticket triage, time logging, company lookups, project management, billing review, and more.
 
 If you run an MSP on Autotask and you're tired of the context-switching tax, this is for you.
 
@@ -56,7 +56,7 @@ See [Installation](#installation) for Docker and from-source methods.
 
 - **🔌 MCP Protocol Compliance**: Full support for MCP resources and tools
 - **🎴 Interactive Ticket Card (MCP Apps)**: `autotask_get_ticket_details` renders as an interactive card in MCP Apps hosts (Claude Desktop/web) with an in-card "Add note" round-trip; neutral theme by default, brandable via `MCP_BRAND_*` env vars. In every host, the text the assistant reads carries the full ticket: description, contact, linked configuration item, custom fields (UDFs), recent notes and the complete record as JSON
-- **🛠️ Comprehensive API Coverage**: 102 tools spanning companies, contacts, tickets, projects, billing items, time entries, notes, attachments, and more
+- **🛠️ Comprehensive API Coverage**: 112 tools spanning companies, contacts, tickets, projects, billing items, time entries, notes, attachments, and more
 - **🔍 Advanced Search**: Powerful search capabilities with filters across all entities
 - **📝 CRUD Operations**: Create, read, update operations for core Autotask entities
 - **🔄 ID-to-Name Mapping**: Automatic resolution of company and resource IDs to human-readable names
@@ -431,7 +431,7 @@ Resources provide read-only access to Autotask data:
 
 ### Tools
 
-The server provides 102 tools for interacting with Autotask:
+The server provides 112 tools for interacting with Autotask:
 
 #### Company Operations
 - `autotask_search_companies` - Search companies with filters
@@ -447,6 +447,7 @@ The server provides 102 tools for interacting with Autotask:
 - `autotask_search_tickets` - Search tickets with filters
 - `autotask_get_ticket_details` - Get a ticket by ID: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs), recent notes and the full record (`fullDetails: true` for untruncated text and all UDFs)
 - `autotask_create_ticket` - Create new ticket
+- `autotask_update_ticket` - Update a ticket (status, priority, assignee + role, due date, issue types, SLA; `serviceLevelAgreementID: null` clears the SLA so Autotask stops recomputing the due date)
 
 #### Time Entry Operations
 - `autotask_create_time_entry` - Log time entry
@@ -495,7 +496,8 @@ The server provides 102 tools for interacting with Autotask:
 
 #### Task Operations
 - `autotask_search_tasks` - Search project tasks
-- `autotask_create_task` - Create project task
+- `autotask_create_task` - Create project task (optional `phaseID`, `assignedResourceID` + role; the role is filled from `assignedResourceRoleName` or the resource's only active role)
+- `autotask_update_task` - Update a project task: status, assignee + role, start/end dates, phase, title, description
 
 #### Utility Operations
 - `autotask_test_connection` - Test API connectivity

@@ -34,6 +34,7 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | `autotask_search_tickets` | Search for tickets | `searchTerm`, `companyID`, `status`, `priority`, `queueID`, `assignedResourceID` |
 | `autotask_get_ticket_details` | Get one ticket: description, status/priority/queue, company, contact, assignee, dates, linked configuration item, resolution, custom fields (UDFs) and recent notes, then the full ticket record as JSON | `ticketID` (required), `fullDetails` (untruncated description/resolution and all UDFs) |
 | `autotask_create_ticket` | Create a new ticket | `title`, `companyID` (required), `priority`, `status`, `queueID`, `description` |
+| `autotask_update_ticket` | Update a ticket; only provided fields change. `serviceLevelAgreementID: null` removes the SLA so Autotask stops recomputing the due date | `ticketId` (required), `status`, `priority`, `assignedResourceID`, `assignedResourceRoleID`/`assignedResourceRoleName`, `dueDateTime`, `serviceLevelAgreementID` |
 
 ## Time Entries
 
@@ -113,7 +114,8 @@ The Autotask MCP Server exposes 39 tools organized by entity type.
 | Tool | Description | Key Parameters |
 |------|-------------|----------------|
 | `autotask_search_tasks` | Search project tasks | `projectID`, `assignedResourceID` |
-| `autotask_create_task` | Create a project task | `title`, `projectID` (required), `assignedResourceID` |
+| `autotask_create_task` | Create a project task. An assigned resource also needs a role: pass `assignedResourceRoleID` or `assignedResourceRoleName`, or omit both to use the resource's only active role | `title`, `projectID`, `status` (required), `phaseID`, `assignedResourceID`, `assignedResourceRoleID`, `assignedResourceRoleName`, `startDateTime`, `endDateTime` |
+| `autotask_update_task` | Update a project task; only provided fields change. `projectID` is read from the task when omitted | `taskId` (required), `status`, `assignedResourceID`, `assignedResourceRoleID`/`assignedResourceRoleName`, `endDateTime`, `startDateTime`, `phaseID`, `title`, `description` |
 
 ## Picklist Discovery
 

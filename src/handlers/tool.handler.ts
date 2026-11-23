@@ -105,6 +105,33 @@ const OPPORTUNITY_WRITABLE_FIELDS = [
   'userDefinedFields'
 ] as const;
 
+// Fields accepted by autotask_create_task / autotask_update_task, in
+// Autotask's own casing. Keep in sync with tool.definitions.ts. Tool-only
+// helpers (assignedResourceRoleName, taskId) never reach the Autotask body.
+const TASK_WRITABLE_FIELDS = [
+  'projectID',
+  'title',
+  'description',
+  'status',
+  'assignedResourceID',
+  'assignedResourceRoleID',
+  'phaseID',
+  'estimatedHours',
+  'taskType',
+  'startDateTime',
+  'endDateTime'
+] as const;
+
+function buildTaskPayload(args: Record<string, any>): Record<string, any> {
+  const payload: Record<string, any> = {};
+  for (const field of TASK_WRITABLE_FIELDS) {
+    if (args[field] !== undefined) {
+      payload[field] = args[field];
+    }
+  }
+  return payload;
+}
+
 function buildTicketPayload(args: Record<string, any>): Record<string, any> {
   const payload: Record<string, any> = {};
   for (const field of TICKET_WRITABLE_FIELDS) {
@@ -1400,8 +1427,35 @@ export class AutotaskToolHandler {
         const r = await s.searchTasks(a); return { result: r, message: `Found ${r.length} tasks` };
       }],
       ['autotask_create_task', async (a) => {
-        const taskData = { ...a, taskType: a.taskType ?? 1 };
-        const id = await s.createTask(taskData); return { result: id, message: `Successfully created task with ID: ${id}` };
+        const payload = buildTaskPayload({ ...a, taskType: a.taskType ?? 1 });
+        // Autotask refuses a task assigned to a resource without that
+        // resource's role, same rule as tickets.
+        await this.fillAssignedResourceRole(payload, a.assignedResourceRoleName);
+        const id = await s.createTask(payload); return { result: id, message: `Successfully created task with ID: ${id}` };
+      }],
+      ['autotask_update_task', async (a) => {
+        const { taskId, ...rest } = a;
+        if (typeof taskId !== 'number' || !Number.isInteger(taskId) || taskId <= 0) {
+          throw new Error('taskId is required and must be a positive integer');
+        }
+        const payload = buildTaskPayload(rest);
+        if (Object.keys(payload).filter(k => k !== 'projectID').length === 0) {
+          throw new Error('Nothing to update: pass at least one task field (status, assignedResourceID, endDateTime, ...)');
+        }
+        await this.fillAssignedResourceRole(payload, rest.assignedResourceRoleName);
+        // Tasks are only writable through their parent project
+        // (PATCH /Projects/{projectID}/Tasks), so find the project when the
+        // caller didn't name it.
+        if (payload.projectID == null) {
+          const task = await s.getTask(taskId);
+          if (!task) throw new Error(`No Task found matching "${taskId}"`);
+          if (typeof task.projectID !== 'number') {
+            throw new Error(`Task ${taskId} has no projectID; pass projectID explicitly`);
+          }
+          payload.projectID = task.projectID;
+        }
+        await s.updateTask(taskId, payload);
+        return { result: taskId, message: `Successfully updated task ${taskId}` };
       }],
 
       // Phases
