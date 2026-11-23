@@ -1690,7 +1690,9 @@ export class AutotaskService {
       }
       // Update via PATCH on the collection endpoint: /Projects/{projectID}/Tasks
       // with the task ID in the body.
-      await http.childUpdate('Projects', updates.projectID, 'Tasks', id, updates as Record<string, any>);
+      // projectID only routes the request; it is not a field being changed.
+      const { projectID, ...fields } = updates;
+      await http.childUpdate('Projects', projectID, 'Tasks', id, fields as Record<string, any>);
       this.logger.info(`Task ${id} updated successfully`);
     } catch (error) {
       this.logger.error(`Failed to update task ${id}:`, error);

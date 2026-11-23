@@ -61,7 +61,7 @@ export interface AutotaskTicket {
   ticketCategory?: number;
   source?: number;
   billingCodeID?: number;
-  serviceLevelAgreementID?: number;
+  serviceLevelAgreementID?: number | null;
   projectID?: number;
   ticketAdditionalContacts?: number[];
   resolution?: string;

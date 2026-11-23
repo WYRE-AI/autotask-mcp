@@ -130,6 +130,21 @@ description: Example prompts for searching and managing projects and tasks.
 }
 ```
 
+### Reassign a task and move its end date
+
+**Prompt:**
+> "Reassign task 78005 to resource 12345 as Engineer and push its end date to March 20"
+
+**What happens:** The server calls `autotask_update_task` with `taskId: 78005`, `assignedResourceID: 12345`, `assignedResourceRoleName: "Engineer"` and `endDateTime: "2026-03-20T17:00:00Z"`. It reads the task's project, resolves the role name to that resource's role ID, and sends `PATCH /Projects/{projectID}/Tasks`.
+
+**Expected output:**
+```json
+{
+  "message": "Successfully updated task 78005",
+  "data": 78005
+}
+```
+
 ---
 
 ## Searching Resources
