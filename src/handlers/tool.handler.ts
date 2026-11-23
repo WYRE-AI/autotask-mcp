@@ -1438,22 +1438,40 @@ export class AutotaskToolHandler {
         if (typeof taskId !== 'number' || !Number.isInteger(taskId) || taskId <= 0) {
           throw new Error('taskId is required and must be a positive integer');
         }
+        // projectID becomes a URL path segment, so only a positive integer.
+        if (rest.projectID != null && (typeof rest.projectID !== 'number' || !Number.isInteger(rest.projectID) || rest.projectID <= 0)) {
+          throw new Error('projectID must be a positive integer');
+        }
         const payload = buildTaskPayload(rest);
-        if (Object.keys(payload).filter(k => k !== 'projectID').length === 0) {
+        const roleName = typeof rest.assignedResourceRoleName === 'string' && rest.assignedResourceRoleName.trim() !== ''
+          ? rest.assignedResourceRoleName
+          : undefined;
+        if (Object.keys(payload).filter(k => k !== 'projectID').length === 0 && roleName === undefined) {
           throw new Error('Nothing to update: pass at least one task field (status, assignedResourceID, endDateTime, ...)');
         }
-        await this.fillAssignedResourceRole(payload, rest.assignedResourceRoleName);
         // Tasks are only writable through their parent project
-        // (PATCH /Projects/{projectID}/Tasks), so find the project when the
-        // caller didn't name it.
-        if (payload.projectID == null) {
+        // (PATCH /Projects/{projectID}/Tasks). Read the task when the caller
+        // didn't name the project, or changes only the role of the current
+        // assignee (a role must belong to the assigned resource).
+        const roleOnly = payload.assignedResourceID == null &&
+          (payload.assignedResourceRoleID != null || roleName !== undefined);
+        if (payload.projectID == null || roleOnly) {
           const task = await s.getTask(taskId);
           if (!task) throw new Error(`No Task found matching "${taskId}"`);
-          if (typeof task.projectID !== 'number') {
-            throw new Error(`Task ${taskId} has no projectID; pass projectID explicitly`);
+          if (payload.projectID == null) {
+            if (typeof task.projectID !== 'number') {
+              throw new Error(`Task ${taskId} has no projectID; pass projectID explicitly`);
+            }
+            payload.projectID = task.projectID;
           }
-          payload.projectID = task.projectID;
+          if (roleOnly) {
+            if (typeof task.assignedResourceID !== 'number') {
+              throw new Error(`Task ${taskId} has no assigned resource; pass assignedResourceID with the role`);
+            }
+            payload.assignedResourceID = task.assignedResourceID;
+          }
         }
+        await this.fillAssignedResourceRole(payload, roleName);
         await s.updateTask(taskId, payload);
         return { result: taskId, message: `Successfully updated task ${taskId}` };
       }],

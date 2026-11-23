@@ -218,3 +218,40 @@ describe('autotask_update_ticket serviceLevelAgreementID', () => {
     expect(body.dueDateTime).toBe('2026-03-15T17:00:00Z');
   });
 });
+
+describe('autotask_update_task review follow-ups', () => {
+  test('a role name alone re-roles the current assignee', async () => {
+    const { calls } = mockAutotask({
+      ...twoRoles,
+      [`/Tasks/${TASK}`]: () => ({ item: { id: TASK, projectID: PROJECT, assignedResourceID: TECH, assignedResourceRoleID: 501 } }),
+      [`/Projects/${PROJECT}/Tasks`]: () => ({ itemId: TASK }),
+    });
+
+    const result = await handler().callTool('autotask_update_task', { taskId: TASK, assignedResourceRoleName: 'Engineer' });
+
+    expect(result.isError).toBeFalsy();
+    expect(find(calls, 'PATCH', `/Projects/${PROJECT}/Tasks`)!.body).toEqual({
+      id: TASK, assignedResourceID: TECH, assignedResourceRoleID: 502,
+    });
+  });
+
+  test('a role for an unassigned task is an error and nothing is patched', async () => {
+    const { calls } = mockAutotask({
+      [`/Tasks/${TASK}`]: () => ({ item: { id: TASK, projectID: PROJECT, assignedResourceID: null } }),
+    });
+
+    const result = await handler().callTool('autotask_update_task', { taskId: TASK, assignedResourceRoleID: 502 });
+
+    expect(result.isError).toBe(true);
+    expect(calls.some(c => c.method === 'PATCH')).toBe(false);
+  });
+
+  test.each(['5021/../Companies', -1, 1.5])('rejects projectID %p before any request', async (projectID) => {
+    const { calls } = mockAutotask({});
+
+    const result = await handler().callTool('autotask_update_task', { taskId: TASK, projectID, status: 2 });
+
+    expect(result.isError).toBe(true);
+    expect(calls).toHaveLength(0);
+  });
+});
