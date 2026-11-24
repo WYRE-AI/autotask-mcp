@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/server";
 // Handles MCP tool calls for Autotask operations (search, create, update)
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
-import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
+import { PicklistCache, type FieldInfo, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
@@ -37,6 +37,9 @@ function resolveEnhanceConcurrency(raw: string | undefined): number {
 // autotask_get_company, so a stalled field-info request never holds back the
 // already-fetched company record.
 const COMPANY_LABEL_DEADLINE_MS = 5000;
+// The read-back after autotask_create_ticket gets the same budget: the ticket
+// already exists, so the response must not wait long enough to invite a retry.
+const CREATED_TICKET_READBACK_DEADLINE_MS = 5000;
 
 function normalizeCompanyIdAlias(args: Record<string, any>): Record<string, any> {
   const provided = [args.companyID, args.companyId, args.CompanyID].find(v => v !== undefined);
@@ -328,14 +331,48 @@ export class AutotaskToolHandler {
   /**
    * Read a just-created ticket back for a human-readable result: number,
    * title, queue and status (labels from the picklist cache, falling back to
-   * the IDs). Never throws: on failure it returns the ID and a short reason.
+   * the IDs). Never throws, and never waits longer than
+   * CREATED_TICKET_READBACK_DEADLINE_MS: the ticket already exists, so a slow
+   * read-back must not hold the success response long enough for a client to
+   * time out and retry the create. On failure or timeout it returns the ID
+   * and a short reason.
    */
   private async describeCreatedTicket(id: number): Promise<CreatedTicketSummary> {
+    let timer: NodeJS.Timeout | undefined;
+    const controller = new AbortController();
+    try {
+      const work = this.readBackCreatedTicket(id, controller.signal);
+      const result = await Promise.race([
+        work,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
+            // Cancel the in-flight requests so they free their tenant concurrency slots.
+            controller.abort();
+            resolve(null);
+          }, CREATED_TICKET_READBACK_DEADLINE_MS);
+          timer.unref?.();
+        }),
+      ]);
+      if (result === null) {
+        this.logger.warn(
+          `Created ticket ${id} could not be read back within ${CREATED_TICKET_READBACK_DEADLINE_MS}ms; returning the ID only`
+        );
+        return { id, error: 'timed out' };
+      }
+      return result;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /** The read-back itself; never throws. `signal` cancels every request it makes. */
+  private async readBackCreatedTicket(id: number, signal: AbortSignal): Promise<CreatedTicketSummary> {
     const out: CreatedTicketSummary = { id };
     let ticket: Record<string, unknown> | null;
     try {
-      ticket = (await this.autotaskService.getTicket(id)) as Record<string, unknown> | null;
+      ticket = (await this.autotaskService.getTicket(id, false, { signal })) as Record<string, unknown> | null;
     } catch (error) {
+      if (signal.aborted) return out; // the deadline already answered
       const status = vendorStatus(error);
       this.logger.warn(`Created ticket ${id} could not be read back${status !== undefined ? ` (HTTP ${status})` : ''}`);
       out.error = status !== undefined ? `HTTP ${status}` : 'read-back failed';
@@ -347,20 +384,27 @@ export class AutotaskToolHandler {
     }
     if (typeof ticket.ticketNumber === 'string' && ticket.ticketNumber) out.ticketNumber = ticket.ticketNumber;
     if (typeof ticket.title === 'string' && ticket.title) out.title = ticket.title;
-    const label = async (values: () => Promise<PicklistValue[]>, value: number): Promise<string | undefined> => {
+    // One cancellable field-info lookup labels both queue and status. Inactive
+    // values are included so an existing ticket still gets its label.
+    let fields: FieldInfo[] = [];
+    if (typeof ticket.queueID === 'number' || typeof ticket.status === 'number') {
       try {
-        return (await values()).find(v => String(v.value) === String(value))?.label;
+        fields = await this.picklistCache.getFields('Tickets', { signal });
       } catch {
-        return undefined;
+        fields = []; // labels fall back to the IDs
       }
-    };
+    }
+    const label = (fieldName: string, value: number): string | undefined =>
+      fields
+        .find(f => f.name === fieldName)
+        ?.picklistValues?.find(v => String(v.value) === String(value))?.label;
     if (typeof ticket.queueID === 'number') {
       out.queueID = ticket.queueID;
-      out.queue = (await label(() => this.picklistCache.getQueues(), ticket.queueID)) ?? `queue ${ticket.queueID}`;
+      out.queue = label('queueID', ticket.queueID) ?? `queue ${ticket.queueID}`;
     }
     if (typeof ticket.status === 'number') {
       out.statusID = ticket.status;
-      out.status = (await label(() => this.picklistCache.getTicketStatuses(), ticket.status)) ?? `#${ticket.status}`;
+      out.status = label('status', ticket.status) ?? `#${ticket.status}`;
     }
     return out;
   }

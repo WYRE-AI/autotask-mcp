@@ -811,11 +811,12 @@ export class AutotaskHttpClient {
   }
 
   /**
-   * GET /{Entity}/{id} — returns the entity, or null on 404.
+   * GET /{Entity}/{id} — returns the entity, or null on 404. `opts.signal`
+   * is optional; aborting it cancels the request (rejects with an AbortError).
    */
-  async get<T>(entity: string, id: number): Promise<T | null> {
+  async get<T>(entity: string, id: number, opts?: { signal?: AbortSignal }): Promise<T | null> {
     try {
-      const res = await this.request<{ item?: T } & T>('GET', `/${entity}/${id}`);
+      const res = await this.request<{ item?: T } & T>('GET', `/${entity}/${id}`, undefined, false, opts?.signal);
       // Autotask returns { item: {...} } but some legacy routes return the entity at top level.
       return ((res as any)?.item ?? (res as any)) || null;
     } catch (err) {

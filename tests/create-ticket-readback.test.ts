@@ -122,6 +122,73 @@ describe('autotask_create_ticket read-back', () => {
   });
 });
 
+/** Never settles until the request is aborted, like a vendor call that hangs. */
+function stalled(init: any, seen: AbortSignal[]): Promise<Response> {
+  const signal = init?.signal as AbortSignal | undefined;
+  if (signal) seen.push(signal);
+  return new Promise((_resolve, reject) => {
+    signal?.addEventListener('abort', () => {
+      const err = new Error('aborted');
+      err.name = 'AbortError';
+      reject(err);
+    }, { once: true });
+  });
+}
+
+describe('autotask_create_ticket read-back deadline', () => {
+  afterEach(() => jest.useRealTimers());
+
+  test('a stalled ticket read-back returns the created ID after the deadline and cancels the request', async () => {
+    jest.useFakeTimers();
+    const seen: AbortSignal[] = [];
+    const fetchMock = jest.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init: any) => {
+      const u = String(url);
+      if (init?.method === 'POST' && u.endsWith('/Tickets')) return respond(200, { itemId: 12345 });
+      if (u.endsWith('/Tickets/12345')) return stalled(init, seen);
+      return respond(404, { errors: ['unexpected'] });
+    });
+    const handler = new AutotaskToolHandler(new AutotaskService(config, logger), logger);
+
+    const pending = handler.callTool('autotask_create_ticket', { ...args, queueID: 8 });
+    await jest.advanceTimersByTimeAsync(5000);
+    const result = await pending;
+
+    expect(result.isError).toBeFalsy();
+    const body = parse(result);
+    expect(body.data).toBe(12345);
+    expect(body.message).toBe('Created ticket with ID 12345; the ticket number could not be read back (timed out)');
+    expect(body.ticket).toEqual({ id: 12345, error: 'timed out' });
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every(s => s.aborted)).toBe(true);
+    // The create itself was sent once and never retried.
+    const posts = fetchMock.mock.calls.filter(([, init]) => (init as RequestInit)?.method === 'POST');
+    expect(posts).toHaveLength(1);
+  });
+
+  test('a stalled picklist lookup is bounded by the same deadline', async () => {
+    jest.useFakeTimers();
+    const seen: AbortSignal[] = [];
+    jest.spyOn(global, 'fetch' as any).mockImplementation(async (url: any, init: any) => {
+      const u = String(url);
+      const method = init?.method ?? 'GET';
+      if (method === 'POST' && u.endsWith('/Tickets')) return respond(200, { itemId: 12345 });
+      if (u.includes('/Tickets/entityInformation/fields')) return stalled(init, seen);
+      if (u.endsWith('/Tickets/12345')) return respond(200, { item: ticket });
+      return respond(404, { errors: ['unexpected'] });
+    });
+    const handler = new AutotaskToolHandler(new AutotaskService(config, logger), logger);
+
+    const pending = handler.callTool('autotask_create_ticket', { ...args, queueID: 8 });
+    await jest.advanceTimersByTimeAsync(5000);
+    const body = parse(await pending);
+
+    expect(body.data).toBe(12345);
+    expect(body.message).toContain('could not be read back (timed out)');
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every(s => s.aborted)).toBe(true);
+  });
+});
+
 describe('other create messages', () => {
   test('autotask_create_contact names the contact from its arguments', async () => {
     jest.spyOn(global, 'fetch' as any).mockResolvedValue(respond(200, { itemId: 77 }));

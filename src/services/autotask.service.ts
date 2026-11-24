@@ -427,11 +427,17 @@ export class AutotaskService {
   // Tickets
   // =====================================================
 
-  async getTicket(id: number, fullDetails: boolean = false): Promise<AutotaskTicket | null> {
+  async getTicket(
+    id: number,
+    fullDetails: boolean = false,
+    opts?: { signal?: AbortSignal }
+  ): Promise<AutotaskTicket | null> {
     const http = await this.ensureClient();
     try {
       this.logger.debug(`Getting ticket with ID: ${id}, fullDetails: ${fullDetails}`);
-      const ticket = await http.get<AutotaskTicket>('Tickets', id);
+      const ticket = opts?.signal
+        ? await http.get<AutotaskTicket>('Tickets', id, { signal: opts.signal })
+        : await http.get<AutotaskTicket>('Tickets', id);
       if (!ticket) return null;
       return fullDetails ? ticket : this.optimizeTicketData(ticket);
     } catch (error) {
