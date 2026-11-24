@@ -111,6 +111,21 @@ describe('loadEnvironmentConfig', () => {
     process.env.AUTOTASK_DEFAULT_QUEUE_ID = 'triage';
     expect(() => loadEnvironmentConfig()).toThrow(/Invalid AUTOTASK_DEFAULT_QUEUE_ID/);
   });
+
+  test('gateway mode does not parse it: a malformed value is ignored with a warning, not a startup error', () => {
+    const savedMode = process.env.AUTH_MODE;
+    const warn = jest.spyOn(console, 'error').mockImplementation(() => undefined);
+    try {
+      process.env.AUTH_MODE = 'gateway';
+      process.env.AUTOTASK_DEFAULT_QUEUE_ID = 'triage';
+      const loaded = loadEnvironmentConfig();
+      expect(loaded.autotask.defaultQueueId).toBeUndefined();
+      expect(warn.mock.calls.some(c => String(c[0]).includes('AUTOTASK_DEFAULT_QUEUE_ID is ignored in gateway mode'))).toBe(true);
+    } finally {
+      if (savedMode === undefined) delete process.env.AUTH_MODE;
+      else process.env.AUTH_MODE = savedMode;
+    }
+  });
 });
 
 describe('autotask_create_ticket with a default queue', () => {
@@ -148,7 +163,11 @@ describe('autotask_create_ticket with a default queue', () => {
 
     await handler.callTool('autotask_create_ticket', { ...baseTicket, queueID: null });
 
-    expect(ticketPost(fetchMock).queueID).toBeNull();
+    // buildTicketPayload keeps an explicit null, so the POST /Tickets body
+    // carries "queueID": null (the key is present, not dropped).
+    const body = ticketPost(fetchMock);
+    expect(Object.prototype.hasOwnProperty.call(body, 'queueID')).toBe(true);
+    expect(body.queueID).toBeNull();
   });
 
   test('without a default, an omitted queueID stays omitted', async () => {

@@ -217,10 +217,17 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
   if (creds.integrationCode) autotaskConfig.integrationCode = creds.integrationCode;
   if (creds.apiUrl) autotaskConfig.apiUrl = creds.apiUrl;
   if (creds.impersonationResourceId) autotaskConfig.impersonationResourceId = creds.impersonationResourceId;
-  // Validated in every mode, so a bad value is a startup error. The server
-  // applies it only in env mode: a queue ID belongs to one tenant.
-  const defaultQueueId = parseDefaultQueueId(process.env.AUTOTASK_DEFAULT_QUEUE_ID);
-  if (defaultQueueId !== undefined) autotaskConfig.defaultQueueId = defaultQueueId;
+  // Env mode only: a queue ID belongs to one tenant. There a bad value is a
+  // startup error. Gateway mode ignores the setting, so it is not parsed and a
+  // typo in it cannot stop the server.
+  if (authMode === 'gateway') {
+    if (process.env.AUTOTASK_DEFAULT_QUEUE_ID?.trim()) {
+      stderrWarn.warn('AUTOTASK_DEFAULT_QUEUE_ID is ignored in gateway mode (queue IDs are tenant-specific).');
+    }
+  } else {
+    const defaultQueueId = parseDefaultQueueId(process.env.AUTOTASK_DEFAULT_QUEUE_ID);
+    if (defaultQueueId !== undefined) autotaskConfig.defaultQueueId = defaultQueueId;
+  }
 
   const transportType = (process.env.MCP_TRANSPORT as TransportType) || 'stdio';
   if (transportType !== 'stdio' && transportType !== 'http') {

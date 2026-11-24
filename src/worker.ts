@@ -115,9 +115,18 @@ function getAppServer(env: Env): AutotaskMcpServer {
     autotask,
   };
 
-  // Throws on a malformed value, like the Node entry point (the server
-  // applies it in env mode only).
-  const defaultQueueId = parseDefaultQueueId(env.AUTOTASK_DEFAULT_QUEUE_ID);
+  // Env mode: throws on a malformed value, like the Node entry point. Gateway
+  // mode never applies it (a queue ID belongs to one tenant), so it is not
+  // parsed there: a typo in a setting the Worker ignores must not fail every
+  // request.
+  let defaultQueueId: number | undefined;
+  if (env.AUTH_MODE === 'gateway') {
+    if (env.AUTOTASK_DEFAULT_QUEUE_ID?.trim()) {
+      logger.warn('AUTOTASK_DEFAULT_QUEUE_ID is ignored in gateway mode (queue IDs are tenant-specific).');
+    }
+  } else {
+    defaultQueueId = parseDefaultQueueId(env.AUTOTASK_DEFAULT_QUEUE_ID);
+  }
 
   appServer = new AutotaskMcpServer(config, logger, {
     autotask: defaultQueueId !== undefined ? { ...autotask, defaultQueueId } : autotask,
