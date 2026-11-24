@@ -445,8 +445,14 @@ export class AutotaskToolHandler {
     let fields: FieldInfo[];
     try {
       fields = await this.picklistCache.getFields('Tickets', { signal });
-    } catch {
-      return out; // aborted or failed: labels stay as the IDs
+    } catch (error) {
+      // Labels stay as the IDs. A deadline abort is reported by
+      // describeCreatedTicket; a vendor failure is recorded here with its status.
+      if (signal.aborted) return out;
+      const status = vendorStatus(error);
+      this.logger.warn(`Created ticket ${id}: picklist labels could not be read${status !== undefined ? ` (HTTP ${status})` : ''}`);
+      out.error = status !== undefined ? `labels: HTTP ${status}` : 'labels could not be read';
+      return out;
     }
     const label = (fieldName: string, value: number): string | undefined =>
       fields
