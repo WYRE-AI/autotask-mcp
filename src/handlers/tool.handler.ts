@@ -4,7 +4,7 @@ import { Server } from "@modelcontextprotocol/server";
 // Handles MCP tool calls for Autotask operations (search, create, update)
 import { AutotaskService } from '../services/autotask.service.js';
 import { AutotaskRateLimitError } from '../services/autotask-http.js';
-import { PicklistCache, PicklistValue } from '../services/picklist.cache.js';
+import { PicklistCache, type FieldInfo, PicklistValue } from '../services/picklist.cache.js';
 import { Logger } from '../utils/logger.js';
 import { formatCompactResponse, detectEntityType, COMPACT_SEARCH_TOOLS } from '../utils/response.formatter.js';
 import { MappingService } from '../utils/mapping.service.js';
@@ -37,6 +37,9 @@ function resolveEnhanceConcurrency(raw: string | undefined): number {
 // autotask_get_company, so a stalled field-info request never holds back the
 // already-fetched company record.
 const COMPANY_LABEL_DEADLINE_MS = 5000;
+// The read-back after autotask_create_ticket gets the same budget: the ticket
+// already exists, so the response must not wait long enough to invite a retry.
+const CREATED_TICKET_READBACK_DEADLINE_MS = 5000;
 
 function normalizeCompanyIdAlias(args: Record<string, any>): Record<string, any> {
   const provided = [args.companyID, args.companyId, args.CompanyID].find(v => v !== undefined);
@@ -113,6 +116,44 @@ function buildTicketPayload(args: Record<string, any>): Record<string, any> {
     }
   }
   return payload;
+}
+
+/** What autotask_create_ticket read back about the ticket it created. */
+export interface CreatedTicketSummary {
+  id: number;
+  ticketNumber?: string;
+  title?: string;
+  queueID?: number;
+  queue?: string;
+  statusID?: number;
+  status?: string;
+  /** Why the read-back failed or was cut short; the ticket was still created. */
+  error?: string;
+}
+
+/**
+ * The autotask_create_ticket success message. It is composed from the ticket
+ * number (system-generated), the ID and the queue and status picklist labels.
+ * The title is tenant free text (email-to-ticket, workflow rules), so it stays
+ * in the structured `ticket` field and is never put into this sentence.
+ * `defaultQueueUsed` says the server's default queue was applied because the
+ * call had no queueID.
+ */
+export function createdTicketMessage(
+  created: CreatedTicketSummary,
+  opts: { defaultQueueUsed?: boolean; defaultQueueId?: number | undefined } = {}
+): string {
+  const { defaultQueueUsed = false, defaultQueueId } = opts;
+  const defaultQueueNote = `the default queue${defaultQueueId !== undefined ? ` (queueID ${defaultQueueId})` : ''}`;
+  if (created.ticketNumber) {
+    const where = created.queue
+      ? ` in ${created.queue}${defaultQueueUsed ? ' (default queue)' : ''}`
+      : defaultQueueUsed ? ` in ${defaultQueueNote}` : '';
+    return `Created ticket ${created.ticketNumber} (ID ${created.id})${where}` +
+      `${created.status ? `, status ${created.status}` : ''}`;
+  }
+  return `Created ticket with ID ${created.id}${defaultQueueUsed ? ` in ${defaultQueueNote}` : ''}; ` +
+    `the ticket number could not be read back${created.error ? ` (${created.error})` : ''}`;
 }
 
 export interface McpTool {
@@ -310,6 +351,118 @@ export class AutotaskToolHandler {
       );
       return null;
     }
+  }
+
+  /**
+   * Read a just-created ticket back for a human-readable result: number,
+   * title, queue and status (labels from the picklist cache, falling back to
+   * the IDs). Never throws, and never waits longer than
+   * CREATED_TICKET_READBACK_DEADLINE_MS: the ticket already exists, so a slow
+   * read-back must not hold the success response long enough for a client to
+   * time out and retry the create. On failure it returns the ID and a short
+   * reason. On timeout it returns what was read so far: after the ticket GET,
+   * that is the number and title with the queue and status shown by ID.
+   */
+  private async describeCreatedTicket(id: number): Promise<CreatedTicketSummary> {
+    let timer: NodeJS.Timeout | undefined;
+    const controller = new AbortController();
+    const partial: CreatedTicketSummary = { id };
+    try {
+      const work = this.readBackCreatedTicket(id, controller.signal, partial);
+      const result = await Promise.race([
+        work,
+        new Promise<null>((resolve) => {
+          timer = setTimeout(() => {
+            // Cancel the in-flight requests so they free their tenant concurrency slots.
+            controller.abort();
+            resolve(null);
+          }, CREATED_TICKET_READBACK_DEADLINE_MS);
+          timer.unref?.();
+        }),
+      ]);
+      if (result === null) {
+        // A snapshot: the aborted read-back must not change what is returned.
+        const snapshot: CreatedTicketSummary = { ...partial };
+        if (snapshot.ticketNumber) {
+          this.logger.warn(
+            `Created ticket ${id}: picklist labels not read within ${CREATED_TICKET_READBACK_DEADLINE_MS}ms; returning the queue and status by ID`
+          );
+          snapshot.error = 'labels timed out';
+        } else {
+          this.logger.warn(
+            `Created ticket ${id} could not be read back within ${CREATED_TICKET_READBACK_DEADLINE_MS}ms; returning the ID only`
+          );
+          snapshot.error = 'timed out';
+        }
+        return snapshot;
+      }
+      return result;
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+
+  /**
+   * The read-back itself; never throws. `signal` cancels every request it
+   * makes. Fields are written into `out` as they are read, so a deadline can
+   * return the partial result.
+   */
+  private async readBackCreatedTicket(
+    id: number,
+    signal: AbortSignal,
+    out: CreatedTicketSummary
+  ): Promise<CreatedTicketSummary> {
+    let ticket: Record<string, unknown> | null;
+    try {
+      ticket = (await this.autotaskService.getTicket(id, false, { signal })) as Record<string, unknown> | null;
+    } catch (error) {
+      if (signal.aborted) return out; // the deadline already answered
+      const status = vendorStatus(error);
+      this.logger.warn(`Created ticket ${id} could not be read back${status !== undefined ? ` (HTTP ${status})` : ''}`);
+      out.error = status !== undefined ? `HTTP ${status}` : 'read-back failed';
+      return out;
+    }
+    if (!ticket) {
+      out.error = 'not found on read-back';
+      return out;
+    }
+    if (typeof ticket.ticketNumber === 'string' && ticket.ticketNumber) out.ticketNumber = ticket.ticketNumber;
+    if (typeof ticket.title === 'string' && ticket.title) out.title = ticket.title;
+    // IDs first, shown as IDs until the labels are read.
+    const queueID = typeof ticket.queueID === 'number' ? ticket.queueID : undefined;
+    const statusID = typeof ticket.status === 'number' ? ticket.status : undefined;
+    if (queueID !== undefined) {
+      out.queueID = queueID;
+      out.queue = `queue ${queueID}`;
+    }
+    if (statusID !== undefined) {
+      out.statusID = statusID;
+      out.status = `#${statusID}`;
+    }
+    if (queueID === undefined && statusID === undefined) return out;
+    // One cancellable field-info lookup labels both queue and status. Inactive
+    // values are included so an existing ticket still gets its label.
+    let fields: FieldInfo[];
+    try {
+      fields = await this.picklistCache.getFields('Tickets', { signal });
+    } catch (error) {
+      // Labels stay as the IDs. A deadline abort is reported by
+      // describeCreatedTicket; a vendor failure is recorded here with its status.
+      if (signal.aborted) return out;
+      const status = vendorStatus(error);
+      this.logger.warn(`Created ticket ${id}: picklist labels could not be read${status !== undefined ? ` (HTTP ${status})` : ''}`);
+      out.error = status !== undefined ? `labels: HTTP ${status}` : 'labels could not be read';
+      return out;
+    }
+    const label = (fieldName: string, value: number): string | undefined =>
+      fields
+        .find(f => f.name === fieldName)
+        ?.picklistValues?.find(v => String(v.value) === String(value))?.label;
+    const queueLabel = queueID !== undefined ? label('queueID', queueID) : undefined;
+    if (queueLabel) out.queue = queueLabel;
+    const statusLabel = statusID !== undefined ? label('status', statusID) : undefined;
+    if (statusLabel) out.status = statusLabel;
+    return out;
   }
 
   /**
@@ -1010,9 +1163,9 @@ export class AutotaskToolHandler {
   /**
    * Dispatch table: maps tool names to handler functions
    */
-  private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string }>> {
+  private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string; extra?: Record<string, unknown> }>> {
     const s = this.autotaskService;
-    type H = (args: any) => Promise<{ result: any; message: string }>;
+    type H = (args: any) => Promise<{ result: any; message: string; extra?: Record<string, unknown> }>;
     return new Map<string, H>([
       // Connection
       ['autotask_test_connection', async () => {
@@ -1060,7 +1213,13 @@ export class AutotaskToolHandler {
         const r = await s.searchContacts(a); return { result: r, message: `Found ${r.length} contacts` };
       }],
       ['autotask_create_contact', async (a) => {
-        const id = await s.createContact(a); return { result: id, message: `Successfully created contact with ID: ${id}` };
+        const id = await s.createContact(a);
+        // The name is in the arguments already, so no read-back call.
+        const name = [a.firstName, a.lastName].filter((x: unknown) => typeof x === 'string' && x.trim()).join(' ').trim();
+        return {
+          result: id,
+          message: name ? `Created contact ${name} (ID ${id})` : `Successfully created contact with ID: ${id}`,
+        };
       }],
       ['autotask_update_contact', async (a) => {
         await s.updateContact(a.id, a); return { result: undefined, message: `Successfully updated contact ID: ${a.id}` };
@@ -1110,7 +1269,12 @@ export class AutotaskToolHandler {
         const payload = buildTicketPayload(a);
         await this.fillAssignedResourceRole(payload, a.assignedResourceRoleName);
         const id = await s.createTicket(payload);
-        return { result: id, message: `Successfully created ticket with ID: ${id}` };
+        // The ticket exists from here on: the read-back is best-effort and
+        // never turns a created ticket into an error.
+        const created = await this.describeCreatedTicket(id);
+        // data stays the numeric ID (backward compatible); the read-back,
+        // title included, is an extra `ticket` field.
+        return { result: id, message: createdTicketMessage(created), extra: { ticket: created } };
       }],
       ['autotask_update_ticket', async (a) => {
         const { ticketId, ...rest } = a;
@@ -1432,7 +1596,7 @@ export class AutotaskToolHandler {
           noteType: a.noteType,
           publish: a.publish
         });
-        return { result: id, message: `Successfully created ticket note with ID: ${id}` };
+        return { result: id, message: `Created ticket note ${id} on ticket ID ${a.ticketId}` };
       }],
       // Ticket Checklist Items
       ['autotask_search_ticket_checklist_items', async (a) => {
@@ -1876,7 +2040,7 @@ export class AutotaskToolHandler {
       const handler = this.getDispatchTable().get(name);
       if (!handler) throw new Error(`Unknown tool: ${name}`);
 
-      const { result, message } = await handler(args);
+      const { result, message, extra } = await handler(args);
 
       // Check for empty/not-found results and return explicit error to prevent hallucination
       const notFoundMsg = this.buildNotFoundMessage(name, args, result);
@@ -1927,7 +2091,7 @@ export class AutotaskToolHandler {
         this.logger.debug(`Successfully executed tool: ${name}`);
         responseText = JSON.stringify({ message, data });
       } else {
-        responseText = JSON.stringify({ message, data: result });
+        responseText = JSON.stringify({ message, data: result, ...(extra ?? {}) });
       }
 
       this.logger.debug(`Successfully executed tool: ${name}`);
