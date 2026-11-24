@@ -608,7 +608,7 @@ export const TOOL_DEFINITIONS: McpTool[] = [
         },
         queueID: {
           type: 'number',
-          description: 'Queue ID to route the ticket to. Use autotask_list_queues to discover valid IDs.'
+          description: 'Queue ID to route the ticket to. Use autotask_list_queues to discover valid IDs. If omitted, the server\'s configured default queue is used, if any.'
         },
         dueDateTime: {
           type: 'string',

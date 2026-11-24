@@ -34,6 +34,7 @@ import { Logger } from './utils/logger.js';
 import {
   getServerVersion,
   parseCredentialsFromHeaders,
+  parseDefaultQueueId,
   parseImpersonationResourceId,
 } from './utils/config.js';
 import type { McpServerConfig } from './types/mcp.js';
@@ -44,6 +45,7 @@ export interface Env {
   AUTOTASK_INTEGRATION_CODE?: string;
   AUTOTASK_API_URL?: string;
   AUTOTASK_IMPERSONATION_RESOURCE_ID?: string;
+  AUTOTASK_DEFAULT_QUEUE_ID?: string;
   AUTH_MODE?: string;
   LOG_LEVEL?: string;
   LOG_FORMAT?: string;
@@ -113,8 +115,12 @@ function getAppServer(env: Env): AutotaskMcpServer {
     autotask,
   };
 
+  // Throws on a malformed value, like the Node entry point (the server
+  // applies it in env mode only).
+  const defaultQueueId = parseDefaultQueueId(env.AUTOTASK_DEFAULT_QUEUE_ID);
+
   appServer = new AutotaskMcpServer(config, logger, {
-    autotask,
+    autotask: defaultQueueId !== undefined ? { ...autotask, defaultQueueId } : autotask,
     server: { name: 'autotask-mcp', version: getServerVersion() },
     transport: { type: 'http', port: 8080, host: '0.0.0.0' },
     logging: {

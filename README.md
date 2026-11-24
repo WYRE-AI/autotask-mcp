@@ -223,6 +223,8 @@ AUTOTASK_INTEGRATION_CODE=your-integration-code
 # AUTOTASK_API_URL=https://webservices2.autotask.net/atservicesrest/
 # Attribute notes and other supported writes to this Autotask resource (env mode)
 # AUTOTASK_IMPERSONATION_RESOURCE_ID=29682886
+# Queue for new tickets when autotask_create_ticket gets no queueID (env mode)
+# AUTOTASK_DEFAULT_QUEUE_ID=12345
 MCP_SERVER_NAME=autotask-mcp
 
 # Authentication mode
@@ -742,6 +744,7 @@ npm test -- tests/autotask-service.test.ts
 | `AUTOTASK_IMPERSONATION_MISS_TTL_MS` | ❌ | `300000` | How long a no-match, ambiguous or inactive lookup is cached. |
 | `AUTOTASK_IMPERSONATION_REJECTED_TTL_MS` | ❌ | `21600000` | How long acting-user impersonation stays off for a user and operation after Autotask refuses it. |
 | `AUTOTASK_IMPERSONATION_RESOURCE_ID` | ❌ | unset | Env mode only. Default Autotask resource ID to impersonate, sent as Autotask's `ImpersonationResourceId` header on every call so notes, time entries and other supported writes are attributed to that resource. Must be a positive integer; anything else is ignored with a warning. Over HTTP, a per-request `X-Impersonation-Resource-Id` header overrides it for that request only. Ignored in gateway mode, where each request supplies its own. See [Impersonation](#impersonation). |
+| `AUTOTASK_DEFAULT_QUEUE_ID` | ❌ | unset | Env mode only. Queue ID that `autotask_create_ticket` uses when the call has no `queueID`, for example a triage queue. An explicit `queueID` always wins (also `null`). The success message says when the default was used. Must be a positive integer; anything else stops the server at startup. Ignored, with a warning, in gateway mode, where queue IDs belong to each tenant. The tool description stays the same whether or not it is set. |
 | `MCP_SERVER_NAME` | ❌ | `autotask-mcp` | MCP server name |
 | `MCP_TRANSPORT` | ❌ | `stdio` | Transport type (`stdio` or `http`) |
 | `MCP_HTTP_PORT` | ❌ | `8080` | HTTP transport port |

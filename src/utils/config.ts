@@ -40,6 +40,8 @@ export interface EnvironmentConfig {
     apiUrl?: string;
     /** Default Autotask resource to impersonate (AUTOTASK_IMPERSONATION_RESOURCE_ID). */
     impersonationResourceId?: number;
+    /** Queue for autotask_create_ticket when the caller omits queueID (AUTOTASK_DEFAULT_QUEUE_ID). */
+    defaultQueueId?: number;
   };
   server: {
     name: string;
@@ -107,6 +109,27 @@ export function parseImpersonationResourceId(
   if (!Number.isInteger(parsed) || parsed <= 0) {
     logger?.warn(`Ignoring invalid impersonation resource ID: ${JSON.stringify(raw)}`);
     return undefined;
+  }
+  return parsed;
+}
+
+/**
+ * Parse AUTOTASK_DEFAULT_QUEUE_ID, the queue autotask_create_ticket uses when
+ * the caller gives no queueID. Unset or empty means no default. Anything else
+ * must be a positive integer written in digits; a malformed value throws, so a
+ * typo stops the server at startup instead of silently creating tickets
+ * without the intended queue.
+ */
+export function parseDefaultQueueId(raw: string | undefined): number | undefined {
+  if (raw === undefined || raw === null) return undefined;
+  const value = String(raw).trim();
+  if (value === '') return undefined;
+  const parsed = Number(value);
+  if (!/^[0-9]+$/.test(value) || !Number.isSafeInteger(parsed) || parsed <= 0) {
+    throw new Error(
+      `Invalid AUTOTASK_DEFAULT_QUEUE_ID: ${JSON.stringify(raw)}. It must be a positive integer ` +
+        '(an Autotask queue ID, see autotask_list_queues), or unset for no default queue.'
+    );
   }
   return parsed;
 }
@@ -187,12 +210,17 @@ export function loadEnvironmentConfig(): EnvironmentConfig {
     integrationCode?: string;
     apiUrl?: string;
     impersonationResourceId?: number;
+    defaultQueueId?: number;
   } = {};
   if (creds.username) autotaskConfig.username = creds.username;
   if (creds.secret) autotaskConfig.secret = creds.secret;
   if (creds.integrationCode) autotaskConfig.integrationCode = creds.integrationCode;
   if (creds.apiUrl) autotaskConfig.apiUrl = creds.apiUrl;
   if (creds.impersonationResourceId) autotaskConfig.impersonationResourceId = creds.impersonationResourceId;
+  // Validated in every mode, so a bad value is a startup error. The server
+  // applies it only in env mode: a queue ID belongs to one tenant.
+  const defaultQueueId = parseDefaultQueueId(process.env.AUTOTASK_DEFAULT_QUEUE_ID);
+  if (defaultQueueId !== undefined) autotaskConfig.defaultQueueId = defaultQueueId;
 
   const transportType = (process.env.MCP_TRANSPORT as TransportType) || 'stdio';
   if (transportType !== 'stdio' && transportType !== 'http') {
@@ -429,6 +457,7 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
 
 === Common Options ===
   AUTOTASK_API_URL         - Autotask API base URL (auto-detected if not provided)
+  AUTOTASK_DEFAULT_QUEUE_ID - Env mode only. Queue ID that autotask_create_ticket uses when queueID is omitted (an explicit queueID always wins). Must be a positive integer; anything else stops the server at startup.
   AUTH_MODE                - Authentication mode: env (default), gateway
   MCP_SERVER_NAME          - Server name (default: autotask-mcp)
   MCP_SERVER_VERSION       - Override the reported server version. Defaults to the version baked into the image's package.json at build time. Useful for stamping a custom build identifier.
