@@ -18,6 +18,8 @@
 
 ### Added
 
+- **Readable create results.** After `autotask_create_ticket` succeeds, the server reads the ticket back and the message names it the way people do: `Created ticket T20260101.0001 (ID 12345) in Service Desk: "Printer offline", status New` (queue and status labels from the picklist cache, falling back to the IDs). `data` is still the numeric ID; the read-back is a new `ticket` field (`id`, `ticketNumber`, `title`, `queueID`, `queue`, `statusID`, `status`). If the read-back fails, the call still succeeds with the ID and says the ticket number could not be read back: a created ticket is never reported as failed. `autotask_create_contact` now says `Created contact Jane Doe (ID 77)` (from its arguments, no extra call) and `autotask_create_ticket_note` names the ticket ID.
+
 - **Per-connection opt-in to acting-user impersonation** ([WYREAI-791](https://linear.app/wyre-ai/issue/WYREAI-791)). In gateway mode, `X-Autotask-Impersonate-Acting-User: on` (also `true`/`1`) turns on acting-user impersonation for that request's connection, alongside the global `AUTOTASK_IMPERSONATE_ACTING_USER`. Conduit sets it from the Autotask connection's stored setting. Like `X-Conduit-Acting-User-Email`, it is honored only after `X-Gateway-S2S` verifies. Without it (and without the env flag) writes run as the API user. The permission-500 retry as the API user still applies.
 
 ### Added

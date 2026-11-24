@@ -115,6 +115,19 @@ function buildTicketPayload(args: Record<string, any>): Record<string, any> {
   return payload;
 }
 
+/** What autotask_create_ticket read back about the ticket it created. */
+export interface CreatedTicketSummary {
+  id: number;
+  ticketNumber?: string;
+  title?: string;
+  queueID?: number;
+  queue?: string;
+  statusID?: number;
+  status?: string;
+  /** Why the read-back failed; the ticket was still created. */
+  error?: string;
+}
+
 export interface McpTool {
   name: string;
   description: string;
@@ -310,6 +323,46 @@ export class AutotaskToolHandler {
       );
       return null;
     }
+  }
+
+  /**
+   * Read a just-created ticket back for a human-readable result: number,
+   * title, queue and status (labels from the picklist cache, falling back to
+   * the IDs). Never throws: on failure it returns the ID and a short reason.
+   */
+  private async describeCreatedTicket(id: number): Promise<CreatedTicketSummary> {
+    const out: CreatedTicketSummary = { id };
+    let ticket: Record<string, unknown> | null;
+    try {
+      ticket = (await this.autotaskService.getTicket(id)) as Record<string, unknown> | null;
+    } catch (error) {
+      const status = vendorStatus(error);
+      this.logger.warn(`Created ticket ${id} could not be read back${status !== undefined ? ` (HTTP ${status})` : ''}`);
+      out.error = status !== undefined ? `HTTP ${status}` : 'read-back failed';
+      return out;
+    }
+    if (!ticket) {
+      out.error = 'not found on read-back';
+      return out;
+    }
+    if (typeof ticket.ticketNumber === 'string' && ticket.ticketNumber) out.ticketNumber = ticket.ticketNumber;
+    if (typeof ticket.title === 'string' && ticket.title) out.title = ticket.title;
+    const label = async (values: () => Promise<PicklistValue[]>, value: number): Promise<string | undefined> => {
+      try {
+        return (await values()).find(v => String(v.value) === String(value))?.label;
+      } catch {
+        return undefined;
+      }
+    };
+    if (typeof ticket.queueID === 'number') {
+      out.queueID = ticket.queueID;
+      out.queue = (await label(() => this.picklistCache.getQueues(), ticket.queueID)) ?? `queue ${ticket.queueID}`;
+    }
+    if (typeof ticket.status === 'number') {
+      out.statusID = ticket.status;
+      out.status = (await label(() => this.picklistCache.getTicketStatuses(), ticket.status)) ?? `#${ticket.status}`;
+    }
+    return out;
   }
 
   /**
@@ -1010,9 +1063,9 @@ export class AutotaskToolHandler {
   /**
    * Dispatch table: maps tool names to handler functions
    */
-  private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string }>> {
+  private getDispatchTable(): Map<string, (args: any) => Promise<{ result: any; message: string; extra?: Record<string, unknown> }>> {
     const s = this.autotaskService;
-    type H = (args: any) => Promise<{ result: any; message: string }>;
+    type H = (args: any) => Promise<{ result: any; message: string; extra?: Record<string, unknown> }>;
     return new Map<string, H>([
       // Connection
       ['autotask_test_connection', async () => {
@@ -1060,7 +1113,13 @@ export class AutotaskToolHandler {
         const r = await s.searchContacts(a); return { result: r, message: `Found ${r.length} contacts` };
       }],
       ['autotask_create_contact', async (a) => {
-        const id = await s.createContact(a); return { result: id, message: `Successfully created contact with ID: ${id}` };
+        const id = await s.createContact(a);
+        // The name is in the arguments already, so no read-back call.
+        const name = [a.firstName, a.lastName].filter((x: unknown) => typeof x === 'string' && x.trim()).join(' ').trim();
+        return {
+          result: id,
+          message: name ? `Created contact ${name} (ID ${id})` : `Successfully created contact with ID: ${id}`,
+        };
       }],
       ['autotask_update_contact', async (a) => {
         await s.updateContact(a.id, a); return { result: undefined, message: `Successfully updated contact ID: ${a.id}` };
@@ -1110,7 +1169,18 @@ export class AutotaskToolHandler {
         const payload = buildTicketPayload(a);
         await this.fillAssignedResourceRole(payload, a.assignedResourceRoleName);
         const id = await s.createTicket(payload);
-        return { result: id, message: `Successfully created ticket with ID: ${id}` };
+        // The ticket exists from here on: the read-back is best-effort and
+        // never turns a created ticket into an error.
+        const created = await this.describeCreatedTicket(id);
+        const where = created.queue ? ` in ${created.queue}` : '';
+        const message = created.ticketNumber
+          ? `Created ticket ${created.ticketNumber} (ID ${id})${where}` +
+            `${created.title ? `: "${created.title}"` : ''}${created.status ? `, status ${created.status}` : ''}`
+          : `Created ticket with ID ${id}; ` +
+            `the ticket number could not be read back${created.error ? ` (${created.error})` : ''}`;
+        // data stays the numeric ID (backward compatible); the read-back is
+        // an extra `ticket` field.
+        return { result: id, message, extra: { ticket: created } };
       }],
       ['autotask_update_ticket', async (a) => {
         const { ticketId, ...rest } = a;
@@ -1432,7 +1502,7 @@ export class AutotaskToolHandler {
           noteType: a.noteType,
           publish: a.publish
         });
-        return { result: id, message: `Successfully created ticket note with ID: ${id}` };
+        return { result: id, message: `Created ticket note ${id} on ticket ID ${a.ticketId}` };
       }],
       // Ticket Checklist Items
       ['autotask_search_ticket_checklist_items', async (a) => {
@@ -1876,7 +1946,7 @@ export class AutotaskToolHandler {
       const handler = this.getDispatchTable().get(name);
       if (!handler) throw new Error(`Unknown tool: ${name}`);
 
-      const { result, message } = await handler(args);
+      const { result, message, extra } = await handler(args);
 
       // Check for empty/not-found results and return explicit error to prevent hallucination
       const notFoundMsg = this.buildNotFoundMessage(name, args, result);
@@ -1927,7 +1997,7 @@ export class AutotaskToolHandler {
         this.logger.debug(`Successfully executed tool: ${name}`);
         responseText = JSON.stringify({ message, data });
       } else {
-        responseText = JSON.stringify({ message, data: result });
+        responseText = JSON.stringify({ message, data: result, ...(extra ?? {}) });
       }
 
       this.logger.debug(`Successfully executed tool: ${name}`);
