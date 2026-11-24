@@ -9,6 +9,7 @@ jest.mock('autotask-node', () => ({
   }
 }));
 
+import { AjvJsonSchemaValidator } from '@modelcontextprotocol/server/validators/ajv';
 import { TOOL_DEFINITIONS } from '../src/handlers/tool.definitions';
 import { AutotaskToolHandler } from '../src/handlers/tool.handler';
 import { AutotaskMcpServer } from '../src/mcp/server';
@@ -180,6 +181,32 @@ describe('tool description', () => {
     const desc = (create.inputSchema.properties as any).queueID.description as string;
     expect(desc).toMatch(/configured default queue/);
     expect(desc).not.toMatch(/[0-9]/);
+    expect(desc).toMatch(/Pass null/);
+  });
+
+  // The null opt-out must be valid against the schema clients see in
+  // tools/list, not only when callTool is invoked directly.
+  test('the published schema accepts queueID: null and keeps queueID optional', async () => {
+    const handler = new AutotaskToolHandler(new AutotaskService(config, logger), logger, false, {
+      defaultQueueId: 12345,
+    });
+    const published = (await handler.listTools()).find(t => t.name === 'autotask_create_ticket')!;
+    const queueID = published.inputSchema.properties.queueID;
+    expect(queueID.type).toEqual(['number', 'null']);
+    expect(published.inputSchema.required ?? []).not.toContain('queueID');
+
+    // Validate with Ajv (the validator the MCP SDK ships), as a
+    // schema-validating client would before calling the tool.
+    const validate = new AjvJsonSchemaValidator().getValidator(published.inputSchema as any);
+    expect(validate({ ...baseTicket, queueID: null }).valid).toBe(true);
+    expect(validate({ ...baseTicket, queueID: 12345 }).valid).toBe(true);
+    expect(validate({ ...baseTicket }).valid).toBe(true);
+    expect(validate({ ...baseTicket, queueID: '12345' }).valid).toBe(false);
+
+    // Same schema with and without a configured default.
+    const plain = new AutotaskToolHandler(new AutotaskService(config, logger), logger);
+    const unconfigured = (await plain.listTools()).find(t => t.name === 'autotask_create_ticket')!;
+    expect(unconfigured.inputSchema).toEqual(published.inputSchema);
   });
 });
 
