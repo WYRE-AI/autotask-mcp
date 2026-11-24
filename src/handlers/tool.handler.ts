@@ -127,8 +127,33 @@ export interface CreatedTicketSummary {
   queue?: string;
   statusID?: number;
   status?: string;
-  /** Why the read-back failed; the ticket was still created. */
+  /** Why the read-back failed or was cut short; the ticket was still created. */
   error?: string;
+}
+
+/**
+ * The autotask_create_ticket success message. It is composed from the ticket
+ * number (system-generated), the ID and the queue and status picklist labels.
+ * The title is tenant free text (email-to-ticket, workflow rules), so it stays
+ * in the structured `ticket` field and is never put into this sentence.
+ * `defaultQueueUsed` says the server's default queue was applied because the
+ * call had no queueID.
+ */
+export function createdTicketMessage(
+  created: CreatedTicketSummary,
+  opts: { defaultQueueUsed?: boolean; defaultQueueId?: number | undefined } = {}
+): string {
+  const { defaultQueueUsed = false, defaultQueueId } = opts;
+  const defaultQueueNote = `the default queue${defaultQueueId !== undefined ? ` (queueID ${defaultQueueId})` : ''}`;
+  if (created.ticketNumber) {
+    const where = created.queue
+      ? ` in ${created.queue}${defaultQueueUsed ? ' (default queue)' : ''}`
+      : defaultQueueUsed ? ` in ${defaultQueueNote}` : '';
+    return `Created ticket ${created.ticketNumber} (ID ${created.id})${where}` +
+      `${created.status ? `, status ${created.status}` : ''}`;
+  }
+  return `Created ticket with ID ${created.id}${defaultQueueUsed ? ` in ${defaultQueueNote}` : ''}; ` +
+    `the ticket number could not be read back${created.error ? ` (${created.error})` : ''}`;
 }
 
 export interface McpTool {
@@ -334,14 +359,16 @@ export class AutotaskToolHandler {
    * the IDs). Never throws, and never waits longer than
    * CREATED_TICKET_READBACK_DEADLINE_MS: the ticket already exists, so a slow
    * read-back must not hold the success response long enough for a client to
-   * time out and retry the create. On failure or timeout it returns the ID
-   * and a short reason.
+   * time out and retry the create. On failure it returns the ID and a short
+   * reason. On timeout it returns what was read so far: after the ticket GET,
+   * that is the number and title with the queue and status shown by ID.
    */
   private async describeCreatedTicket(id: number): Promise<CreatedTicketSummary> {
     let timer: NodeJS.Timeout | undefined;
     const controller = new AbortController();
+    const partial: CreatedTicketSummary = { id };
     try {
-      const work = this.readBackCreatedTicket(id, controller.signal);
+      const work = this.readBackCreatedTicket(id, controller.signal, partial);
       const result = await Promise.race([
         work,
         new Promise<null>((resolve) => {
@@ -354,10 +381,20 @@ export class AutotaskToolHandler {
         }),
       ]);
       if (result === null) {
-        this.logger.warn(
-          `Created ticket ${id} could not be read back within ${CREATED_TICKET_READBACK_DEADLINE_MS}ms; returning the ID only`
-        );
-        return { id, error: 'timed out' };
+        // A snapshot: the aborted read-back must not change what is returned.
+        const snapshot: CreatedTicketSummary = { ...partial };
+        if (snapshot.ticketNumber) {
+          this.logger.warn(
+            `Created ticket ${id}: picklist labels not read within ${CREATED_TICKET_READBACK_DEADLINE_MS}ms; returning the queue and status by ID`
+          );
+          snapshot.error = 'labels timed out';
+        } else {
+          this.logger.warn(
+            `Created ticket ${id} could not be read back within ${CREATED_TICKET_READBACK_DEADLINE_MS}ms; returning the ID only`
+          );
+          snapshot.error = 'timed out';
+        }
+        return snapshot;
       }
       return result;
     } finally {
@@ -365,9 +402,16 @@ export class AutotaskToolHandler {
     }
   }
 
-  /** The read-back itself; never throws. `signal` cancels every request it makes. */
-  private async readBackCreatedTicket(id: number, signal: AbortSignal): Promise<CreatedTicketSummary> {
-    const out: CreatedTicketSummary = { id };
+  /**
+   * The read-back itself; never throws. `signal` cancels every request it
+   * makes. Fields are written into `out` as they are read, so a deadline can
+   * return the partial result.
+   */
+  private async readBackCreatedTicket(
+    id: number,
+    signal: AbortSignal,
+    out: CreatedTicketSummary
+  ): Promise<CreatedTicketSummary> {
     let ticket: Record<string, unknown> | null;
     try {
       ticket = (await this.autotaskService.getTicket(id, false, { signal })) as Record<string, unknown> | null;
@@ -384,28 +428,34 @@ export class AutotaskToolHandler {
     }
     if (typeof ticket.ticketNumber === 'string' && ticket.ticketNumber) out.ticketNumber = ticket.ticketNumber;
     if (typeof ticket.title === 'string' && ticket.title) out.title = ticket.title;
+    // IDs first, shown as IDs until the labels are read.
+    const queueID = typeof ticket.queueID === 'number' ? ticket.queueID : undefined;
+    const statusID = typeof ticket.status === 'number' ? ticket.status : undefined;
+    if (queueID !== undefined) {
+      out.queueID = queueID;
+      out.queue = `queue ${queueID}`;
+    }
+    if (statusID !== undefined) {
+      out.statusID = statusID;
+      out.status = `#${statusID}`;
+    }
+    if (queueID === undefined && statusID === undefined) return out;
     // One cancellable field-info lookup labels both queue and status. Inactive
     // values are included so an existing ticket still gets its label.
-    let fields: FieldInfo[] = [];
-    if (typeof ticket.queueID === 'number' || typeof ticket.status === 'number') {
-      try {
-        fields = await this.picklistCache.getFields('Tickets', { signal });
-      } catch {
-        fields = []; // labels fall back to the IDs
-      }
+    let fields: FieldInfo[];
+    try {
+      fields = await this.picklistCache.getFields('Tickets', { signal });
+    } catch {
+      return out; // aborted or failed: labels stay as the IDs
     }
     const label = (fieldName: string, value: number): string | undefined =>
       fields
         .find(f => f.name === fieldName)
         ?.picklistValues?.find(v => String(v.value) === String(value))?.label;
-    if (typeof ticket.queueID === 'number') {
-      out.queueID = ticket.queueID;
-      out.queue = label('queueID', ticket.queueID) ?? `queue ${ticket.queueID}`;
-    }
-    if (typeof ticket.status === 'number') {
-      out.statusID = ticket.status;
-      out.status = label('status', ticket.status) ?? `#${ticket.status}`;
-    }
+    const queueLabel = queueID !== undefined ? label('queueID', queueID) : undefined;
+    if (queueLabel) out.queue = queueLabel;
+    const statusLabel = statusID !== undefined ? label('status', statusID) : undefined;
+    if (statusLabel) out.status = statusLabel;
     return out;
   }
 
@@ -1216,15 +1266,9 @@ export class AutotaskToolHandler {
         // The ticket exists from here on: the read-back is best-effort and
         // never turns a created ticket into an error.
         const created = await this.describeCreatedTicket(id);
-        const where = created.queue ? ` in ${created.queue}` : '';
-        const message = created.ticketNumber
-          ? `Created ticket ${created.ticketNumber} (ID ${id})${where}` +
-            `${created.title ? `: "${created.title}"` : ''}${created.status ? `, status ${created.status}` : ''}`
-          : `Created ticket with ID ${id}; ` +
-            `the ticket number could not be read back${created.error ? ` (${created.error})` : ''}`;
-        // data stays the numeric ID (backward compatible); the read-back is
-        // an extra `ticket` field.
-        return { result: id, message, extra: { ticket: created } };
+        // data stays the numeric ID (backward compatible); the read-back,
+        // title included, is an extra `ticket` field.
+        return { result: id, message: createdTicketMessage(created), extra: { ticket: created } };
       }],
       ['autotask_update_ticket', async (a) => {
         const { ticketId, ...rest } = a;
