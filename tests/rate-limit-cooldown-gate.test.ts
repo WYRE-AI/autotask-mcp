@@ -63,6 +63,7 @@ describe('per-tenant 429 cooldown gate', () => {
 
       // Retry-spam: none of these may reach upstream during the cooldown.
       await expect(client.get('Companies', 1)).rejects.toThrow(/NOT sent upstream/);
+      await expect(client.get('Companies', 1)).rejects.toThrow(/HTTP 429.*Try again in \d+ s\./);
       await expect(client.query('Tickets', [])).rejects.toThrow(AutotaskRateLimitError);
       await expect(client.rawRequest('POST', '/TicketHistory/query', {})).rejects.toThrow(AutotaskRateLimitError);
       expect(fetchMock).toHaveBeenCalledTimes(1);
@@ -154,8 +155,17 @@ describe('per-tenant 429 cooldown gate', () => {
 
     try {
       await expect(client.get('Companies', 1)).rejects.toThrow(AutotaskRateLimitError);
+      // While gated, callers are told Autotask's own Retry-After, not the capped gate.
+      jest.advanceTimersByTime(60_000);
+      const gated = (await client.get('Companies', 1).catch((e: unknown) => e)) as AutotaskRateLimitError;
+      expect(gated).toBeInstanceOf(AutotaskRateLimitError);
+      expect(gated.retryAfterSeconds).toBe(86_400 - 60);
+      expect(gated.message).toContain('Try again in 86340 s.');
+      // Just before the 5-minute cap (measured from the 429) the gate still holds.
+      jest.advanceTimersByTime(4 * 60 * 1000 - 1_000);
+      await expect(client.get('Companies', 1)).rejects.toThrow(/NOT sent upstream/);
       // 5 minutes (the cap) + a beat — the 24h header must not still gate us.
-      jest.advanceTimersByTime(5 * 60 * 1000 + 1_000);
+      jest.advanceTimersByTime(2_000);
       await expect(client.get('Companies', 1)).resolves.toEqual({ id: 1 });
     } finally {
       fetchMock.mockRestore();
