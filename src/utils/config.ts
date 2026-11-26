@@ -464,7 +464,7 @@ When AUTH_MODE=gateway, credentials are injected by the MCP Gateway:
 
 === Common Options ===
   AUTOTASK_API_URL         - Autotask API base URL (auto-detected if not provided)
-  AUTOTASK_DEFAULT_QUEUE_ID - Env mode only. Queue ID that autotask_create_ticket uses when queueID is omitted (an explicit queueID always wins). Must be a positive integer; anything else stops the server at startup.
+  AUTOTASK_DEFAULT_QUEUE_ID - Env mode only. Queue ID that autotask_create_ticket uses when queueID is omitted (an explicit queueID always wins). Unset or empty means no default queue. A set value must be digits only and a positive safe integer; anything else stops the server at startup.
   AUTH_MODE                - Authentication mode: env (default), gateway
   MCP_SERVER_NAME          - Server name (default: autotask-mcp)
   MCP_SERVER_VERSION       - Override the reported server version. Defaults to the version baked into the image's package.json at build time. Useful for stamping a custom build identifier.

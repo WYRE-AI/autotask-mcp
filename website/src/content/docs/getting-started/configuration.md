@@ -21,7 +21,7 @@ description: Configure credentials, transport, and server options.
 | `MCP_HTTP_HOST` | `0.0.0.0` when `CONDUIT_S2S_SECRET` is set; `127.0.0.1` otherwise | Bind address for HTTP. A configured secret honors this. `MCP_ALLOW_INSECURE_DEV=1` forces `127.0.0.1`. |
 | `CONDUIT_S2S_SECRET` | — | Required to start HTTP. Signs `X-Gateway-S2S`. Empty and known placeholders are rejected. |
 | `MCP_ALLOW_INSECURE_DEV` | unset | Set to exactly `1` for local HTTP without a usable secret. Skips `X-Gateway-S2S` and listens on `127.0.0.1` only. |
-| `AUTOTASK_DEFAULT_QUEUE_ID` | unset | Env mode only. Queue ID that `autotask_create_ticket` uses when the call has no `queueID`. An explicit `queueID` always wins. Must be a positive integer; anything else stops the server at startup. Ignored in gateway mode, where queue IDs belong to each tenant. |
+| `AUTOTASK_DEFAULT_QUEUE_ID` | unset | Env mode only. Queue ID that `autotask_create_ticket` uses when the call has no `queueID`. An explicit `queueID` always wins. Unset or empty means no default queue. A set value must be digits only and a positive safe integer; anything else stops the server at startup. Ignored in gateway mode, where queue IDs belong to each tenant. |
 | `LOG_LEVEL` | `info` | Logging level: `error`, `warn`, `info`, `debug` |
 
 ## Impersonation (optional)
