@@ -54,6 +54,7 @@ export class AutotaskMcpServer {
   private mcpHandler: McpHttpHandler | undefined;
   private stdioHandle: StdioServerHandle | undefined;
   private lazyLoading: boolean;
+  private defaultQueueId: number | undefined;
 
   constructor(config: McpServerConfig, logger: Logger, envConfig?: EnvironmentConfig) {
     this.logger = logger;
@@ -63,10 +64,24 @@ export class AutotaskMcpServer {
     // Initialize Autotask service
     this.autotaskService = new AutotaskService(config, logger);
     this.lazyLoading = envConfig?.lazyLoading ?? false;
+    // AUTOTASK_DEFAULT_QUEUE_ID applies in env mode only. In gateway mode each
+    // request brings its own tenant's credentials, and a queue ID belongs to
+    // one tenant, so an env default would route tickets into the wrong one.
+    const configuredQueueId = envConfig?.autotask?.defaultQueueId;
+    if (envConfig?.auth?.mode === 'gateway') {
+      if (configuredQueueId !== undefined) {
+        logger.warn('AUTOTASK_DEFAULT_QUEUE_ID is ignored in gateway mode (queue IDs are tenant-specific).');
+      }
+      this.defaultQueueId = undefined;
+    } else {
+      this.defaultQueueId = configuredQueueId;
+    }
 
     // Initialize handlers
     this.resourceHandler = new AutotaskResourceHandler(this.autotaskService, logger);
-    this.toolHandler = new AutotaskToolHandler(this.autotaskService, logger, this.lazyLoading);
+    this.toolHandler = new AutotaskToolHandler(this.autotaskService, logger, this.lazyLoading, {
+      defaultQueueId: this.defaultQueueId,
+    });
   }
 
   /**
@@ -230,7 +245,10 @@ export class AutotaskMcpServer {
     const service = new AutotaskService(requestConfig, this.logger);
     return {
       resourceHandler: new AutotaskResourceHandler(service, this.logger),
-      toolHandler: new AutotaskToolHandler(service, this.logger, this.lazyLoading),
+      // undefined in gateway mode (see the constructor).
+      toolHandler: new AutotaskToolHandler(service, this.logger, this.lazyLoading, {
+        defaultQueueId: this.defaultQueueId,
+      }),
     };
   }
 

@@ -153,3 +153,57 @@ describe('Cloudflare Worker entrypoint', () => {
     expect((body.result?.tools ?? []).length).toBeGreaterThan(10);
   });
 });
+
+// AUTOTASK_DEFAULT_QUEUE_ID: env mode refuses a malformed value; gateway mode
+// never applies the setting, so a typo in it must not fail requests. The
+// Worker caches its server per isolate, so each case loads a fresh module.
+describe('Worker AUTOTASK_DEFAULT_QUEUE_ID handling', () => {
+  function freshWorker(): typeof worker {
+    let fresh: typeof worker | undefined;
+    jest.isolateModules(() => {
+      fresh = (require('../src/worker.js') as { default: typeof worker }).default;
+    });
+    return fresh!;
+  }
+
+  const listTools = { jsonrpc: '2.0', id: 1, method: 'tools/list', params: {} };
+  const gatewayHeaders = {
+    'X-API-Key': 'test-user',
+    'X-API-Secret': 'test-secret',
+    'X-Integration-Code': 'test-code',
+  };
+
+  it('gateway mode serves requests when the value is malformed (it is ignored)', async () => {
+    const w = freshWorker();
+    const res = await w.fetch(
+      new Request('http://worker.local/mcp', {
+        method: 'POST',
+        headers: { ...MCP_HEADERS, ...gatewayHeaders },
+        body: JSON.stringify(listTools),
+      }),
+      { AUTH_MODE: 'gateway', AUTOTASK_DEFAULT_QUEUE_ID: 'triage' }
+    );
+    expect(res.status).toBe(200);
+    const body = await mcpBody<{ result?: { tools?: unknown[] } }>(res);
+    expect((body.result?.tools ?? []).length).toBeGreaterThan(10);
+  });
+
+  it('env mode still refuses a malformed value', async () => {
+    const w = freshWorker();
+    let failed = false;
+    try {
+      const res = await w.fetch(
+        new Request('http://worker.local/mcp', {
+          method: 'POST',
+          headers: MCP_HEADERS,
+          body: JSON.stringify(listTools),
+        }),
+        { AUTOTASK_DEFAULT_QUEUE_ID: 'triage' }
+      );
+      failed = res.status >= 400;
+    } catch (err) {
+      failed = /Invalid AUTOTASK_DEFAULT_QUEUE_ID/.test(String(err));
+    }
+    expect(failed).toBe(true);
+  });
+});

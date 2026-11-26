@@ -607,8 +607,8 @@ export const TOOL_DEFINITIONS: McpTool[] = [
           description: 'Contact ID for the ticket'
         },
         queueID: {
-          type: 'number',
-          description: 'Queue ID to route the ticket to. Use autotask_list_queues to discover valid IDs.'
+          type: ['number', 'null'],
+          description: 'Queue ID to route the ticket to. Use autotask_list_queues to discover valid IDs. If omitted, the server\'s configured default queue is used, if any. Pass null to skip the server default queue; Autotask still applies its own rules, so a ticket category that requires a queue rejects the ticket.'
         },
         dueDateTime: {
           type: 'string',

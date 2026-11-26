@@ -158,11 +158,18 @@ export class AutotaskToolHandler {
   private mappingService: MappingService | null = null;
   private lazyLoading: boolean;
   private enhanceConcurrency: number;
+  private defaultQueueId: number | undefined;
 
-  constructor(autotaskService: AutotaskService, logger: Logger, lazyLoading = false) {
+  constructor(
+    autotaskService: AutotaskService,
+    logger: Logger,
+    lazyLoading = false,
+    options: { defaultQueueId?: number | undefined } = {}
+  ) {
     this.autotaskService = autotaskService;
     this.logger = logger;
     this.lazyLoading = lazyLoading;
+    this.defaultQueueId = options.defaultQueueId;
     this.enhanceConcurrency = resolveEnhanceConcurrency(process.env.AUTOTASK_ENHANCE_CONCURRENCY);
     this.picklistCache = new PicklistCache(
       logger,
@@ -1108,9 +1115,18 @@ export class AutotaskToolHandler {
       }],
       ['autotask_create_ticket', async (a) => {
         const payload = buildTicketPayload(a);
+        // AUTOTASK_DEFAULT_QUEUE_ID (env mode): only when the caller gave no
+        // queueID at all. An explicit queueID, including null, always wins.
+        const usedDefaultQueue = payload.queueID === undefined && this.defaultQueueId !== undefined;
+        if (usedDefaultQueue) payload.queueID = this.defaultQueueId;
         await this.fillAssignedResourceRole(payload, a.assignedResourceRoleName);
         const id = await s.createTicket(payload);
-        return { result: id, message: `Successfully created ticket with ID: ${id}` };
+        return {
+          result: id,
+          message: usedDefaultQueue
+            ? `Successfully created ticket with ID: ${id} in the default queue (queueID ${this.defaultQueueId})`
+            : `Successfully created ticket with ID: ${id}`,
+        };
       }],
       ['autotask_update_ticket', async (a) => {
         const { ticketId, ...rest } = a;
